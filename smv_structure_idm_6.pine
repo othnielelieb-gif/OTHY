@@ -26,6 +26,18 @@ indicator("SMV STRUCTURE — Moteur fractal (BOS/CHoCH/IDM)", "SMV Engine", over
 // mécanique s'applique donc identiquement en 1m comme en Monthly. Seul
 // pivLen (la sensibilité) mérite d'être adapté à l'échelle ; voir la
 // section 1 pour le mode Auto.
+//
+// BOS = extremum courant, pas juste le dernier pivot : tant que la
+// structure est haussière, bosHigh reste ancré sur le plus haut HH
+// rencontré (ne redescend jamais) ; tant qu'elle est baissière, bosLow
+// reste ancré sur le plus bas LL (ne remonte jamais). Le CHoCH reste
+// basé sur le dernier pivot opposé — dès qu'il casse, le biais change
+// et l'ancrage repart sur la nouvelle structure.
+//
+// Fenêtre d'analyse par timeframe (inLookback, voir plus bas) : chaque
+// timeframe n'analyse que sa propre fenêtre récente (Monthly 4 ans,
+// Weekly 2 ans, Daily 6 mois, 4H 25 jours, 1H 8 jours, M15/M5 12h) —
+// jamais de contamination d'un timeframe par un autre.
 //=====================================================================
 
 //=====================================================================
@@ -201,7 +213,41 @@ pivLen = pivMode == "Auto (timeframe)" ? f_autoPivLen() : pivLenManual
 
 
 //=====================================================================
-// PIVOTS (moteur — toujours actif)
+// FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
+// graphique (jamais d'un autre timeframe, l'analyse reste strictement
+// indépendante d'une unité de temps à l'autre) :
+//   Monthly -> 4 dernières années        4H  -> 25 derniers jours
+//   Weekly  -> 2 dernières années        1H  -> 8 derniers jours
+//   Daily   -> 6 derniers mois           M15 -> 12 dernières heures
+//                                        M5  -> 12 dernières heures
+// Tout ce qui est avant cette fenêtre est purement ignoré par le
+// moteur (pivots, structure, BOS/CHoCH, IDM) — l'analyse démarre pour
+// de vrai au premier pivot rencontré à l'intérieur de la fenêtre.
+//=====================================================================
+f_lookbackMs() =>
+    string tf = timeframe.period
+    float oneDay = 24.0 * 60 * 60 * 1000
+    float result =
+         tf == "M"   ? 4 * 365 * oneDay :
+         tf == "W"   ? 2 * 365 * oneDay :
+         tf == "D"   ? 182 * oneDay :
+         tf == "240" ? 25 * oneDay :
+         tf == "60"  ? 8 * oneDay :
+         tf == "15"  ? 0.5 * oneDay :
+         tf == "5"   ? 0.5 * oneDay :
+         timeframe.ismonthly ? 4 * 365 * oneDay :
+         timeframe.isweekly  ? 2 * 365 * oneDay :
+         timeframe.isdaily   ? 182 * oneDay :
+         timeframe.isminutes and timeframe.multiplier >= 180 ? 25 * oneDay :
+         timeframe.isminutes and timeframe.multiplier >= 45  ? 8 * oneDay :
+         0.5 * oneDay
+    result
+
+bool inLookback = time >= (timenow - f_lookbackMs())
+
+
+//=====================================================================
+// PIVOTS (moteur — toujours actif, dans la fenêtre d'analyse)
 //=====================================================================
 ph = ta.pivothigh(pivLen, pivLen)
 pl = ta.pivotlow(pivLen, pivLen)
@@ -217,7 +263,7 @@ var float lastPL = na
 var float prevPL = na
 var int lastPLBar = na
 
-if not na(ph)
+if not na(ph) and inLookback
     prevPH := lastPH
     lastPH := ph
     lastPHBar := bar_index[pivLen]
@@ -231,7 +277,7 @@ if not na(ph)
              textcolor=col,
              size=size.small)
 
-if not na(pl)
+if not na(pl) and inLookback
     prevPL := lastPL
     lastPL := pl
     lastPLBar := bar_index[pivLen]
@@ -292,13 +338,29 @@ var int bosHighBar = na
 var float bosLow = na
 var int bosLowBar = na
 
-if not na(ph)
-    bosHigh := ph
-    bosHighBar := bar_index[pivLen]
+// Le trait du BOS part TOUJOURS du plus haut HH précédent tant que la
+// structure reste haussière (bias == 1) — bosHigh est un extremum qui
+// ne redescend JAMAIS pendant cette phase, même si un nouveau pivot
+// haut plus bas se forme entre-temps (ce nouveau pivot est purement
+// ignoré comme référence de BOS). Hors phase haussière, bosHigh suit
+// simplement le dernier pivot haut formé — c'est la référence utilisée
+// pour détecter un futur CHoCH de retour à la hausse.
+if not na(ph) and inLookback
+    bool keepHigherRef = bias == 1 and not na(bosHigh) and ph <= bosHigh
+    if not keepHigherRef
+        bosHigh := ph
+        bosHighBar := bar_index[pivLen]
 
-if not na(pl)
-    bosLow := pl
-    bosLowBar := bar_index[pivLen]
+// Symétrique en baissier : le trait du BOS part TOUJOURS du LL le plus
+// bas tant que la structure reste baissière (bias == -1) — bosLow ne
+// remonte JAMAIS pendant cette phase. Hors phase baissière, bosLow
+// suit simplement le dernier pivot bas formé (référence de CHoCH pour
+// un retour à la baisse).
+if not na(pl) and inLookback
+    bool keepLowerRef = bias == -1 and not na(bosLow) and pl >= bosLow
+    if not keepLowerRef
+        bosLow := pl
+        bosLowBar := bar_index[pivLen]
 
 var float brokenHigh = na
 var float brokenLow = na
