@@ -337,34 +337,19 @@ var float bosHigh = na
 var int bosHighBar = na
 var float bosLow = na
 var int bosLowBar = na
+var float brokenHigh    = na
+var int   brokenHighBar = na
+var float brokenLow     = na
+var int   brokenLowBar  = na
 
-// Le trait du BOS part TOUJOURS du plus haut HH précédent tant que la
-// structure reste haussière (bias == 1) — bosHigh est un extremum qui
-// ne redescend JAMAIS pendant cette phase, même si un nouveau pivot
-// haut plus bas se forme entre-temps (ce nouveau pivot est purement
-// ignoré comme référence de BOS). Hors phase haussière, bosHigh suit
-// simplement le dernier pivot haut formé — c'est la référence utilisée
-// pour détecter un futur CHoCH de retour à la hausse.
-if not na(ph) and inLookback
-    bool keepHigherRef = bias == 1 and not na(bosHigh) and ph <= bosHigh
-    if not keepHigherRef
-        bosHigh := ph
-        bosHighBar := bar_index[pivLen]
-
-// Symétrique en baissier : le trait du BOS part TOUJOURS du LL le plus
-// bas tant que la structure reste baissière (bias == -1) — bosLow ne
-// remonte JAMAIS pendant cette phase. Hors phase baissière, bosLow
-// suit simplement le dernier pivot bas formé (référence de CHoCH pour
-// un retour à la baisse).
-if not na(pl) and inLookback
-    bool keepLowerRef = bias == -1 and not na(bosLow) and pl >= bosLow
-    if not keepLowerRef
-        bosLow := pl
-        bosLowBar := bar_index[pivLen]
-
-var float brokenHigh = na
-var float brokenLow = na
-
+// ORDRE CRITIQUE : on juge D'ABORD la cassure contre la référence
+// TELLE QU'ELLE ÉTAIT AVANT cette bougie (celle de la bougie
+// précédente). La référence n'est mise à jour avec le nouveau pivot
+// qu'APRÈS, plus bas — jamais avant. Sinon, un pivot fraîchement
+// confirmé sur cette même bougie fait "sauter" la référence en avant
+// avant même que le test de cassure n'ait lieu, et avale la cassure
+// qu'il était censé détecter : c'est ce qui produisait des traits
+// incohérents.
 bool breakUp =
      not na(bosHigh) and
      close > bosHigh and
@@ -385,7 +370,11 @@ if breakUp
         chochBull := true
     else
         bosBull := true
+    // On capture la valeur ET la bougie d'origine du niveau cassé
+    // MAINTENANT — avant que la mise à jour plus bas ne fasse évoluer
+    // bosHigh/bosHighBar vers la prochaine référence.
     brokenHigh := bosHigh
+    brokenHighBar := bosHighBar
 
 if breakDown
     if bias == 1
@@ -393,6 +382,7 @@ if breakDown
     else
         bosBear := true
     brokenLow := bosLow
+    brokenLowBar := bosLowBar
 
 // Le CHoCH EST la confirmation du nouveau sens : le biais bascule
 // immédiatement, pour que toute cassure suivante soit jugée contre la
@@ -402,6 +392,32 @@ if chochBull
 
 if chochBear
     bias := -1
+
+// Maintenant, et SEULEMENT maintenant, on met à jour la référence pour
+// la PROCHAINE bougie. Le trait du BOS part TOUJOURS du plus haut HH
+// précédent tant que la structure reste haussière (bias == 1) —
+// bosHigh est un extremum qui ne redescend JAMAIS pendant cette phase,
+// même si un nouveau pivot haut plus bas se forme entre-temps (ce
+// nouveau pivot est purement ignoré comme référence de BOS). Hors
+// phase haussière, bosHigh suit simplement le dernier pivot haut formé
+// — c'est la référence utilisée pour détecter un futur CHoCH de retour
+// à la hausse.
+if not na(ph) and inLookback
+    bool keepHigherRef = bias == 1 and not na(bosHigh) and ph <= bosHigh
+    if not keepHigherRef
+        bosHigh := ph
+        bosHighBar := bar_index[pivLen]
+
+// Symétrique en baissier : le trait du BOS part TOUJOURS du LL le plus
+// bas tant que la structure reste baissière (bias == -1) — bosLow ne
+// remonte JAMAIS pendant cette phase. Hors phase baissière, bosLow
+// suit simplement le dernier pivot bas formé (référence de CHoCH pour
+// un retour à la baisse).
+if not na(pl) and inLookback
+    bool keepLowerRef = bias == -1 and not na(bosLow) and pl >= bosLow
+    if not keepLowerRef
+        bosLow := pl
+        bosLowBar := bar_index[pivLen]
 
 // TENDANCE CONFIRMÉE — pour l'affichage directionnel UNIQUEMENT (règle
 // 80/20). Contrairement à `bias`, qui se recalcule à chaque bougie à
@@ -428,25 +444,27 @@ var string lastBOS   = "-"
 var string lastCHoCH = "-"
 
 if bosBull
-    lastBOS := "BOS ↑ @ " + str.tostring(bosHigh, format.mintick)
+    lastBOS := "BOS ↑ @ " + str.tostring(brokenHigh, format.mintick)
 if bosBear
-    lastBOS := "BOS ↓ @ " + str.tostring(bosLow, format.mintick)
+    lastBOS := "BOS ↓ @ " + str.tostring(brokenLow, format.mintick)
 if chochBull
-    lastCHoCH := "CHoCH ↑ @ " + str.tostring(bosHigh, format.mintick)
+    lastCHoCH := "CHoCH ↑ @ " + str.tostring(brokenHigh, format.mintick)
 if chochBear
-    lastCHoCH := "CHoCH ↓ @ " + str.tostring(bosLow, format.mintick)
+    lastCHoCH := "CHoCH ↓ @ " + str.tostring(brokenLow, format.mintick)
 
 
 //=====================================================================
 // AFFICHAGE — BOS / CHoCH (indépendant : ne touche à aucune variable
 // de calcul, ne fait que lire bosBull/bosBear/chochBull/chochBear)
 //
-// Le trait part du dernier pivot cassé (HH/LH ou HL/LL selon le cas,
-// déjà déterminé par bosHigh/bosLow plus haut) et se PROLONGE ensuite
-// bougie après bougie tant qu'aucune bougie ne revient toucher ce
-// niveau. Dès qu'une bougie touche/traverse le niveau, elle bloque le
-// trait net à cet endroit — jamais plus loin. Pur dessin, jamais
-// d'étiquette supplémentaire ici (le label existant n'est pas modifié).
+// Le trait part du pivot qui vient d'être cassé — brokenHigh/brokenLow
+// (capturés au moment exact de la cassure, PAS bosHigh/bosLow qui ont
+// déjà été remis à jour vers la prochaine référence à ce stade du
+// script). Il se PROLONGE ensuite bougie après bougie tant qu'aucune
+// bougie ne revient toucher ce niveau. Dès qu'une bougie touche/
+// traverse le niveau, elle bloque le trait net à cet endroit — jamais
+// plus loin. Pur dessin, jamais d'étiquette supplémentaire ici (le
+// label existant n'est pas modifié).
 //=====================================================================
 var line[]  bosLineArr     = array.new_line()
 var label[] bosLblArr      = array.new_label()
@@ -467,31 +485,31 @@ if array.size(bosLineArr) > 0
                 line.set_x2(lnChk, bar_index + 1)
 
 if showBOSBull and bosBull
-    array.push(bosLineArr, line.new(bosHighBar, bosHigh, bar_index, bosHigh, color=bosBullCol, width=2))
-    array.push(bosLineLevel, bosHigh)
+    array.push(bosLineArr, line.new(brokenHighBar, brokenHigh, bar_index, brokenHigh, color=bosBullCol, width=2))
+    array.push(bosLineLevel, brokenHigh)
     array.push(bosLineBlocked, false)
-    array.push(bosLblArr, label.new(bar_index, bosHigh, "BOS ↑",
+    array.push(bosLblArr, label.new(bar_index, brokenHigh, "BOS ↑",
          style=label.style_label_down, color=color.new(bosBullCol, 70), textcolor=bosBullCol, size=size.small))
 
 if showBOSBear and bosBear
-    array.push(bosLineArr, line.new(bosLowBar, bosLow, bar_index, bosLow, color=bosBearCol, width=2))
-    array.push(bosLineLevel, bosLow)
+    array.push(bosLineArr, line.new(brokenLowBar, brokenLow, bar_index, brokenLow, color=bosBearCol, width=2))
+    array.push(bosLineLevel, brokenLow)
     array.push(bosLineBlocked, false)
-    array.push(bosLblArr, label.new(bar_index, bosLow, "BOS ↓",
+    array.push(bosLblArr, label.new(bar_index, brokenLow, "BOS ↓",
          style=label.style_label_up, color=color.new(bosBearCol, 70), textcolor=bosBearCol, size=size.small))
 
 if showCHoCHBull and chochBull
-    array.push(bosLineArr, line.new(bosHighBar, bosHigh, bar_index, bosHigh, color=chochCol, width=2, style=line.style_dashed))
-    array.push(bosLineLevel, bosHigh)
+    array.push(bosLineArr, line.new(brokenHighBar, brokenHigh, bar_index, brokenHigh, color=chochCol, width=2, style=line.style_dashed))
+    array.push(bosLineLevel, brokenHigh)
     array.push(bosLineBlocked, false)
-    array.push(bosLblArr, label.new(bar_index, bosHigh, "CHoCH ↑",
+    array.push(bosLblArr, label.new(bar_index, brokenHigh, "CHoCH ↑",
          style=label.style_label_down, color=color.new(chochCol, 60), textcolor=color.black, size=size.small))
 
 if showCHoCHBear and chochBear
-    array.push(bosLineArr, line.new(bosLowBar, bosLow, bar_index, bosLow, color=chochCol, width=2, style=line.style_dashed))
-    array.push(bosLineLevel, bosLow)
+    array.push(bosLineArr, line.new(brokenLowBar, brokenLow, bar_index, brokenLow, color=chochCol, width=2, style=line.style_dashed))
+    array.push(bosLineLevel, brokenLow)
     array.push(bosLineBlocked, false)
-    array.push(bosLblArr, label.new(bar_index, bosLow, "CHoCH ↓",
+    array.push(bosLblArr, label.new(bar_index, brokenLow, "CHoCH ↓",
          style=label.style_label_up, color=color.new(chochCol, 60), textcolor=color.black, size=size.small))
 
 if array.size(bosLineArr) > maxBosHistory
@@ -526,8 +544,11 @@ bool extremeUpdated = false
 
 if newMoveUp
     moveDir := 1
-    moveOrigin := bosHigh
-    moveOriginBar := bosHighBar
+    // brokenHigh/brokenHighBar (pas bosHigh/bosHighBar, déjà remis à
+    // jour vers la prochaine référence à ce stade du script) : l'origine
+    // du mouvement est bien le niveau qui vient d'être cassé.
+    moveOrigin := brokenHigh
+    moveOriginBar := brokenHighBar
     moveExtreme := high
     moveExtremeBar := bar_index
     moveFib50 := (moveOrigin + moveExtreme) / 2.0
@@ -535,8 +556,8 @@ if newMoveUp
 
 if newMoveDown
     moveDir := -1
-    moveOrigin := bosLow
-    moveOriginBar := bosLowBar
+    moveOrigin := brokenLow
+    moveOriginBar := brokenLowBar
     moveExtreme := low
     moveExtremeBar := bar_index
     moveFib50 := (moveOrigin + moveExtreme) / 2.0
