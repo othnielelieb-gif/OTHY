@@ -7,9 +7,13 @@ indicator("SMV STRUCTURE — Moteur fractal (BOS/CHoCH/IDM)", "SMV Engine", over
 // Le calcul (structure, BOS, CHoCH, mouvement, 0.5, IDM, récupération,
 // phases) tourne TOUJOURS, quel que soit l'état des réglages
 // d'affichage. Chaque module d'affichage (BOS/CHoCH, IDM, zones, FVG,
-// Supply/Demand, Phases, Dashboard) ne fait que LIRE cet état pour
-// dessiner — désactiver un module n'affecte jamais le calcul d'un
-// autre, ni même son propre calcul interne.
+// Signature/Supply/Demand, Phases, Sessions, Dashboard) ne fait que
+// LIRE cet état pour dessiner — désactiver un module n'affecte jamais
+// le calcul d'un autre, ni même son propre calcul interne. Les zones
+// Signature (Module 4 SMV, "chandelier qui prend l'argent") et leur
+// raffinage LTF optionnel suivent la même règle : ils se contentent
+// d'observer le moment exact où l'IDM est récupéré, sans jamais
+// modifier ce moteur.
 //
 // Logique fractale : tout repose sur ta.pivothigh/pivotlow du graphique
 // courant, sans aucune référence à une unité de temps fixe — la même
@@ -87,11 +91,19 @@ fvgBearCol  = input.color(#ef5350, "Couleur FVG baissier", group=gF)
 maxFvg      = input.int(50, "FVG max affichés", minval=5, maxval=100, group=gF)
 
 //=====================================================================
-// 7. Supply / Demand — une coche par côté
+// 7. Signature | Supply / Demand — "le chandelier qui prend l'argent"
+//
+// La zone n'est plus une bougie opposée cherchée au hasard dans les 30
+// dernières barres : c'est précisément le chandelier qui liquide un
+// IDM (Intact High/Low) au moment de sa récupération — la vraie
+// "signature" du Module 4 SMV, sniper zone toujours retestée par le
+// marché.
 //=====================================================================
-gSD = "7. Supply / Demand"
-showDemand = input.bool(false, "Afficher les zones DEMAND (achat)", group=gSD)
-showSupply = input.bool(false, "Afficher les zones SUPPLY (vente)", group=gSD)
+gSD = "7. Signature | Supply / Demand"
+showDemand = input.bool(false, "Afficher les zones DEMAND (chandelier qui prend l'argent)", group=gSD,
+     tooltip="Créée au moment précis où le prix liquide un IDM haussier (IDBL) — le chandelier qui fait cette prise de liquidité devient la sniper zone à retester.")
+showSupply = input.bool(false, "Afficher les zones SUPPLY (chandelier qui prend l'argent)", group=gSD,
+     tooltip="Créée au moment précis où le prix liquide un IDM baissier (IDBR) — le chandelier qui fait cette prise de liquidité devient la sniper zone à retester.")
 maxZones   = input.int(3, "Zones max par type", minval=1, maxval=10, group=gSD)
 
 //=====================================================================
@@ -116,6 +128,27 @@ dashLabelCol = input.color(#b0bec5, "Couleur des libellés", group=gD)
 dashValueCol = input.color(#ffffff, "Couleur des valeurs neutres", group=gD)
 dashBgCol    = input.color(color.new(#101418, 15), "Fond des cellules", group=gD)
 dashTitleBg  = input.color(#0d47a1, "Fond du titre", group=gD)
+
+//=====================================================================
+// 10. Heures de Tirs (Sessions) — purement visuel, n'affecte aucun
+// calcul. Horaires enseignés dans le Module 7 (heure de Paris).
+//=====================================================================
+gSess = "10. Heures de Tirs (Sessions)"
+showSessions = input.bool(true, "Afficher les sessions (Asian / NYC)", group=gSess,
+     tooltip="Surligne les heures de tirs SMV : Asian 1h-3h, Asian 8h-10h et NYC 13h-16h (heure de Paris). N'affecte jamais le moteur de calcul.")
+asianCol = input.color(color.new(#42a5f5, 85), "Couleur session Asian", group=gSess)
+nyCol    = input.color(color.new(#ffa726, 85), "Couleur session NYC", group=gSess)
+
+//=====================================================================
+// 11. Raffinage Multi-Timeframe — affine la zone Signature avec
+// l'extrême exact atteint sur une unité de temps inférieure, comme
+// enseigné dans le Module 7 ("Raffinage").
+//=====================================================================
+gR = "11. Raffinage Multi-Timeframe"
+showRefine = input.bool(false, "Affiner la Sniper Zone avec une LTF", group=gR,
+     tooltip="Cherche, à l'intérieur du chandelier signature HTF, le chandelier signature équivalent sur l'unité de temps inférieure choisie, et dessine une sous-zone plus précise. Désactivé par défaut (coût de calcul supplémentaire).")
+refineTF  = input.timeframe("1", "Unité de temps de raffinage (doit être < unité actuelle)", group=gR)
+refineCol = input.color(#26c6da, "Couleur de la zone raffinée", group=gR)
 
 
 //=====================================================================
@@ -153,6 +186,28 @@ f_autoPivLen() =>
     result
 
 pivLen = pivMode == "Auto (timeframe)" ? f_autoPivLen() : pivLenManual
+
+
+//=====================================================================
+// RAFFINAGE — requête LTF (Module 7 "Raffinage")
+//
+// Calculée en haut du script pour respecter l'ordre d'exécution Pine
+// (toute variable doit exister avant d'être utilisée plus bas). Placée
+// en portée globale (pas dans un if) : c'est la façon la plus sûre
+// d'appeler request.security_lower_tf sans risque de restriction de
+// portée locale. Si showRefine est désactivé, les tableaux renvoyés
+// restent vides et aucune zone raffinée n'est jamais dessinée.
+//
+// refineTF doit être strictement inférieur à l'unité de temps du
+// graphique — sinon request.security_lower_tf ne renvoie rien
+// d'exploitable ; refineValid le garantit avant toute utilisation.
+//=====================================================================
+bool refineValid = showRefine and timeframe.in_seconds(refineTF) < timeframe.in_seconds(timeframe.period)
+
+array<float> ltfLowArr   = refineValid ? request.security_lower_tf(syminfo.tickerid, refineTF, low)   : array.new_float()
+array<float> ltfHighArr  = refineValid ? request.security_lower_tf(syminfo.tickerid, refineTF, high)  : array.new_float()
+array<float> ltfOpenArr  = refineValid ? request.security_lower_tf(syminfo.tickerid, refineTF, open)  : array.new_float()
+array<float> ltfCloseArr = refineValid ? request.security_lower_tf(syminfo.tickerid, refineTF, close) : array.new_float()
 
 
 //=====================================================================
@@ -434,6 +489,22 @@ if not extremeUpdated
         validTest := true
 
 
+// Règle des 80/20 (Module 1) : l'impulsion représente 80% de la
+// continuation, le retracement 20%. On mesure ici le point le plus
+// profond atteint par le retracement en cours, purement informatif —
+// n'influence ni validTest, ni l'IDM, ni aucun signal existant.
+var float moveRetraceExtreme = na
+
+if newMoveUp or newMoveDown
+    moveRetraceExtreme := na
+
+if not extremeUpdated
+    if moveDir == 1
+        moveRetraceExtreme := na(moveRetraceExtreme) ? low : math.min(moveRetraceExtreme, low)
+    if moveDir == -1
+        moveRetraceExtreme := na(moveRetraceExtreme) ? high : math.max(moveRetraceExtreme, high)
+
+
 //=====================================================================
 // IDM — MOTEUR (toujours actif, indépendant de l'affichage)
 //
@@ -460,6 +531,13 @@ var string[] idmKind  = array.new_string()   // "IDM" ou "FS"
 var line[]   idmLine  = array.new_line()     // peut contenir na si showIdmLines=false
 var label[]  idmLbl   = array.new_label()    // peut contenir na si showIdmLines=false
 var box[]    idmZoneA = array.new_box()      // peut contenir na si showIdmZone=false
+
+// Zones Signature ("chandelier qui prend l'argent", Module 4) — déclarées
+// ici, avant la boucle de récupération IDM plus bas, qui les alimente au
+// moment exact de la prise de liquidité.
+var box[] demBx    = array.new_box()
+var box[] supBx    = array.new_box()
+var box[] refineBx = array.new_box()
 
 float idmCandidate    = na
 int   idmCandidateBar = na
@@ -663,10 +741,45 @@ if array.size(idmLevel) > 0
                         box.set_text(bzr, entryTxt)
                         box.set_text_color(bzr, color.white)
 
+                    // Signature | "Chandelier qui prend l'argent" (Module 4) :
+                    // c'est précisément la bougie qui vient de liquider cet
+                    // IDM (Intact High/Low) qui devient la sniper zone à
+                    // retester — pas une bougie choisie au hasard dans un
+                    // historique de 30 barres.
                     if dir == 1
                         entrySignalBuy := true
+                        if showDemand
+                            array.push(demBx, box.new(bar_index, high, bar_index + idmZoneExt, low,
+                                 border_color=bullCol, bgcolor=color.new(bullCol, 82),
+                                 text="DEMAND • Signature", text_color=bullCol, text_size=size.small))
+                            if array.size(demBx) > maxZones
+                                box.delete(array.shift(demBx))
+                            if refineValid and array.size(ltfLowArr) > 0
+                                int idxMin = array.indexof(ltfLowArr, array.min(ltfLowArr))
+                                float refTop = math.max(array.get(ltfOpenArr, idxMin), array.get(ltfCloseArr, idxMin))
+                                float refBot = array.get(ltfLowArr, idxMin)
+                                array.push(refineBx, box.new(bar_index, refTop, bar_index + idmZoneExt, refBot,
+                                     border_color=refineCol, bgcolor=color.new(refineCol, 70),
+                                     text="Raffinage LTF", text_color=refineCol, text_size=size.tiny))
+                                if array.size(refineBx) > maxZones
+                                    box.delete(array.shift(refineBx))
                     else
                         entrySignalSell := true
+                        if showSupply
+                            array.push(supBx, box.new(bar_index, high, bar_index + idmZoneExt, low,
+                                 border_color=bearCol, bgcolor=color.new(bearCol, 82),
+                                 text="SUPPLY • Signature", text_color=bearCol, text_size=size.small))
+                            if array.size(supBx) > maxZones
+                                box.delete(array.shift(supBx))
+                            if refineValid and array.size(ltfHighArr) > 0
+                                int idxMax = array.indexof(ltfHighArr, array.max(ltfHighArr))
+                                float refTop2 = array.get(ltfHighArr, idxMax)
+                                float refBot2 = math.min(array.get(ltfOpenArr, idxMax), array.get(ltfCloseArr, idxMax))
+                                array.push(refineBx, box.new(bar_index, refTop2, bar_index + idmZoneExt, refBot2,
+                                     border_color=refineCol, bgcolor=color.new(refineCol, 70),
+                                     text="Raffinage LTF", text_color=refineCol, text_size=size.tiny))
+                                if array.size(refineBx) > maxZones
+                                    box.delete(array.shift(refineBx))
                 else
                     // Soit un ancien FS retesté (position 3+, jamais de
                     // signal), soit un des deux IDM actuels repris MAIS
@@ -933,48 +1046,22 @@ if bar_index >= 2
 
 
 //=====================================================================
-// AFFICHAGE — Supply / Demand (indépendant, lit bosBull/bosBear sans
-// les modifier)
+// AFFICHAGE — Heures de Tirs (Sessions), indépendant, purement visuel
 //=====================================================================
-var box[] demBx = array.new_box()
-var box[] supBx = array.new_box()
+bool inAsian1 = not na(time(timeframe.period, "0100-0300", "Europe/Paris"))
+bool inAsian2 = not na(time(timeframe.period, "0800-1000", "Europe/Paris"))
+bool inNY     = not na(time(timeframe.period, "1300-1600", "Europe/Paris"))
 
-if showDemand and bosBull
-    float zt = high
-    float zb = low
-    int zi = bar_index
-    for i = 1 to 30
-        if close[i] < open[i]
-            zt := high[i]
-            zb := low[i]
-            zi := bar_index[i]
-            break
-    array.push(demBx, box.new(zi, zt, bar_index + 12, zb,
-         border_color=bullCol, bgcolor=color.new(bullCol, 82), text="DEMAND", text_color=bullCol, text_size=size.small))
-    if array.size(demBx) > maxZones
-        box.delete(array.shift(demBx))
-
-if showSupply and bosBear
-    float zt = high
-    float zb = low
-    int zi = bar_index
-    for i = 1 to 30
-        if close[i] > open[i]
-            zt := high[i]
-            zb := low[i]
-            zi := bar_index[i]
-            break
-    array.push(supBx, box.new(zi, zt, bar_index + 12, zb,
-         border_color=bearCol, bgcolor=color.new(bearCol, 82), text="SUPPLY", text_color=bearCol, text_size=size.small))
-    if array.size(supBx) > maxZones
-        box.delete(array.shift(supBx))
+bgcolor(showSessions and inAsian1 ? asianCol : na, title="Asian Session (1h-3h)")
+bgcolor(showSessions and inAsian2 ? asianCol : na, title="Asian Session (8h-10h)")
+bgcolor(showSessions and inNY ? nyCol : na, title="NYC Session (13h-16h)")
 
 
 //=====================================================================
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si
 // tous les autres modules d'affichage sont désactivés
 //=====================================================================
-var table dash = table.new(position.top_right, 2, 12,
+var table dash = table.new(position.top_right, 2, 14,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showDash and barstate.islast
@@ -1064,6 +1151,39 @@ if showDash and barstate.islast
         actionTxt := "Attendre le prochain IDM"
         actionCol := rangeCol
 
+    // Règle des 80/20 — profondeur du retracement en cours par rapport
+    // à l'impulsion qui l'a précédé (lecture seule, Module 1).
+    float retracePct = na
+    if moveDir == 1 and not na(moveRetraceExtreme) and moveExtreme != moveOrigin
+        retracePct := (moveExtreme - moveRetraceExtreme) / (moveExtreme - moveOrigin) * 100
+    if moveDir == -1 and not na(moveRetraceExtreme) and moveExtreme != moveOrigin
+        retracePct := (moveRetraceExtreme - moveExtreme) / (moveOrigin - moveExtreme) * 100
+
+    string retrace8020Txt = na(retracePct) ? "-" :
+         str.tostring(retracePct, "#.#") + "%" +
+         (retracePct <= 20 ? " (sain)" : retracePct <= 50 ? " (normal)" : " (profond ⚠)")
+    color retrace8020Col = na(retracePct) ? rangeCol :
+         retracePct <= 20 ? entryBuyCol : retracePct <= 50 ? idmWaitCol : bearCol
+
+    // Statut Sniper Zone — la dernière zone Signature créée (Module 4)
+    // dans le sens du biais actuel est-elle en train d'être testée ?
+    string sniperTxt = "-"
+    color sniperCol = rangeCol
+    if bias == 1 and array.size(demBx) > 0
+        box lastDem = array.get(demBx, array.size(demBx) - 1)
+        float dTop = box.get_top(lastDem)
+        float dBot = box.get_bottom(lastDem)
+        bool inZone = close <= dTop and close >= dBot
+        sniperTxt := inZone ? "Dans la zone DEMAND ✓" : "Hors zone"
+        sniperCol := inZone ? entryBuyCol : rangeCol
+    if bias == -1 and array.size(supBx) > 0
+        box lastSup = array.get(supBx, array.size(supBx) - 1)
+        float sTop = box.get_top(lastSup)
+        float sBot = box.get_bottom(lastSup)
+        bool inZone2 = close <= sTop and close >= sBot
+        sniperTxt := inZone2 ? "Dans la zone SUPPLY ✓" : "Hors zone"
+        sniperCol := inZone2 ? entrySellCol : rangeCol
+
     table.cell(dash, 0, 0, "SMV — MOTEUR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
     table.merge_cells(dash, 0, 0, 1, 0)
 
@@ -1099,6 +1219,12 @@ if showDash and barstate.islast
 
     table.cell(dash, 0, 11, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 11, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 12, "Retracement 80/20", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 12, retrace8020Txt, text_color=retrace8020Col, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 13, "Sniper Zone", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 13, sniperTxt, text_color=sniperCol, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
