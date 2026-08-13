@@ -1,0 +1,1118 @@
+//@version=6
+indicator("SMV STRUCTURE — Moteur fractal (BOS/CHoCH/IDM)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+//=====================================================================
+// MOTEUR DE CALCUL vs AFFICHAGE
+//
+// Le calcul (structure, BOS, CHoCH, mouvement, 0.5, IDM, récupération,
+// phases) tourne TOUJOURS, quel que soit l'état des réglages
+// d'affichage. Chaque module d'affichage (BOS/CHoCH, IDM, zones, FVG,
+// Supply/Demand, Phases, Dashboard) ne fait que LIRE cet état pour
+// dessiner — désactiver un module n'affecte jamais le calcul d'un
+// autre, ni même son propre calcul interne.
+//
+// Logique fractale : tout repose sur ta.pivothigh/pivotlow du graphique
+// courant, sans aucune référence à une unité de temps fixe — la même
+// mécanique s'applique donc identiquement en 1m comme en Monthly. Seul
+// pivLen (la sensibilité) mérite d'être adapté à l'échelle ; voir la
+// section 1 pour le mode Auto.
+//=====================================================================
+
+//=====================================================================
+// 1. Structure
+//=====================================================================
+gS = "1. Structure"
+showStruct   = input.bool(true, "Afficher HH / HL / LH / LL", group=gS,
+     tooltip="C'est le seul marquage qui apparaît dès qu'un pivot est confirmé, sans attendre de BOS/CHoCH ni de phase — la façon la plus rapide de voir un HL/LH se former.")
+pivMode      = input.string("Manuel", "Sensibilité des pivots", options=["Manuel", "Auto (timeframe)"], group=gS,
+     tooltip="Auto applique une valeur de référence par unité de temps : 1m:4, 5m:5, 15m:6, 1H:8, 2H:9, 4H:11, D:14, W:18, M:22. En mode Manuel, le réglage ci-dessous est utilisé tel quel, sur n'importe quel timeframe.")
+pivLenManual = input.int(1, "Sensibilité manuelle", minval=1, maxval=50, group=gS,
+     tooltip="Par défaut à 1 : capte le pivot le plus récent possible sur n'importe quel timeframe (c'est déjà la valeur la plus sensible qui existe — augmenter ce chiffre réduit le nombre de pivots détectés, ça ne l'augmente pas).")
+bullCol      = input.color(#26a69a, "Couleur haussière", group=gS)
+bearCol      = input.color(#ef5350, "Couleur baissière", group=gS)
+rangeCol     = input.color(#9e9e9e, "Couleur consolidation", group=gS)
+
+//=====================================================================
+// 2. BOS / CHoCH — chaque type de cassure a sa propre coche
+//=====================================================================
+gB = "2. BOS / CHoCH"
+showBOSBull   = input.bool(true, "Afficher les BOS haussiers", group=gB)
+showBOSBear   = input.bool(true, "Afficher les BOS baissiers", group=gB)
+showCHoCHBull = input.bool(true, "Afficher les CHoCH haussiers", group=gB)
+showCHoCHBear = input.bool(true, "Afficher les CHoCH baissiers", group=gB)
+bosBullCol    = input.color(#26a69a, "Couleur BOS haussier", group=gB)
+bosBearCol    = input.color(#ef5350, "Couleur BOS baissier", group=gB)
+chochCol      = input.color(#ffeb3b, "Couleur CHoCH", group=gB)
+maxBosHistory = input.int(150, "Nombre max de BOS/CHoCH historiques", minval=20, maxval=400, group=gB)
+
+//=====================================================================
+// 3. IDM (Inducement) — lignes/étiquettes d'attente séparées du
+// signal d'entrée : tu peux garder l'un sans l'autre.
+//=====================================================================
+gI = "3. IDM (Inducement)"
+showIdmLines = input.bool(true, "Afficher les lignes IDM / FS (en attente + historique)", group=gI)
+showIdmEntry = input.bool(true, "Afficher le signal ENTRÉE ACHAT/VENTE (récupération IDM)", group=gI)
+idmActiveCol = input.color(#ab47bc, "IDM le plus récent (le vrai signal à venir)", group=gI)
+idmWaitCol   = input.color(#ff9800, "IDM juste avant (2e position)", group=gI)
+fsCol        = input.color(#9e9e9e, "FS (tout le reste, plus ancien)", group=gI)
+idmDoneCol   = input.color(#26c6da, "Marqueur \"retesté\"", group=gI)
+entryBuyCol  = input.color(#00e676, "Couleur entrée ACHAT", group=gI)
+entrySellCol = input.color(#ff1744, "Couleur entrée VENTE", group=gI)
+maxHistory   = input.int(100, "Nombre max d'IDM historiques", minval=10, maxval=200, group=gI)
+
+//=====================================================================
+// 4. Zone à retester
+//=====================================================================
+gZ = "4. Zone à retester"
+showIdmZone = input.bool(true, "Afficher les zones à retester", group=gZ,
+     tooltip="Haussier -> zone EN DESSOUS de l'IDM (IDBL). Baissier -> zone AU-DESSUS (IDBR). Une zone par IDM.")
+idmZoneSize = input.float(0.5, "Épaisseur de la zone (x ATR)", minval=0.1, maxval=3.0, step=0.1, group=gZ)
+idmZoneExt  = input.int(15, "Prolongement de la zone (bougies)", minval=3, maxval=60, group=gZ)
+
+//=====================================================================
+// 5. Premium / Discount (0.5)
+//=====================================================================
+gPd = "5. Premium / Discount (0.5)"
+showPd = input.bool(true, "Afficher le niveau 0.5 du mouvement", group=gPd)
+pdCol  = input.color(#90a4ae, "Couleur du 0.5", group=gPd)
+
+//=====================================================================
+// 6. FVG (Fair Value Gap)
+//=====================================================================
+gF = "6. FVG"
+showFvgBull = input.bool(false, "Afficher les FVG haussiers", group=gF)
+showFvgBear = input.bool(false, "Afficher les FVG baissiers", group=gF)
+fvgBullCol  = input.color(#26a69a, "Couleur FVG haussier", group=gF)
+fvgBearCol  = input.color(#ef5350, "Couleur FVG baissier", group=gF)
+maxFvg      = input.int(50, "FVG max affichés", minval=5, maxval=100, group=gF)
+
+//=====================================================================
+// 7. Supply / Demand — une coche par côté
+//=====================================================================
+gSD = "7. Supply / Demand"
+showDemand = input.bool(false, "Afficher les zones DEMAND (achat)", group=gSD)
+showSupply = input.bool(false, "Afficher les zones SUPPLY (vente)", group=gSD)
+maxZones   = input.int(3, "Zones max par type", minval=1, maxval=10, group=gSD)
+
+//=====================================================================
+// 8. Phases — 4 commandes indépendantes : le rectangle, les repères
+// SC/STB/SPRING/BC/UT/UTAD (regroupés sous une seule coche), la zone
+// d'intervention et le signal d'entrée. Décoche ce que tu ne veux pas
+// voir, chaque brique reste indépendante des autres.
+//=====================================================================
+gPh = "8. Phases"
+showPhaseBox     = input.bool(true, "Afficher le rectangle Accumulation/Distribution", group=gPh)
+showPhaseMarkers = input.bool(true, "Afficher SC / STB / SPRING / BC / UT / UTAD", group=gPh)
+showPhaseZone    = input.bool(true, "Afficher la zone d'intervention de la phase", group=gPh)
+showPhaseEntry   = input.bool(true, "Afficher le signal ENTRÉE ACHAT/VENTE (phase)", group=gPh)
+phaseCol         = input.color(#ffa726, "Couleur manipulations (STB/SPRING/UT/UTAD)", group=gPh)
+
+//=====================================================================
+// 9. Dashboard
+//=====================================================================
+gD = "9. Dashboard"
+showDash     = input.bool(true, "Afficher le tableau de bord", group=gD)
+dashLabelCol = input.color(#b0bec5, "Couleur des libellés", group=gD)
+dashValueCol = input.color(#ffffff, "Couleur des valeurs neutres", group=gD)
+dashBgCol    = input.color(color.new(#101418, 15), "Fond des cellules", group=gD)
+dashTitleBg  = input.color(#0d47a1, "Fond du titre", group=gD)
+
+
+//=====================================================================
+// SENSIBILITÉ DES PIVOTS — fractale par timeframe (section 1)
+//
+// ta.pivothigh/pivotlow et l'opérateur [] exigent un décalage "simple
+// int" (constant pour toute l'exécution du script), pas un "series
+// int". timeframe.in_seconds() est traité par Pine comme "series" et
+// ferait échouer la compilation dans ce contexte — on reste donc
+// uniquement sur timeframe.period / timeframe.multiplier / les
+// booléens timeframe.isminutes/isdaily/isweekly/ismonthly, qui sont
+// tous "simple" et restent constants du début à la fin du script.
+//=====================================================================
+f_autoPivLen() =>
+    string tf = timeframe.period
+    int result =
+         tf == "1"  ? 4 :
+         tf == "3"  ? 4 :
+         tf == "5"  ? 5 :
+         tf == "15" ? 6 :
+         tf == "30" ? 7 :
+         tf == "60" ? 8 :
+         tf == "120" ? 9 :
+         tf == "240" ? 11 :
+         tf == "D"  ? 14 :
+         tf == "W"  ? 18 :
+         tf == "M"  ? 22 :
+         timeframe.isseconds ? 4 :
+         timeframe.isminutes and timeframe.multiplier < 15 ? 5 :
+         timeframe.isminutes and timeframe.multiplier < 60 ? 6 :
+         timeframe.isminutes ? 9 :
+         timeframe.isdaily ? 14 :
+         timeframe.isweekly ? 18 :
+         timeframe.ismonthly ? 22 : 8
+    result
+
+pivLen = pivMode == "Auto (timeframe)" ? f_autoPivLen() : pivLenManual
+
+
+//=====================================================================
+// PIVOTS (moteur — toujours actif)
+//=====================================================================
+ph = ta.pivothigh(pivLen, pivLen)
+pl = ta.pivotlow(pivLen, pivLen)
+
+atrZone = ta.atr(14) * idmZoneSize
+
+var float lastPH = na
+var float prevPH = na
+var int lastPHBar = na
+
+var float lastPL = na
+var float prevPL = na
+var int lastPLBar = na
+
+if not na(ph)
+    prevPH := lastPH
+    lastPH := ph
+    lastPHBar := bar_index[pivLen]
+
+    if showStruct
+        string txt = na(prevPH) ? "H" : ph > prevPH ? "HH" : "LH"
+        color col = na(prevPH) ? rangeCol : ph > prevPH ? bullCol : bearCol
+        label.new(bar_index[pivLen], ph, txt,
+             style=label.style_label_down,
+             color=color.new(col, 80),
+             textcolor=col,
+             size=size.small)
+
+if not na(pl)
+    prevPL := lastPL
+    lastPL := pl
+    lastPLBar := bar_index[pivLen]
+
+    if showStruct
+        string txt = na(prevPL) ? "L" : pl > prevPL ? "HL" : "LL"
+        color col = na(prevPL) ? rangeCol : pl > prevPL ? bullCol : bearCol
+        label.new(bar_index[pivLen], pl, txt,
+             style=label.style_label_up,
+             color=color.new(col, 80),
+             textcolor=col,
+             size=size.small)
+
+
+//=====================================================================
+// STRUCTURE — 3 ÉTATS (moteur — toujours actif)
+//   1  = BULLISH        (HH + HL)
+//  -1  = BEARISH        (LH + LL)
+//   0  = CONSOLIDATION  (ni l'un ni l'autre : pause du marché)
+//=====================================================================
+bullStruct =
+     not na(lastPH) and not na(prevPH) and
+     not na(lastPL) and not na(prevPL) and
+     lastPH > prevPH and lastPL > prevPL
+
+bearStruct =
+     not na(lastPH) and not na(prevPH) and
+     not na(lastPL) and not na(prevPL) and
+     lastPH < prevPH and lastPL < prevPL
+
+allPiv = not na(lastPH) and not na(prevPH) and not na(lastPL) and not na(prevPL)
+
+var int bias = 0
+
+if bullStruct
+    bias := 1
+else if bearStruct
+    bias := -1
+else if allPiv
+    bias := 0
+
+
+//=====================================================================
+// CASSURES DE STRUCTURE — BOS / CHoCH (moteur — toujours actif)
+//
+//   Cassure DANS le sens de la structure   -> BOS   (continuation)
+//   Cassure CONTRE le sens de la structure -> CHoCH (changement de biais)
+//   Cassure en consolidation               -> BOS   (sortie de range)
+//
+// Le biais est recalculé à CHAQUE cassure sur la base de la structure
+// à cet instant précis (pas d'un compteur qui bascule à chaque coup) —
+// donc après un CHoCH, les BOS suivants sont jugés contre la NOUVELLE
+// structure, et rien n'empêche une cassure valide de continuer à se
+// tracer indéfiniment.
+//=====================================================================
+var float bosHigh = na
+var int bosHighBar = na
+var float bosLow = na
+var int bosLowBar = na
+
+if not na(ph)
+    bosHigh := ph
+    bosHighBar := bar_index[pivLen]
+
+if not na(pl)
+    bosLow := pl
+    bosLowBar := bar_index[pivLen]
+
+var float brokenHigh = na
+var float brokenLow = na
+
+bool breakUp =
+     not na(bosHigh) and
+     close > bosHigh and
+     (na(brokenHigh) or bosHigh != brokenHigh)
+
+bool breakDown =
+     not na(bosLow) and
+     close < bosLow and
+     (na(brokenLow) or bosLow != brokenLow)
+
+bool bosBull   = false
+bool bosBear   = false
+bool chochBull = false
+bool chochBear = false
+
+if breakUp
+    if bias == -1
+        chochBull := true
+    else
+        bosBull := true
+    brokenHigh := bosHigh
+
+if breakDown
+    if bias == 1
+        chochBear := true
+    else
+        bosBear := true
+    brokenLow := bosLow
+
+// Le CHoCH EST la confirmation du nouveau sens : le biais bascule
+// immédiatement, pour que toute cassure suivante soit jugée contre la
+// structure réellement en cours.
+if chochBull
+    bias := 1
+
+if chochBear
+    bias := -1
+
+var string lastBOS   = "-"
+var string lastCHoCH = "-"
+
+if bosBull
+    lastBOS := "BOS ↑ @ " + str.tostring(bosHigh, format.mintick)
+if bosBear
+    lastBOS := "BOS ↓ @ " + str.tostring(bosLow, format.mintick)
+if chochBull
+    lastCHoCH := "CHoCH ↑ @ " + str.tostring(bosHigh, format.mintick)
+if chochBear
+    lastCHoCH := "CHoCH ↓ @ " + str.tostring(bosLow, format.mintick)
+
+
+//=====================================================================
+// AFFICHAGE — BOS / CHoCH (indépendant : ne touche à aucune variable
+// de calcul, ne fait que lire bosBull/bosBear/chochBull/chochBear)
+//=====================================================================
+var line[]  bosLineArr = array.new_line()
+var label[] bosLblArr  = array.new_label()
+
+if showBOSBull and bosBull
+    array.push(bosLineArr, line.new(bosHighBar, bosHigh, bar_index, bosHigh, color=bosBullCol, width=2))
+    array.push(bosLblArr, label.new(bar_index, bosHigh, "BOS ↑",
+         style=label.style_label_down, color=color.new(bosBullCol, 70), textcolor=bosBullCol, size=size.small))
+
+if showBOSBear and bosBear
+    array.push(bosLineArr, line.new(bosLowBar, bosLow, bar_index, bosLow, color=bosBearCol, width=2))
+    array.push(bosLblArr, label.new(bar_index, bosLow, "BOS ↓",
+         style=label.style_label_up, color=color.new(bosBearCol, 70), textcolor=bosBearCol, size=size.small))
+
+if showCHoCHBull and chochBull
+    array.push(bosLineArr, line.new(bosHighBar, bosHigh, bar_index, bosHigh, color=chochCol, width=2, style=line.style_dashed))
+    array.push(bosLblArr, label.new(bar_index, bosHigh, "CHoCH ↑",
+         style=label.style_label_down, color=color.new(chochCol, 60), textcolor=color.black, size=size.small))
+
+if showCHoCHBear and chochBear
+    array.push(bosLineArr, line.new(bosLowBar, bosLow, bar_index, bosLow, color=chochCol, width=2, style=line.style_dashed))
+    array.push(bosLblArr, label.new(bar_index, bosLow, "CHoCH ↓",
+         style=label.style_label_up, color=color.new(chochCol, 60), textcolor=color.black, size=size.small))
+
+if array.size(bosLineArr) > maxBosHistory
+    line.delete(array.shift(bosLineArr))
+    label.delete(array.shift(bosLblArr))
+
+
+//=====================================================================
+// MOTEUR DE MOUVEMENT (moteur — toujours actif)
+//
+// Une cassure (BOS ou CHoCH) lance un mouvement. Le moteur suit son
+// origine et son extrême pour calculer le niveau 0.5 — c'est ce 0.5
+// qui juge la validité du retracement, et c'est moveDir (jamais le
+// biais brut) qui pilote la direction de l'IDM.
+//=====================================================================
+bool newMoveUp   = bosBull or chochBull
+bool newMoveDown = bosBear or chochBear
+
+var int moveDir = 0
+var float moveOrigin = na
+var int moveOriginBar = na
+var float moveExtreme = na
+var int moveExtremeBar = na
+var float moveFib50 = na
+
+// true uniquement sur les bougies qui viennent d'étendre l'extrême du
+// mouvement (bougie de cassure incluse) — ce ne sont PAS des bougies
+// de retracement, donc on ne doit jamais les tester contre le 0.5.
+bool extremeUpdated = false
+
+if newMoveUp
+    moveDir := 1
+    moveOrigin := bosHigh
+    moveOriginBar := bosHighBar
+    moveExtreme := high
+    moveExtremeBar := bar_index
+    moveFib50 := (moveOrigin + moveExtreme) / 2.0
+    extremeUpdated := true
+
+if newMoveDown
+    moveDir := -1
+    moveOrigin := bosLow
+    moveOriginBar := bosLowBar
+    moveExtreme := low
+    moveExtremeBar := bar_index
+    moveFib50 := (moveOrigin + moveExtreme) / 2.0
+    extremeUpdated := true
+
+if moveDir == 1 and not newMoveUp and high > moveExtreme
+    moveExtreme := high
+    moveExtremeBar := bar_index
+    moveFib50 := (moveOrigin + moveExtreme) / 2.0
+    extremeUpdated := true
+
+if moveDir == -1 and not newMoveDown and low < moveExtreme
+    moveExtreme := low
+    moveExtremeBar := bar_index
+    moveFib50 := (moveOrigin + moveExtreme) / 2.0
+    extremeUpdated := true
+
+
+//=====================================================================
+// AFFICHAGE — Premium / Discount (0.5), indépendant
+//=====================================================================
+var line fib50Line = na
+
+if showPd and moveDir != 0 and not na(moveFib50)
+    if na(fib50Line)
+        fib50Line := line.new(moveOriginBar, moveFib50, bar_index + 5, moveFib50,
+             color=color.new(pdCol, 40), style=line.style_dotted)
+    else
+        line.set_xy1(fib50Line, moveOriginBar, moveFib50)
+        line.set_xy2(fib50Line, bar_index + 5, moveFib50)
+
+
+//=====================================================================
+// LE 0.5 JUGE LE RETRACEMENT (moteur — toujours actif)
+//
+// validTest = le prix a déjà atteint le 0.5 dans le bon sens pendant
+// ce mouvement (Discount en haussier, Premium en baissier). C'est
+// cette valeur qui décide, dans le dashboard, si le dernier
+// retracement est "valide" ou "raté" — et candidateRetracementValid
+// (plus bas) décide, pivot par pivot, si CE pivot précis se situe déjà
+// dans la bonne zone au moment où il devient IDM.
+//=====================================================================
+var bool validTest = false
+
+if newMoveUp or newMoveDown
+    validTest := false
+
+// On ne teste le 0.5 QUE sur les bougies qui ne sont pas en train
+// d'étendre l'extrême — sinon la mèche de la bougie de cassure
+// elle-même validerait le test à tort, avant tout vrai retracement.
+if not extremeUpdated
+    if moveDir == 1 and not na(moveFib50) and low <= moveFib50
+        validTest := true
+
+    if moveDir == -1 and not na(moveFib50) and high >= moveFib50
+        validTest := true
+
+
+//=====================================================================
+// IDM — MOTEUR (toujours actif, indépendant de l'affichage)
+//
+//   Structure haussière -> IDM (IDBL) = dernier pivot BAS,
+//                           obligatoirement SOUS moveExtreme (sous le
+//                           prix / sous la jambe haussière)
+//   Structure baissière -> IDM (IDBR) = dernier pivot HAUT,
+//                           obligatoirement AU-DESSUS de moveExtreme
+//
+// Chaque pivot opposé au mouvement CONFIRMÉ (moveDir, pas le biais
+// brut) est un candidat IDM, sans exception, petit ou grand — le
+// biais peut déjà pencher vers un nouveau sens avant qu'une cassure ne
+// le confirme, ce qui produirait un IDM (donc un futur signal) dans le
+// mauvais sens si on s'y fiait.
+//
+// Tant que l'IDM actif n'est pas récupéré, tout nouveau candidat le
+// REMPLACE : l'ancien devient une FS historique, figée, jamais
+// supprimée. Ce remplacement peut se répéter indéfiniment.
+//=====================================================================
+var float[]  idmLevel = array.new_float()
+var int[]    idmDir   = array.new_int()
+var bool[]   idmDone  = array.new_bool()
+var string[] idmKind  = array.new_string()   // "IDM" ou "FS"
+var line[]   idmLine  = array.new_line()     // peut contenir na si showIdmLines=false
+var label[]  idmLbl   = array.new_label()    // peut contenir na si showIdmLines=false
+var box[]    idmZoneA = array.new_box()      // peut contenir na si showIdmZone=false
+
+float idmCandidate    = na
+int   idmCandidateBar = na
+
+// Garde-fou explicite : IDM haussier toujours < moveExtreme (sous le
+// prix), IDM baissier toujours > moveExtreme (au-dessus du prix).
+if moveDir == 1 and not na(pl) and pl < moveExtreme
+    idmCandidate := pl
+    idmCandidateBar := bar_index[pivLen]
+
+if moveDir == -1 and not na(ph) and ph > moveExtreme
+    idmCandidate := ph
+    idmCandidateBar := bar_index[pivLen]
+
+int nPrev = array.size(idmLevel)
+float prevTopLevel = nPrev > 0 ? array.get(idmLevel, nPrev - 1) : na
+int   prevTopDir   = nPrev > 0 ? array.get(idmDir, nPrev - 1) : 0
+bool  prevTopDone  = nPrev > 0 ? array.get(idmDone, nPrev - 1) : true
+
+bool newIDM =
+     not na(idmCandidate) and
+     (nPrev == 0 or idmCandidate != prevTopLevel or prevTopDir != moveDir)
+
+bool isFS = newIDM and nPrev > 0 and not prevTopDone and prevTopDir == moveDir
+
+// Le 0.5 décide, pour CE candidat précis, s'il se situe déjà dans la
+// zone de retracement valide (Discount haussier / Premium baissier).
+bool candidateRetracementValid =
+     moveDir == 1 ? idmCandidate <= moveFib50 :
+     moveDir == -1 ? idmCandidate >= moveFib50 : false
+
+if newIDM
+
+    array.push(idmLevel, idmCandidate)
+    array.push(idmDir, moveDir)
+    array.push(idmDone, false)
+    array.push(idmKind, "IDM")
+
+    line ln = na
+    label lb = na
+    if showIdmLines
+        string idmTxt0 = candidateRetracementValid ? "IDM •0.5" : "IDM"
+        ln := line.new(idmCandidateBar, idmCandidate, bar_index + 1, idmCandidate,
+             color=idmActiveCol, style=line.style_dotted, width=3)
+        lb := label.new(bar_index + 1, idmCandidate, idmTxt0,
+             style=label.style_label_left,
+             color=color.new(idmActiveCol, 75),
+             textcolor=idmActiveCol,
+             size=size.small)
+    array.push(idmLine, ln)
+    array.push(idmLbl, lb)
+
+    box zn = na
+    if showIdmZone
+        float zTop = moveDir == 1 ? idmCandidate : idmCandidate + atrZone
+        float zBot = moveDir == 1 ? idmCandidate - atrZone : idmCandidate
+        zn := box.new(idmCandidateBar, zTop, bar_index + idmZoneExt, zBot,
+             border_color=idmActiveCol,
+             border_width=2,
+             border_style=line.style_dashed,
+             bgcolor=color.new(idmActiveCol, 78),
+             text="Zone à retester",
+             text_color=idmActiveCol,
+             text_size=size.tiny,
+             text_halign=text.align_left)
+    array.push(idmZoneA, zn)
+
+    int n = array.size(idmLevel)
+
+    // L'ancien "le plus récent" passe en 2e position : reste "IDM",
+    // couleur secondaire, continue d'être surveillé et prolongé.
+    if n >= 2 and not array.get(idmDone, n - 2)
+        line ln2 = array.get(idmLine, n - 2)
+        if not na(ln2)
+            line.set_color(ln2, idmWaitCol)
+            line.set_width(ln2, 2)
+        label lb2 = array.get(idmLbl, n - 2)
+        if not na(lb2)
+            label.set_color(lb2, color.new(idmWaitCol, 75))
+            label.set_textcolor(lb2, idmWaitCol)
+        box bz2 = array.get(idmZoneA, n - 2)
+        if not na(bz2)
+            box.set_border_color(bz2, idmWaitCol)
+            box.set_border_width(bz2, 2)
+            box.set_bgcolor(bz2, color.new(idmWaitCol, 78))
+
+    // Celui qui sort du top 2 devient une FS, figée à cet instant —
+    // jamais supprimée, seulement gelée dans son état.
+    if n >= 3 and not array.get(idmDone, n - 3)
+        array.set(idmKind, n - 3, "FS")
+        line ln3 = array.get(idmLine, n - 3)
+        if not na(ln3)
+            line.set_x2(ln3, idmCandidateBar)
+            line.set_color(ln3, color.new(fsCol, 55))
+            line.set_width(ln3, 1)
+        label lb3 = array.get(idmLbl, n - 3)
+        if not na(lb3)
+            label.set_text(lb3, "FS")
+            label.set_xy(lb3, idmCandidateBar, array.get(idmLevel, n - 3))
+            label.set_color(lb3, color.new(fsCol, 80))
+            label.set_textcolor(lb3, fsCol)
+        box bz3 = array.get(idmZoneA, n - 3)
+        if not na(bz3)
+            box.set_right(bz3, idmCandidateBar)
+            box.set_border_color(bz3, color.new(fsCol, 60))
+            box.set_bgcolor(bz3, color.new(fsCol, 94))
+            box.set_text(bz3, "")
+
+
+// Prolongation des DEUX plus récents tant qu'ils ne sont pas recouverts.
+int nNow = array.size(idmLevel)
+
+if nNow > 0
+    int topIdx = nNow - 1
+    if not array.get(idmDone, topIdx)
+        line lnTop = array.get(idmLine, topIdx)
+        if not na(lnTop)
+            line.set_x2(lnTop, bar_index + 1)
+        label lbTop = array.get(idmLbl, topIdx)
+        if not na(lbTop)
+            label.set_xy(lbTop, bar_index + 1, array.get(idmLevel, topIdx))
+        box bzTop = array.get(idmZoneA, topIdx)
+        if not na(bzTop)
+            box.set_right(bzTop, bar_index + idmZoneExt)
+
+if nNow > 1
+    int secIdx = nNow - 2
+    if not array.get(idmDone, secIdx)
+        line lnSec = array.get(idmLine, secIdx)
+        if not na(lnSec)
+            line.set_x2(lnSec, bar_index + 1)
+        label lbSec = array.get(idmLbl, secIdx)
+        if not na(lbSec)
+            label.set_xy(lbSec, bar_index + 1, array.get(idmLevel, secIdx))
+        box bzSec = array.get(idmZoneA, secIdx)
+        if not na(bzSec)
+            box.set_right(bzSec, bar_index + idmZoneExt)
+
+
+//=====================================================================
+// RÉCUPÉRATION DE L'IDM (moteur — toujours actif)
+//
+// Vérifiée pour TOUS les IDM encore actifs, même les anciens FS. Les
+// DEUX plus récents (position 1 et 2 — les deux encore étiquetés
+// "IDM", pas encore tombés en FS) déclenchent le vrai signal d'entrée
+// dès que le prix revient les chercher. Un ancien FS (position 3+)
+// retesté plus tard ne déclenche jamais de signal, juste un marquage
+// "✓" informatif.
+//
+// Point critique : si l'IDM est repris MAIS que, sur la même bougie,
+// le prix casse réellement la structure dans le sens opposé (close
+// au-delà du niveau structurel, qui est numériquement le même niveau
+// que l'IDM), alors ce n'est PAS une continuation — c'est un CHoCH.
+// Aucun signal d'entrée n'est émis dans ce cas.
+//=====================================================================
+bool entrySignalBuy   = false
+bool entrySignalSell  = false
+bool signalBlockedByChoch = false
+
+if array.size(idmLevel) > 0
+    for i = array.size(idmLevel) - 1 to 0
+        if not array.get(idmDone, i)
+            float lvl = array.get(idmLevel, i)
+            int   dir = array.get(idmDir, i)
+            bool recovered = (dir == 1 and low <= lvl) or (dir == -1 and high >= lvl)
+
+            if recovered
+                array.set(idmDone, i, true)
+
+                // Position 1 (le plus récent) OU position 2 : les deux
+                // comptent comme "actuels" et déclenchent un signal.
+                bool isTopTwo       = i >= array.size(idmLevel) - 2
+                bool blockedByChoch = (dir == 1 and chochBear) or (dir == -1 and chochBull)
+
+                line lnr = array.get(idmLine, i)
+                label lbr = array.get(idmLbl, i)
+                box bzr = array.get(idmZoneA, i)
+
+                if isTopTwo and not blockedByChoch
+                    // LE signal d'entrée — le seul qui compte pour trader.
+                    color entryCol = dir == 1 ? entryBuyCol : entrySellCol
+                    string entryTxt = dir == 1 ? "ENTRÉE ACHAT" : "ENTRÉE VENTE"
+
+                    if not na(lnr)
+                        line.delete(lnr)
+                    if not na(lbr)
+                        label.delete(lbr)
+                    if showIdmEntry
+                        label.new(bar_index, lvl, entryTxt,
+                             style = dir == 1 ? label.style_label_up : label.style_label_down,
+                             color=color.new(entryCol, 10),
+                             textcolor=color.white,
+                             size=size.normal)
+
+                    if not na(bzr)
+                        box.set_right(bzr, bar_index)
+                        box.set_border_color(bzr, entryCol)
+                        box.set_border_width(bzr, 3)
+                        box.set_border_style(bzr, line.style_solid)
+                        box.set_bgcolor(bzr, color.new(entryCol, 70))
+                        box.set_text(bzr, entryTxt)
+                        box.set_text_color(bzr, color.white)
+
+                    if dir == 1
+                        entrySignalBuy := true
+                    else
+                        entrySignalSell := true
+                else
+                    // Soit un ancien FS retesté (position 3+, jamais de
+                    // signal), soit un des deux IDM actuels repris MAIS
+                    // invalidé par un CHoCH sur la même bougie.
+                    if isTopTwo and blockedByChoch
+                        signalBlockedByChoch := true
+                    string doneTxt = isTopTwo and blockedByChoch ?
+                         array.get(idmKind, i) + " ✓ (CHoCH)" :
+                         array.get(idmKind, i) + " ✓"
+
+                    if not na(lnr)
+                        line.set_x2(lnr, bar_index)
+                        line.set_color(lnr, color.new(idmDoneCol, 40))
+                    if not na(lbr)
+                        label.set_text(lbr, doneTxt)
+                        label.set_xy(lbr, bar_index, lvl)
+                        label.set_color(lbr, color.new(idmDoneCol, 75))
+                        label.set_textcolor(lbr, idmDoneCol)
+                    if not na(bzr)
+                        box.set_right(bzr, bar_index)
+                        box.set_border_color(bzr, color.new(idmDoneCol, 40))
+                        box.set_bgcolor(bzr, color.new(idmDoneCol, 90))
+                        box.set_text(bzr, "")
+
+
+// limitation historique — 7 tableaux liés, on garde tout synchronisé
+if array.size(idmLevel) > maxHistory
+    line oldLn = array.shift(idmLine)
+    if not na(oldLn)
+        line.delete(oldLn)
+    label oldLb = array.shift(idmLbl)
+    if not na(oldLb)
+        label.delete(oldLb)
+    box oldBz = array.shift(idmZoneA)
+    if not na(oldBz)
+        box.delete(oldBz)
+    array.shift(idmLevel)
+    array.shift(idmDir)
+    array.shift(idmDone)
+    array.shift(idmKind)
+
+
+//=====================================================================
+// ÉTAT DE CONTINUATION (moteur — toujours actif)
+//
+// Après une récupération d'IDM : soit un nouveau BOS dans le même sens
+// confirme la continuation, soit un CHoCH dans le sens opposé
+// invalide le mouvement.
+//=====================================================================
+var bool awaitingContinuationConfirm = false
+var int  awaitingDir = 0
+var string continuationMsg = "-"
+
+bool justConfirmedContinuation = false
+bool justInvalidated = false
+
+if awaitingContinuationConfirm
+    if (awaitingDir == 1 and bosBull) or (awaitingDir == -1 and bosBear)
+        justConfirmedContinuation := true
+        awaitingContinuationConfirm := false
+    else if (awaitingDir == 1 and chochBear) or (awaitingDir == -1 and chochBull)
+        justInvalidated := true
+        awaitingContinuationConfirm := false
+
+if entrySignalBuy
+    awaitingContinuationConfirm := true
+    awaitingDir := 1
+if entrySignalSell
+    awaitingContinuationConfirm := true
+    awaitingDir := -1
+
+if justConfirmedContinuation
+    continuationMsg := "Continuation confirmée ✓"
+if justInvalidated
+    continuationMsg := "Invalidée — CHoCH"
+if entrySignalBuy or entrySignalSell
+    continuationMsg := "Retest en cours — ENTRÉE"
+if signalBlockedByChoch
+    continuationMsg := "IDM repris mais CHoCH — pas d'entrée"
+
+
+//=====================================================================
+// PHASES — Accumulation / Réaccumulation, Distribution / Redistribution
+// (moteur toujours actif ; seul le dessin est gated par showPhaseBox /
+// showPhaseMarkers / showPhaseZone / showPhaseEntry, chacune indépendante)
+//
+// Wyckoff : la consolidation est la CAUSE, le mouvement qui suit est
+// l'EFFET. Réaccumulation = même pause mais en cours de tendance déjà
+// haussière (continuation) ; Redistribution = pareil en tendance déjà
+// baissière.
+//=====================================================================
+var string lastPhase = "-"
+
+var bool  accActive = false
+var float accSC = na
+var int   accSCBar = na
+var float accLow = na
+var float accTop = na
+var int   accSTBBar = na
+var float accSTBVal = na
+var int   accSpringBar = na
+var float accSpringVal = na
+var int   accAge = 0
+var int   accStartBias = 0
+
+var bool  disActive = false
+var float disBC = na
+var int   disBCBar = na
+var float disHigh = na
+var float disBottom = na
+var int   disUTBar = na
+var float disUTVal = na
+var int   disUTADBar = na
+var float disUTADVal = na
+var int   disAge = 0
+var int   disStartBias = 0
+
+bool phaseAccConfirmed = false
+bool phaseDisConfirmed = false
+bool phaseEntryBuy     = false
+bool phaseEntrySell    = false
+
+if accActive
+    accAge += 1
+    accTop := math.max(accTop, high)
+    if low < accLow
+        if na(accSTBBar)
+            accSTBBar := bar_index
+            accSTBVal := low
+            // Réactif : le repère apparaît dès qu'il se forme, pas
+            // seulement une fois toute la phase confirmée plus tard.
+            if showPhaseMarkers
+                label.new(accSTBBar, accSTBVal, "STB", style=label.style_label_up, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small)
+        else
+            accSpringBar := bar_index
+            accSpringVal := low
+            if showPhaseMarkers
+                label.new(accSpringBar, accSpringVal, "SPRING", style=label.style_label_up, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
+        accLow := low
+    if newMoveDown
+        accActive := false
+    if accAge > 500
+        accActive := false
+
+if disActive
+    disAge += 1
+    disBottom := math.min(disBottom, low)
+    if high > disHigh
+        if na(disUTBar)
+            disUTBar := bar_index
+            disUTVal := high
+            if showPhaseMarkers
+                label.new(disUTBar, disUTVal, "UT", style=label.style_label_down, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small)
+        else
+            disUTADBar := bar_index
+            disUTADVal := high
+            if showPhaseMarkers
+                label.new(disUTADBar, disUTADVal, "UTAD", style=label.style_label_down, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
+        disHigh := high
+    if newMoveUp
+        disActive := false
+    if disAge > 500
+        disActive := false
+
+if accActive and newMoveUp and not na(accSCBar)
+    float topA = math.max(accTop, high)
+    string phTxt = accStartBias == 1 ? "RÉACCUMULATION" : "ACCUMULATION"
+    lastPhase := phTxt
+    accActive := false
+    phaseAccConfirmed := true
+    // SC / STB / SPRING confirmés par un vrai BOS haussier = toutes les
+    // conditions réunies -> signal d'entrée ACHAT, au même titre que l'IDM.
+    phaseEntryBuy := true
+    if showPhaseBox
+        box.new(accSCBar, topA, bar_index, accLow, border_color=color.new(bullCol, 30), bgcolor=color.new(bullCol, 92))
+        label.new(accSCBar, topA, phTxt, style=label.style_label_down, color=color.new(bullCol, 55), textcolor=bullCol, size=size.small)
+    // SC/STB/SPRING sont déjà posés en direct (voir plus haut, dès leur
+    // formation) — pas de redoublon ici, seul le rectangle est nouveau.
+    // Zone d'intervention de la phase — comme pour l'IDM, prolongée
+    // vers l'avant.
+    if showPhaseZone
+        box.new(accSCBar, topA, bar_index + idmZoneExt, accLow,
+             border_color=entryBuyCol, border_width=2, border_style=line.style_solid,
+             bgcolor=color.new(entryBuyCol, 75), text="ZONE ACHAT — " + phTxt,
+             text_color=color.white, text_size=size.tiny, text_halign=text.align_left)
+    // Signal visuel "ENTRÉE ACHAT" — indépendant du rectangle/repères/zone.
+    if showPhaseEntry
+        label.new(bar_index, low, "ENTRÉE ACHAT (" + phTxt + ")",
+             style=label.style_label_up, color=color.new(entryBuyCol, 10), textcolor=color.white, size=size.normal)
+
+if disActive and newMoveDown and not na(disBCBar)
+    float botD = math.min(disBottom, low)
+    string phTxt = disStartBias == -1 ? "REDISTRIBUTION" : "DISTRIBUTION"
+    lastPhase := phTxt
+    disActive := false
+    phaseDisConfirmed := true
+    // BC / UT / UTAD confirmés par un vrai BOS baissier = toutes les
+    // conditions réunies -> signal d'entrée VENTE, au même titre que l'IDM.
+    phaseEntrySell := true
+    if showPhaseBox
+        box.new(disBCBar, disHigh, bar_index, botD, border_color=color.new(bearCol, 30), bgcolor=color.new(bearCol, 92))
+        label.new(disBCBar, botD, phTxt, style=label.style_label_up, color=color.new(bearCol, 55), textcolor=bearCol, size=size.small)
+    // BC/UT/UTAD sont déjà posés en direct (voir plus haut, dès leur
+    // formation) — pas de redoublon ici, seul le rectangle est nouveau.
+    // Zone d'intervention de la phase — comme pour l'IDM, prolongée
+    // vers l'avant.
+    if showPhaseZone
+        box.new(disBCBar, disHigh, bar_index + idmZoneExt, botD,
+             border_color=entrySellCol, border_width=2, border_style=line.style_solid,
+             bgcolor=color.new(entrySellCol, 75), text="ZONE VENTE — " + phTxt,
+             text_color=color.white, text_size=size.tiny, text_halign=text.align_left)
+    // Signal visuel "ENTRÉE VENTE" — indépendant du rectangle/repères/zone.
+    if showPhaseEntry
+        label.new(bar_index, high, "ENTRÉE VENTE (" + phTxt + ")",
+             style=label.style_label_down, color=color.new(entrySellCol, 10), textcolor=color.white, size=size.normal)
+
+if not accActive and not na(pl)
+    accActive := true
+    accSC := pl
+    accSCBar := bar_index[pivLen]
+    accLow := pl
+    accTop := na(lastPH) ? high : math.max(lastPH, high)
+    accSTBBar := na
+    accSTBVal := na
+    accSpringBar := na
+    accSpringVal := na
+    accAge := 0
+    accStartBias := bias
+    // Réactif : SC posé dès sa formation, pas après-coup à la confirmation.
+    if showPhaseMarkers
+        label.new(accSCBar, accSC, "SC", style=label.style_label_up, color=color.new(bullCol, 70), textcolor=bullCol, size=size.small)
+
+if not disActive and not na(ph)
+    disActive := true
+    disBC := ph
+    disBCBar := bar_index[pivLen]
+    disHigh := ph
+    disBottom := na(lastPL) ? low : math.min(lastPL, low)
+    disUTBar := na
+    disUTVal := na
+    disUTADBar := na
+    disUTADVal := na
+    disAge := 0
+    disStartBias := bias
+    // Réactif : BC posé dès sa formation, pas après-coup à la confirmation.
+    if showPhaseMarkers
+        label.new(disBCBar, disBC, "BC", style=label.style_label_down, color=color.new(bearCol, 70), textcolor=bearCol, size=size.small)
+
+
+//=====================================================================
+// AFFICHAGE — FVG (indépendant, lecture seule des prix)
+//=====================================================================
+var box[] fvgBoxes = array.new_box()
+
+if bar_index >= 2
+    if showFvgBull and low > high[2]
+        array.push(fvgBoxes, box.new(bar_index[2], low, bar_index, high[2],
+             border_color=color.new(fvgBullCol, 60), bgcolor=color.new(fvgBullCol, 88)))
+    if showFvgBear and high < low[2]
+        array.push(fvgBoxes, box.new(bar_index[2], low[2], bar_index, high,
+             border_color=color.new(fvgBearCol, 60), bgcolor=color.new(fvgBearCol, 88)))
+    if array.size(fvgBoxes) > maxFvg
+        box.delete(array.shift(fvgBoxes))
+
+
+//=====================================================================
+// AFFICHAGE — Supply / Demand (indépendant, lit bosBull/bosBear sans
+// les modifier)
+//=====================================================================
+var box[] demBx = array.new_box()
+var box[] supBx = array.new_box()
+
+if showDemand and bosBull
+    float zt = high
+    float zb = low
+    int zi = bar_index
+    for i = 1 to 30
+        if close[i] < open[i]
+            zt := high[i]
+            zb := low[i]
+            zi := bar_index[i]
+            break
+    array.push(demBx, box.new(zi, zt, bar_index + 12, zb,
+         border_color=bullCol, bgcolor=color.new(bullCol, 82), text="DEMAND", text_color=bullCol, text_size=size.small))
+    if array.size(demBx) > maxZones
+        box.delete(array.shift(demBx))
+
+if showSupply and bosBear
+    float zt = high
+    float zb = low
+    int zi = bar_index
+    for i = 1 to 30
+        if close[i] > open[i]
+            zt := high[i]
+            zb := low[i]
+            zi := bar_index[i]
+            break
+    array.push(supBx, box.new(zi, zt, bar_index + 12, zb,
+         border_color=bearCol, bgcolor=color.new(bearCol, 82), text="SUPPLY", text_color=bearCol, text_size=size.small))
+    if array.size(supBx) > maxZones
+        box.delete(array.shift(supBx))
+
+
+//=====================================================================
+// DASHBOARD — lit uniquement l'état du moteur, fonctionne même si
+// tous les autres modules d'affichage sont désactivés
+//=====================================================================
+var table dash = table.new(position.top_right, 2, 12,
+     border_width=1, frame_width=1, frame_color=color.gray)
+
+if showDash and barstate.islast
+
+    string structTxt =
+         bias == 1 ? "BULLISH" :
+         bias == -1 ? "BEARISH" :
+         "CONSOLIDATION"
+
+    color structColor =
+         bias == 1 ? bullCol :
+         bias == -1 ? bearCol :
+         rangeCol
+
+    int nIdm = array.size(idmLevel)
+    bool topDone = nIdm > 0 and array.get(idmDone, nIdm - 1)
+    int topDir   = nIdm > 0 ? array.get(idmDir, nIdm - 1) : 0
+    float topLvl = nIdm > 0 ? array.get(idmLevel, nIdm - 1) : na
+
+    string idmActuelTxt = nIdm == 0 ? "-" : (topDir == 1 ? "IDBL " : "IDBR ") + str.tostring(topLvl, format.mintick)
+    color idmActuelCol = nIdm == 0 ? rangeCol : idmActiveCol
+
+    string recupTxt = nIdm == 0 ? "-" : topDone ? "Récupéré ✓" : "En attente"
+    color recupCol  = nIdm == 0 ? rangeCol : topDone ? idmDoneCol : idmActiveCol
+
+    int fsCount = 0
+    if array.size(idmKind) > 0
+        for i = 0 to array.size(idmKind) - 1
+            if array.get(idmKind, i) == "FS"
+                fsCount += 1
+
+    string retracementTxt =
+         moveDir == 0 ? "-" :
+         validTest ? "Normal (0.5 atteint)" :
+         "Superficiel (0.5 non atteint)"
+
+    color retracementCol =
+         moveDir == 0 ? rangeCol :
+         validTest ? idmDoneCol : idmWaitCol
+
+    string pdTxt =
+         moveDir == 0 or na(moveFib50) ? "-" :
+         close < moveFib50 ? "Discount" :
+         close > moveFib50 ? "Premium" : "Équilibre"
+
+    color pdColCell =
+         moveDir == 0 or na(moveFib50) ? rangeCol :
+         pdTxt == "Discount" ? bullCol :
+         pdTxt == "Premium" ? bearCol : rangeCol
+
+    string phaseTxt =
+         accActive ? "Accumulation (cause) en cours" :
+         disActive ? "Distribution (cause) en cours" :
+         lastPhase
+
+    color phaseCellCol =
+         accActive ? bullCol :
+         disActive ? bearCol :
+         dashValueCol
+
+    string contTxt = nIdm > 0 and not topDone ? "IDM en attente" : continuationMsg
+    color contCol =
+         contTxt == "Continuation confirmée ✓" ? bullCol :
+         contTxt == "Invalidée — CHoCH" ? bearCol :
+         contTxt == "Retest en cours — ENTRÉE" ? (awaitingDir == 1 ? entryBuyCol : entrySellCol) :
+         dashValueCol
+
+    string actionTxt = "-"
+    color actionCol = rangeCol
+
+    if entrySignalBuy
+        actionTxt := "ENTRER ACHAT MAINTENANT"
+        actionCol := entryBuyCol
+    else if entrySignalSell
+        actionTxt := "ENTRER VENTE MAINTENANT"
+        actionCol := entrySellCol
+    else if phaseEntryBuy
+        actionTxt := "ENTRER ACHAT MAINTENANT (Accumulation)"
+        actionCol := entryBuyCol
+    else if phaseEntrySell
+        actionTxt := "ENTRER VENTE MAINTENANT (Distribution)"
+        actionCol := entrySellCol
+    else if nIdm > 0 and not topDone
+        actionTxt := (topDir == 1 ? "Préparer ACHAT — retest " : "Préparer VENTE — retest ") + str.tostring(topLvl, format.mintick)
+        actionCol := idmActiveCol
+    else if nIdm > 0
+        actionTxt := "Attendre le prochain IDM"
+        actionCol := rangeCol
+
+    table.cell(dash, 0, 0, "SMV — MOTEUR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
+    table.merge_cells(dash, 0, 0, 1, 0)
+
+    table.cell(dash, 0, 1, "Structure", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 1, structTxt, text_color=structColor, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 2, "Dernier BOS", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 2, lastBOS, text_color=dashValueCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 3, "Dernier CHoCH", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 3, lastCHoCH, text_color=#ffeb3b, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 4, "IDM actuel", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 4, idmActuelTxt, text_color=idmActuelCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 5, "Récupération", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 5, recupTxt, text_color=recupCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 6, "FS", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 6, str.tostring(fsCount) + " historique(s)", text_color=fsCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 7, "Retracement", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 7, retracementTxt, text_color=retracementCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 8, "Premium/Discount", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 8, pdTxt, text_color=pdColCell, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 9, "Phase", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 9, phaseTxt, text_color=phaseCellCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 10, "Continuation", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 10, contTxt, text_color=contCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 11, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 11, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
+
+
+//=====================================================================
+// ALERTES
+//=====================================================================
+alertcondition(bosBull, "BOS Bullish", "SMV : BOS haussier — continuation")
+alertcondition(bosBear, "BOS Bearish", "SMV : BOS baissier — continuation")
+alertcondition(chochBull, "CHoCH Bullish", "SMV : CHoCH haussier — changement de biais")
+alertcondition(chochBear, "CHoCH Bearish", "SMV : CHoCH baissier — changement de biais")
+alertcondition(isFS, "IDM déplacé (FS)", "SMV : retracement raté — l'IDM se déplace")
+alertcondition(entrySignalBuy, "Entrée ACHAT", "SMV : IDM récupéré — entrée ACHAT")
+alertcondition(entrySignalSell, "Entrée VENTE", "SMV : IDM récupéré — entrée VENTE")
+alertcondition(signalBlockedByChoch, "IDM repris → CHoCH", "SMV : IDM repris mais structure cassée en sens opposé — CHoCH, pas d'entrée")
+alertcondition(phaseAccConfirmed, "Fin d'accumulation", "SMV : accumulation/réaccumulation confirmée (SC/STB/SPRING)")
+alertcondition(phaseDisConfirmed, "Fin de distribution", "SMV : distribution/redistribution confirmée (BC/UT/UTAD)")
+alertcondition(phaseEntryBuy, "Entrée ACHAT (Accumulation)", "SMV : SC/STB/SPRING confirmés par un BOS haussier — entrée ACHAT")
+alertcondition(phaseEntrySell, "Entrée VENTE (Distribution)", "SMV : BC/UT/UTAD confirmés par un BOS baissier — entrée VENTE")
