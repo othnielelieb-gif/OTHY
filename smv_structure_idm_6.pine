@@ -341,6 +341,27 @@ if chochBull
 if chochBear
     bias := -1
 
+// TENDANCE CONFIRMÉE — pour l'affichage directionnel UNIQUEMENT (règle
+// 80/20). Contrairement à `bias`, qui se recalcule à chaque bougie à
+// partir des 2 derniers pivots et peut retomber à 0 (consolidation) sur
+// un simple pullback interne, `confirmedTrend` ne change JAMAIS sur un
+// BOS de continuation ni sur une lecture de consolidation — seul un vrai
+// CHoCH peut le faire basculer. C'est exactement la règle : "c'est le
+// CHoCH qui confirme le changement de structure". Le tout premier BOS
+// (avant tout CHoCH) établit la direction de départ. Ne touche à aucune
+// variable du moteur IDM (moveDir, idmLevel, idmDir, idmDone…).
+var int confirmedTrend = 0
+
+if chochBull
+    confirmedTrend := 1
+if chochBear
+    confirmedTrend := -1
+if confirmedTrend == 0
+    if bosBull
+        confirmedTrend := 1
+    if bosBear
+        confirmedTrend := -1
+
 var string lastBOS   = "-"
 var string lastCHoCH = "-"
 
@@ -613,13 +634,14 @@ if newIDM
     array.push(idmLine, ln)
     array.push(idmLbl, lb)
 
-    // Règle 80/20 : structure haussière -> uniquement des achats,
-    // structure baissière -> uniquement des ventes. En consolidation
-    // (bias == 0), aucune contrainte connue, donc on laisse passer.
-    // N'affecte que le DESSIN de la zone, jamais idmLevel/idmDir/
-    // idmDone ni la détection de récupération — la logique IDM reste
-    // strictement identique.
-    bool dirAllowed = bias == 0 or bias == moveDir
+    // Règle 80/20 : tendance confirmée haussière -> uniquement des
+    // achats, confirmée baissière -> uniquement des ventes. Basé sur
+    // confirmedTrend (ne change que sur un vrai CHoCH), PAS sur bias
+    // brut qui peut retomber à 0 sur un simple pullback. N'affecte que
+    // le DESSIN de la zone, jamais idmLevel/idmDir/idmDone ni la
+    // détection de récupération — la logique IDM reste strictement
+    // identique.
+    bool dirAllowed = confirmedTrend == 0 or confirmedTrend == moveDir
 
     box zn = na
     if showIdmZone and dirAllowed
@@ -1012,9 +1034,9 @@ if accActive and newMoveUp and not na(accSCBar)
     // SC/STB/SPRING sont déjà posés en direct (voir plus haut, dès leur
     // formation) — pas de redoublon ici, seul le rectangle est nouveau.
     // Zone d'intervention de la phase — comme pour l'IDM, prolongée
-    // vers l'avant. Règle 80/20 : jamais de zone ACHAT si le biais est
-    // baissier.
-    if showPhaseZone and bias != -1
+    // vers l'avant. Règle 80/20 : jamais de zone ACHAT tant que la
+    // tendance confirmée (CHoCH) est baissière.
+    if showPhaseZone and confirmedTrend != -1
         box.new(accSCBar, topA, bar_index + idmZoneExt, accLow,
              border_color=entryBuyCol, border_width=2, border_style=line.style_solid,
              bgcolor=color.new(entryBuyCol, 75), text="ZONE ACHAT — " + phTxt,
@@ -1039,9 +1061,9 @@ if disActive and newMoveDown and not na(disBCBar)
     // BC/UT/UTAD sont déjà posés en direct (voir plus haut, dès leur
     // formation) — pas de redoublon ici, seul le rectangle est nouveau.
     // Zone d'intervention de la phase — comme pour l'IDM, prolongée
-    // vers l'avant. Règle 80/20 : jamais de zone VENTE si le biais est
-    // haussier.
-    if showPhaseZone and bias != 1
+    // vers l'avant. Règle 80/20 : jamais de zone VENTE tant que la
+    // tendance confirmée (CHoCH) est haussière.
+    if showPhaseZone and confirmedTrend != 1
         box.new(disBCBar, disHigh, bar_index + idmZoneExt, botD,
              border_color=entrySellCol, border_width=2, border_style=line.style_solid,
              bgcolor=color.new(entrySellCol, 75), text="ZONE VENTE — " + phTxt,
@@ -1105,13 +1127,13 @@ if bar_index >= 2
 // l'IDM et de la Sniper Zone — lit seulement bosBull/bosBear, ne les
 // modifie pas). Volontairement séparé pour ne jamais se confondre
 // avec la Sniper Zone, qui reste toujours liée à l'IDM. Règle 80/20 :
-// jamais de DEMAND en biais baissier, jamais de SUPPLY en biais
-// haussier.
+// jamais de DEMAND tant que la tendance confirmée (CHoCH) est
+// baissière, jamais de SUPPLY tant qu'elle est haussière.
 //=====================================================================
 var box[] demBx = array.new_box()
 var box[] supBx = array.new_box()
 
-if showDemand and bosBull and bias != -1
+if showDemand and bosBull and confirmedTrend != -1
     float demZt = high
     float demZb = low
     int demZi = bar_index
@@ -1126,7 +1148,7 @@ if showDemand and bosBull and bias != -1
     if array.size(demBx) > maxZones
         box.delete(array.shift(demBx))
 
-if showSupply and bosBear and bias != 1
+if showSupply and bosBear and confirmedTrend != 1
     float supZt = high
     float supZb = low
     int supZi = bar_index
