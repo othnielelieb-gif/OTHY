@@ -46,8 +46,8 @@ indicator("SMV STRUCTURE — Moteur fractal (BOS/CHoCH/IDM)", "SMV Engine", over
 gS = "1. Structure"
 showStruct   = input.bool(true, "Afficher HH / HL / LH / LL", group=gS,
      tooltip="C'est le seul marquage qui apparaît dès qu'un pivot est confirmé, sans attendre de BOS/CHoCH ni de phase — la façon la plus rapide de voir un HL/LH se former.")
-pivMode      = input.string("Manuel", "Sensibilité des pivots", options=["Manuel", "Auto (timeframe)"], group=gS,
-     tooltip="Auto applique une valeur de référence par unité de temps : 1m:4, 5m:5, 15m:6, 1H:8, 2H:9, 4H:11, D:14, W:18, M:22. En mode Manuel, le réglage ci-dessous est utilisé tel quel, sur n'importe quel timeframe.")
+pivMode      = input.string("Auto (timeframe)", "Sensibilité des pivots", options=["Manuel", "Auto (timeframe)"], group=gS,
+     tooltip="Par défaut sur Auto : applique une valeur de référence par unité de temps (1m:4, 5m:5, 15m:6, 1H:8, 2H:9, 4H:11, D:14, W:18, M:22) pour ne garder que les sommets/creux vraiment significatifs — pas le moindre micro-pivot. Passe en Manuel si tu veux fixer toi-même la sensibilité via le réglage ci-dessous.")
 pivLenManual = input.int(1, "Sensibilité manuelle", minval=1, maxval=50, group=gS,
      tooltip="Par défaut à 1 : capte le pivot le plus récent possible sur n'importe quel timeframe (c'est déjà la valeur la plus sensible qui existe — augmenter ce chiffre réduit le nombre de pivots détectés, ça ne l'augmente pas).")
 bullCol      = input.color(#26a69a, "Couleur haussière", group=gS)
