@@ -170,6 +170,19 @@ showSessions = input.bool(true, "Afficher les sessions (Asian / NYC)", group=gSe
 asianCol = input.color(color.new(#42a5f5, 85), "Couleur session Asian", group=gSess)
 nyCol    = input.color(color.new(#ffa726, 85), "Couleur session NYC", group=gSess)
 
+//=====================================================================
+// 12. Zones de Liquidité (Intact) — le High/Low le plus récent PAS
+// ENCORE balayé par le prix (Module 2 SMV : Intact Buyers/Sellers).
+// C'est la liquidité que l'algo doit aller chercher avant de pouvoir
+// relancer un mouvement. Simple lecture de bosHigh/bosLow (déjà
+// calculés par le moteur), aucune influence dessus.
+//=====================================================================
+gIL = "12. Zones de Liquidité (Intact)"
+showIntact = input.bool(true, "Afficher les niveaux Intact (High/Low en attente)", group=gIL,
+     tooltip="Intact Sellers (High) et Intact Buyers (Low) : le dernier sommet/creux pas encore balayé par le prix. Purement informatif, n'affecte jamais le moteur ni l'IDM.")
+intactBuyCol  = input.color(#4fc3f7, "Couleur Intact Buyers (Low)", group=gIL)
+intactSellCol = input.color(#ff8a65, "Couleur Intact Sellers (High)", group=gIL)
+
 
 //=====================================================================
 // FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
@@ -528,6 +541,55 @@ if array.size(bosLineArr) > maxBosHistory
     label.delete(array.shift(bosLblArr))
     array.shift(bosLineLevel)
     array.shift(bosLineBlocked)
+
+
+//=====================================================================
+// AFFICHAGE — Zones de Liquidité (Intact), indépendant, lecture seule
+// de bosHigh/bosLow (déjà calculés par le moteur CASSURES ci-dessus —
+// aucune influence dessus). Intact Sellers = dernier High pas encore
+// balayé ; Intact Buyers = dernier Low pas encore balayé. Un seul
+// trait par côté, repositionné en direct bougie après bougie tant que
+// le niveau ne change pas (nouvelle référence ou cassure).
+//=====================================================================
+var line  intactHighLine = na
+var label intactHighLbl  = na
+var line  intactLowLine  = na
+var label intactLowLbl   = na
+
+if showIntact
+    if not na(bosHigh)
+        if na(intactHighLine)
+            intactHighLine := line.new(bosHighBar, bosHigh, bar_index + 1, bosHigh,
+                 color=intactSellCol, style=line.style_dashed, width=1)
+            intactHighLbl := label.new(bar_index + 1, bosHigh, "Intact Sellers",
+                 style=label.style_label_left, color=color.new(intactSellCol, 80),
+                 textcolor=intactSellCol, size=size.small)
+        else
+            line.set_xy1(intactHighLine, bosHighBar, bosHigh)
+            line.set_xy2(intactHighLine, bar_index + 1, bosHigh)
+            label.set_xy(intactHighLbl, bar_index + 1, bosHigh)
+    if not na(bosLow)
+        if na(intactLowLine)
+            intactLowLine := line.new(bosLowBar, bosLow, bar_index + 1, bosLow,
+                 color=intactBuyCol, style=line.style_dashed, width=1)
+            intactLowLbl := label.new(bar_index + 1, bosLow, "Intact Buyers",
+                 style=label.style_label_left, color=color.new(intactBuyCol, 80),
+                 textcolor=intactBuyCol, size=size.small)
+        else
+            line.set_xy1(intactLowLine, bosLowBar, bosLow)
+            line.set_xy2(intactLowLine, bar_index + 1, bosLow)
+            label.set_xy(intactLowLbl, bar_index + 1, bosLow)
+else
+    if not na(intactHighLine)
+        line.delete(intactHighLine)
+        label.delete(intactHighLbl)
+        intactHighLine := na
+        intactHighLbl := na
+    if not na(intactLowLine)
+        line.delete(intactLowLine)
+        label.delete(intactLowLbl)
+        intactLowLine := na
+        intactLowLbl := na
 
 
 //=====================================================================
