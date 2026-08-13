@@ -393,40 +393,16 @@ if chochBull
 if chochBear
     bias := -1
 
-// Maintenant, et SEULEMENT maintenant, on met à jour la référence pour
-// la PROCHAINE bougie. Le trait du BOS part TOUJOURS du plus haut HH
-// précédent tant que la structure reste haussière (bias == 1) —
-// bosHigh est un extremum qui ne redescend JAMAIS pendant cette phase,
-// même si un nouveau pivot haut plus bas se forme entre-temps (ce
-// nouveau pivot est purement ignoré comme référence de BOS). Hors
-// phase haussière, bosHigh suit simplement le dernier pivot haut formé
-// — c'est la référence utilisée pour détecter un futur CHoCH de retour
-// à la hausse.
-if not na(ph) and inLookback
-    bool keepHigherRef = bias == 1 and not na(bosHigh) and ph <= bosHigh
-    if not keepHigherRef
-        bosHigh := ph
-        bosHighBar := bar_index[pivLen]
-
-// Symétrique en baissier : le trait du BOS part TOUJOURS du LL le plus
-// bas tant que la structure reste baissière (bias == -1) — bosLow ne
-// remonte JAMAIS pendant cette phase. Hors phase baissière, bosLow
-// suit simplement le dernier pivot bas formé (référence de CHoCH pour
-// un retour à la baisse).
-if not na(pl) and inLookback
-    bool keepLowerRef = bias == -1 and not na(bosLow) and pl >= bosLow
-    if not keepLowerRef
-        bosLow := pl
-        bosLowBar := bar_index[pivLen]
-
-// TENDANCE CONFIRMÉE — pour l'affichage directionnel UNIQUEMENT (règle
-// 80/20). Contrairement à `bias`, qui se recalcule à chaque bougie à
-// partir des 2 derniers pivots et peut retomber à 0 (consolidation) sur
-// un simple pullback interne, `confirmedTrend` ne change JAMAIS sur un
-// BOS de continuation ni sur une lecture de consolidation — seul un vrai
-// CHoCH peut le faire basculer. C'est exactement la règle : "c'est le
-// CHoCH qui confirme le changement de structure". Le tout premier BOS
-// (avant tout CHoCH) établit la direction de départ. Ne touche à aucune
+// TENDANCE CONFIRMÉE — calculée ICI, AVANT la mise à jour de bosHigh/
+// bosLow plus bas, car c'est elle (et non le bias brut) qui doit
+// décider si on garde le plus haut HH / plus bas LL en mémoire.
+// Contrairement à `bias`, qui se recalcule à chaque bougie à partir des
+// 2 derniers pivots et peut retomber à 0 (consolidation) sur un simple
+// pullback interne, `confirmedTrend` ne change JAMAIS sur un BOS de
+// continuation ni sur une lecture de consolidation — seul un vrai CHoCH
+// peut le faire basculer. C'est exactement la règle : "c'est le CHoCH
+// qui confirme le changement de structure". Le tout premier BOS (avant
+// tout CHoCH) établit la direction de départ. Ne touche à aucune
 // variable du moteur IDM (moveDir, idmLevel, idmDir, idmDone…).
 var int confirmedTrend = 0
 
@@ -439,6 +415,36 @@ if confirmedTrend == 0
         confirmedTrend := 1
     if bosBear
         confirmedTrend := -1
+
+// Maintenant, et SEULEMENT maintenant, on met à jour la référence pour
+// la PROCHAINE bougie. Le trait du BOS part TOUJOURS du plus haut HH
+// précédent tant que la TENDANCE CONFIRMÉE reste haussière — bosHigh
+// est un extremum qui ne redescend JAMAIS pendant cette phase, même si
+// un nouveau pivot haut plus bas se forme entre-temps (ce nouveau pivot
+// est purement ignoré comme référence de BOS), et même si un pullback
+// interne fait momentanément retomber `bias` à 0 : c'est exactement le
+// bug corrigé ici — avant, un simple pullback faisait perdre le vrai
+// plus haut HH et repartir sur un pivot plus récent mais moins
+// significatif. Hors tendance confirmée haussière, bosHigh suit
+// simplement le dernier pivot haut formé — c'est la référence utilisée
+// pour détecter un futur CHoCH de retour à la hausse.
+if not na(ph) and inLookback
+    bool keepHigherRef = confirmedTrend == 1 and not na(bosHigh) and ph <= bosHigh
+    if not keepHigherRef
+        bosHigh := ph
+        bosHighBar := bar_index[pivLen]
+
+// Symétrique en baissier : le trait du BOS part TOUJOURS du LL le plus
+// bas tant que la tendance confirmée reste baissière — bosLow ne
+// remonte JAMAIS pendant cette phase, même sur un pullback interne qui
+// ferait retomber `bias` à 0. Hors tendance confirmée baissière, bosLow
+// suit simplement le dernier pivot bas formé (référence de CHoCH pour
+// un retour à la baisse).
+if not na(pl) and inLookback
+    bool keepLowerRef = confirmedTrend == -1 and not na(bosLow) and pl >= bosLow
+    if not keepLowerRef
+        bosLow := pl
+        bosLowBar := bar_index[pivLen]
 
 var string lastBOS   = "-"
 var string lastCHoCH = "-"
