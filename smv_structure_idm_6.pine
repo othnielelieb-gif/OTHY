@@ -16,9 +16,10 @@ indicator("SMV STRUCTURE — Moteur fractal (BOS/CHoCH/IDM)", "SMV Engine", over
 // reste n'est qu'une lecture de son état. La Sniper Zone (Module 4
 // SMV, "chandelier qui prend l'argent") est rattachée UNIQUEMENT à
 // l'IDM, jamais à Supply/Demand qui reste un module 100% indépendant.
-// Elle est préparée dès la formation de l'IDM, puis resserrée sur le
-// vrai chandelier de liquidation (avec raffinage LTF optionnel) au
-// moment où le prix vient réellement la chercher.
+// Elle est préparée dès la formation de l'IDM, visible seulement le
+// temps qu'elle est en attente, et supprimée immédiatement dès que le
+// prix la liquide pour lancer le vrai mouvement — jamais affichée
+// après coup.
 //
 // Logique fractale : tout repose sur ta.pivothigh/pivotlow du graphique
 // courant, sans aucune référence à une unité de temps fixe — la même
@@ -89,12 +90,12 @@ idmZoneExt  = input.int(15, "Prolongement de la zone (bougies)", minval=3, maxva
 // séparée), comme demandé : c'est à/après l'IDM que se trouve
 // l'entrée de précision, pas ailleurs. Préparée dès la formation de
 // l'IDM (avant même que le prix y revienne) pour les 2 IDM actifs, et
-// affinée automatiquement sur le vrai chandelier qui prend l'argent au
-// moment où le prix vient réellement liquider ce niveau.
+// SUPPRIMÉE IMMÉDIATEMENT dès que le prix la liquide pour de bon —
+// visible uniquement au moment adéquat, jamais après.
 //=====================================================================
 gSn = "5. Sniper Zone (liée à l'IDM)"
 showSniperZone = input.bool(true, "Afficher la Sniper Zone", group=gSn,
-     tooltip="Bande fine préparée à l'IDM, bien plus précise que la Zone à retester — c'est ICI que se joue l'entrée chirurgicale, jamais dans Supply/Demand.")
+     tooltip="Bande fine préparée à l'IDM, bien plus précise que la Zone à retester — visible seulement en attente, supprimée dès que le prix part pour le vrai mouvement.")
 sniperSize = input.float(0.12, "Épaisseur avant liquidation (x ATR)", minval=0.02, maxval=0.5, step=0.02, group=gSn,
      tooltip="Bande fine autour de l'IDM, préparée dès sa formation — bien plus étroite que la Zone à retester.")
 sniperCol  = input.color(#ffd54f, "Couleur Sniper Zone", group=gSn)
@@ -161,17 +162,6 @@ showSessions = input.bool(true, "Afficher les sessions (Asian / NYC)", group=gSe
 asianCol = input.color(color.new(#42a5f5, 85), "Couleur session Asian", group=gSess)
 nyCol    = input.color(color.new(#ffa726, 85), "Couleur session NYC", group=gSess)
 
-//=====================================================================
-// 12. Raffinage Multi-Timeframe — affine la Sniper Zone avec
-// l'extrême exact atteint sur une unité de temps inférieure, comme
-// enseigné dans le Module 7 ("Raffinage").
-//=====================================================================
-gR = "12. Raffinage Multi-Timeframe"
-showRefine = input.bool(false, "Affiner la Sniper Zone avec une LTF", group=gR,
-     tooltip="Au moment où l'IDM est réellement liquidé, cherche le chandelier signature équivalent sur l'unité de temps inférieure choisie, et resserre la Sniper Zone dessus. Désactivé par défaut (coût de calcul supplémentaire).")
-refineTF  = input.timeframe("1", "Unité de temps de raffinage (doit être < unité actuelle)", group=gR)
-refineCol = input.color(#26c6da, "Couleur de la zone raffinée", group=gR)
-
 
 //=====================================================================
 // SENSIBILITÉ DES PIVOTS — fractale par timeframe (section 1)
@@ -208,28 +198,6 @@ f_autoPivLen() =>
     result
 
 pivLen = pivMode == "Auto (timeframe)" ? f_autoPivLen() : pivLenManual
-
-
-//=====================================================================
-// RAFFINAGE — requête LTF (Module 7 "Raffinage")
-//
-// Calculée en haut du script pour respecter l'ordre d'exécution Pine
-// (toute variable doit exister avant d'être utilisée plus bas). Placée
-// en portée globale (pas dans un if) : c'est la façon la plus sûre
-// d'appeler request.security_lower_tf sans risque de restriction de
-// portée locale. Si showRefine est désactivé, les tableaux renvoyés
-// restent vides et aucune zone raffinée n'est jamais dessinée.
-//
-// refineTF doit être strictement inférieur à l'unité de temps du
-// graphique — sinon request.security_lower_tf ne renvoie rien
-// d'exploitable ; refineValid le garantit avant toute utilisation.
-//=====================================================================
-bool refineValid = showRefine and timeframe.in_seconds(refineTF) < timeframe.in_seconds(timeframe.period)
-
-array<float> ltfLowArr   = refineValid ? request.security_lower_tf(syminfo.tickerid, refineTF, low)   : array.new_float()
-array<float> ltfHighArr  = refineValid ? request.security_lower_tf(syminfo.tickerid, refineTF, high)  : array.new_float()
-array<float> ltfOpenArr  = refineValid ? request.security_lower_tf(syminfo.tickerid, refineTF, open)  : array.new_float()
-array<float> ltfCloseArr = refineValid ? request.security_lower_tf(syminfo.tickerid, refineTF, close) : array.new_float()
 
 
 //=====================================================================
@@ -389,33 +357,65 @@ if chochBear
 //=====================================================================
 // AFFICHAGE — BOS / CHoCH (indépendant : ne touche à aucune variable
 // de calcul, ne fait que lire bosBull/bosBear/chochBull/chochBear)
+//
+// Le trait part du dernier pivot cassé (HH/LH ou HL/LL selon le cas,
+// déjà déterminé par bosHigh/bosLow plus haut) et se PROLONGE ensuite
+// bougie après bougie tant qu'aucune bougie ne revient toucher ce
+// niveau. Dès qu'une bougie touche/traverse le niveau, elle bloque le
+// trait net à cet endroit — jamais plus loin. Pur dessin, jamais
+// d'étiquette supplémentaire ici (le label existant n'est pas modifié).
 //=====================================================================
-var line[]  bosLineArr = array.new_line()
-var label[] bosLblArr  = array.new_label()
+var line[]  bosLineArr     = array.new_line()
+var label[] bosLblArr      = array.new_label()
+var float[] bosLineLevel   = array.new_float()
+var bool[]  bosLineBlocked = array.new_bool()
+
+// Prolongation / blocage des traits déjà tracés — AVANT toute création
+// d'un nouveau trait sur cette bougie, pour ne jamais bloquer un trait
+// tout juste créé sur sa propre bougie de cassure.
+if array.size(bosLineArr) > 0
+    for i = 0 to array.size(bosLineArr) - 1
+        if not array.get(bosLineBlocked, i)
+            float lvlChk = array.get(bosLineLevel, i)
+            line lnChk = array.get(bosLineArr, i)
+            if low <= lvlChk and high >= lvlChk
+                array.set(bosLineBlocked, i, true)
+            else
+                line.set_x2(lnChk, bar_index + 1)
 
 if showBOSBull and bosBull
     array.push(bosLineArr, line.new(bosHighBar, bosHigh, bar_index, bosHigh, color=bosBullCol, width=2))
+    array.push(bosLineLevel, bosHigh)
+    array.push(bosLineBlocked, false)
     array.push(bosLblArr, label.new(bar_index, bosHigh, "BOS ↑",
          style=label.style_label_down, color=color.new(bosBullCol, 70), textcolor=bosBullCol, size=size.small))
 
 if showBOSBear and bosBear
     array.push(bosLineArr, line.new(bosLowBar, bosLow, bar_index, bosLow, color=bosBearCol, width=2))
+    array.push(bosLineLevel, bosLow)
+    array.push(bosLineBlocked, false)
     array.push(bosLblArr, label.new(bar_index, bosLow, "BOS ↓",
          style=label.style_label_up, color=color.new(bosBearCol, 70), textcolor=bosBearCol, size=size.small))
 
 if showCHoCHBull and chochBull
     array.push(bosLineArr, line.new(bosHighBar, bosHigh, bar_index, bosHigh, color=chochCol, width=2, style=line.style_dashed))
+    array.push(bosLineLevel, bosHigh)
+    array.push(bosLineBlocked, false)
     array.push(bosLblArr, label.new(bar_index, bosHigh, "CHoCH ↑",
          style=label.style_label_down, color=color.new(chochCol, 60), textcolor=color.black, size=size.small))
 
 if showCHoCHBear and chochBear
     array.push(bosLineArr, line.new(bosLowBar, bosLow, bar_index, bosLow, color=chochCol, width=2, style=line.style_dashed))
+    array.push(bosLineLevel, bosLow)
+    array.push(bosLineBlocked, false)
     array.push(bosLblArr, label.new(bar_index, bosLow, "CHoCH ↓",
          style=label.style_label_up, color=color.new(chochCol, 60), textcolor=color.black, size=size.small))
 
 if array.size(bosLineArr) > maxBosHistory
     line.delete(array.shift(bosLineArr))
     label.delete(array.shift(bosLblArr))
+    array.shift(bosLineLevel)
+    array.shift(bosLineBlocked)
 
 
 //=====================================================================
@@ -613,8 +613,16 @@ if newIDM
     array.push(idmLine, ln)
     array.push(idmLbl, lb)
 
+    // Règle 80/20 : structure haussière -> uniquement des achats,
+    // structure baissière -> uniquement des ventes. En consolidation
+    // (bias == 0), aucune contrainte connue, donc on laisse passer.
+    // N'affecte que le DESSIN de la zone, jamais idmLevel/idmDir/
+    // idmDone ni la détection de récupération — la logique IDM reste
+    // strictement identique.
+    bool dirAllowed = bias == 0 or bias == moveDir
+
     box zn = na
-    if showIdmZone
+    if showIdmZone and dirAllowed
         float zTop = moveDir == 1 ? idmCandidate : idmCandidate + atrZone
         float zBot = moveDir == 1 ? idmCandidate - atrZone : idmCandidate
         zn := box.new(idmCandidateBar, zTop, bar_index + idmZoneExt, zBot,
@@ -633,7 +641,7 @@ if newIDM
     // (bien plus étroite que la Zone à retester) : c'est ici, et
     // uniquement ici, que se prépare l'entrée de précision.
     box sn = na
-    if showSniperZone
+    if showSniperZone and dirAllowed
         sn := box.new(idmCandidateBar, idmCandidate + atrSniper, bar_index + idmZoneExt, idmCandidate - atrSniper,
              border_color=sniperCol,
              border_width=2,
@@ -773,29 +781,14 @@ if array.size(idmLevel) > 0
             if recovered
                 array.set(idmDone, i, true)
 
-                // Sniper Zone : au moment RÉEL de la liquidation, on
-                // resserre la bande (préparée à l'avance dès la formation
-                // de l'IDM) sur le vrai chandelier qui prend l'argent —
-                // la bougie qui vient de faire cette prise de liquidité —
-                // avec raffinage LTF automatique si activé (Module 12).
-                // S'applique à tout IDM recouvré, top-2 ou FS historique.
+                // Sniper Zone : dès que le prix part RÉELLEMENT pour le
+                // mouvement (l'IDM vient d'être liquidé), on la supprime
+                // immédiatement — elle ne doit être visible qu'au moment
+                // adéquat, pas après. S'applique à tout IDM recouvré,
+                // top-2 ou FS historique.
                 box szr = array.get(sniperZoneA, i)
                 if not na(szr)
-                    float snipTop = high
-                    float snipBot = low
-                    if refineValid
-                        if dir == 1 and array.size(ltfLowArr) > 0
-                            int idxMin = array.indexof(ltfLowArr, array.min(ltfLowArr))
-                            snipBot := array.get(ltfLowArr, idxMin)
-                            snipTop := math.max(array.get(ltfOpenArr, idxMin), array.get(ltfCloseArr, idxMin))
-                        if dir == -1 and array.size(ltfHighArr) > 0
-                            int idxMax = array.indexof(ltfHighArr, array.max(ltfHighArr))
-                            snipTop := array.get(ltfHighArr, idxMax)
-                            snipBot := math.min(array.get(ltfOpenArr, idxMax), array.get(ltfCloseArr, idxMax))
-                    box.set_top(szr, snipTop)
-                    box.set_bottom(szr, snipBot)
-                    box.set_right(szr, bar_index)
-                    box.set_text(szr, "Sniper ✓")
+                    box.delete(szr)
 
                 // Position 1 (le plus récent) OU position 2 : les deux
                 // comptent comme "actuels" et déclenchent un signal.
@@ -831,11 +824,6 @@ if array.size(idmLevel) > 0
                         if showIdmEntry
                             box.set_text(bzr, entryTxt)
                             box.set_text_color(bzr, color.white)
-
-                    if not na(szr)
-                        box.set_border_color(szr, entryCol)
-                        box.set_border_width(szr, 3)
-                        box.set_bgcolor(szr, color.new(entryCol, 65))
 
                     if dir == 1
                         entrySignalBuy := true
@@ -1024,8 +1012,9 @@ if accActive and newMoveUp and not na(accSCBar)
     // SC/STB/SPRING sont déjà posés en direct (voir plus haut, dès leur
     // formation) — pas de redoublon ici, seul le rectangle est nouveau.
     // Zone d'intervention de la phase — comme pour l'IDM, prolongée
-    // vers l'avant.
-    if showPhaseZone
+    // vers l'avant. Règle 80/20 : jamais de zone ACHAT si le biais est
+    // baissier.
+    if showPhaseZone and bias != -1
         box.new(accSCBar, topA, bar_index + idmZoneExt, accLow,
              border_color=entryBuyCol, border_width=2, border_style=line.style_solid,
              bgcolor=color.new(entryBuyCol, 75), text="ZONE ACHAT — " + phTxt,
@@ -1050,8 +1039,9 @@ if disActive and newMoveDown and not na(disBCBar)
     // BC/UT/UTAD sont déjà posés en direct (voir plus haut, dès leur
     // formation) — pas de redoublon ici, seul le rectangle est nouveau.
     // Zone d'intervention de la phase — comme pour l'IDM, prolongée
-    // vers l'avant.
-    if showPhaseZone
+    // vers l'avant. Règle 80/20 : jamais de zone VENTE si le biais est
+    // haussier.
+    if showPhaseZone and bias != 1
         box.new(disBCBar, disHigh, bar_index + idmZoneExt, botD,
              border_color=entrySellCol, border_width=2, border_style=line.style_solid,
              bgcolor=color.new(entrySellCol, 75), text="ZONE VENTE — " + phTxt,
@@ -1114,12 +1104,14 @@ if bar_index >= 2
 // AFFICHAGE — Supply / Demand (module 8, totalement indépendant de
 // l'IDM et de la Sniper Zone — lit seulement bosBull/bosBear, ne les
 // modifie pas). Volontairement séparé pour ne jamais se confondre
-// avec la Sniper Zone, qui reste toujours liée à l'IDM.
+// avec la Sniper Zone, qui reste toujours liée à l'IDM. Règle 80/20 :
+// jamais de DEMAND en biais baissier, jamais de SUPPLY en biais
+// haussier.
 //=====================================================================
 var box[] demBx = array.new_box()
 var box[] supBx = array.new_box()
 
-if showDemand and bosBull
+if showDemand and bosBull and bias != -1
     float demZt = high
     float demZb = low
     int demZi = bar_index
@@ -1134,7 +1126,7 @@ if showDemand and bosBull
     if array.size(demBx) > maxZones
         box.delete(array.shift(demBx))
 
-if showSupply and bosBear
+if showSupply and bosBear and bias != 1
     float supZt = high
     float supZb = low
     int supZi = bar_index
