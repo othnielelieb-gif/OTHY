@@ -21,11 +21,11 @@ indicator("SMV STRUCTURE — Moteur fractal (BOS/CHoCH/IDM)", "SMV Engine", over
 // prix la liquide pour lancer le vrai mouvement — jamais affichée
 // après coup.
 //
-// Logique fractale : tout repose sur ta.pivothigh/pivotlow du graphique
-// courant, sans aucune référence à une unité de temps fixe — la même
-// mécanique s'applique donc identiquement en 1m comme en Monthly. Seul
-// pivLen (la sensibilité) mérite d'être adapté à l'échelle ; voir la
-// section 1 pour le mode Auto.
+// Logique fractale : tout repose sur un zigzag structurel auto-calibré
+// sur l'ATR (voir section PIVOTS), sans aucune référence à une unité de
+// temps fixe ni le moindre réglage de sensibilité — la même mécanique
+// s'applique identiquement en 1m comme en Monthly, le seuil de
+// confirmation s'adapte tout seul à la volatilité du moment.
 //
 // BOS = extremum courant, pas juste le dernier pivot : tant que la
 // structure est haussière, bosHigh reste ancré sur le plus haut HH
@@ -45,11 +45,7 @@ indicator("SMV STRUCTURE — Moteur fractal (BOS/CHoCH/IDM)", "SMV Engine", over
 //=====================================================================
 gS = "1. Structure"
 showStruct   = input.bool(true, "Afficher HH / HL / LH / LL", group=gS,
-     tooltip="C'est le seul marquage qui apparaît dès qu'un pivot est confirmé, sans attendre de BOS/CHoCH ni de phase — la façon la plus rapide de voir un HL/LH se former.")
-pivMode      = input.string("Auto (timeframe)", "Sensibilité des pivots", options=["Manuel", "Auto (timeframe)"], group=gS,
-     tooltip="Par défaut sur Auto : applique une valeur de référence par unité de temps (1m:4, 5m:5, 15m:6, 1H:8, 2H:9, 4H:11, D:14, W:18, M:22) pour ne garder que les sommets/creux vraiment significatifs — pas le moindre micro-pivot. Passe en Manuel si tu veux fixer toi-même la sensibilité via le réglage ci-dessous.")
-pivLenManual = input.int(1, "Sensibilité manuelle", minval=1, maxval=50, group=gS,
-     tooltip="Par défaut à 1 : capte le pivot le plus récent possible sur n'importe quel timeframe (c'est déjà la valeur la plus sensible qui existe — augmenter ce chiffre réduit le nombre de pivots détectés, ça ne l'augmente pas).")
+     tooltip="C'est le seul marquage qui apparaît dès qu'un swing structurel est confirmé, sans attendre de BOS/CHoCH ni de phase — la façon la plus rapide de voir un HL/LH se former. Aucun réglage de sensibilité : la détection des swings est 100% automatique (zigzag calibré sur l'ATR, voir plus bas).")
 bullCol      = input.color(#26a69a, "Couleur haussière", group=gS)
 bearCol      = input.color(#ef5350, "Couleur baissière", group=gS)
 rangeCol     = input.color(#9e9e9e, "Couleur consolidation", group=gS)
@@ -176,43 +172,6 @@ nyCol    = input.color(color.new(#ffa726, 85), "Couleur session NYC", group=gSes
 
 
 //=====================================================================
-// SENSIBILITÉ DES PIVOTS — fractale par timeframe (section 1)
-//
-// ta.pivothigh/pivotlow et l'opérateur [] exigent un décalage "simple
-// int" (constant pour toute l'exécution du script), pas un "series
-// int". timeframe.in_seconds() est traité par Pine comme "series" et
-// ferait échouer la compilation dans ce contexte — on reste donc
-// uniquement sur timeframe.period / timeframe.multiplier / les
-// booléens timeframe.isminutes/isdaily/isweekly/ismonthly, qui sont
-// tous "simple" et restent constants du début à la fin du script.
-//=====================================================================
-f_autoPivLen() =>
-    string tf = timeframe.period
-    int result =
-         tf == "1"  ? 4 :
-         tf == "3"  ? 4 :
-         tf == "5"  ? 5 :
-         tf == "15" ? 6 :
-         tf == "30" ? 7 :
-         tf == "60" ? 8 :
-         tf == "120" ? 9 :
-         tf == "240" ? 11 :
-         tf == "D"  ? 14 :
-         tf == "W"  ? 18 :
-         tf == "M"  ? 22 :
-         timeframe.isseconds ? 4 :
-         timeframe.isminutes and timeframe.multiplier < 15 ? 5 :
-         timeframe.isminutes and timeframe.multiplier < 60 ? 6 :
-         timeframe.isminutes ? 9 :
-         timeframe.isdaily ? 14 :
-         timeframe.isweekly ? 18 :
-         timeframe.ismonthly ? 22 : 8
-    result
-
-pivLen = pivMode == "Auto (timeframe)" ? f_autoPivLen() : pivLenManual
-
-
-//=====================================================================
 // FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
 // graphique (jamais d'un autre timeframe, l'analyse reste strictement
 // indépendante d'une unité de temps à l'autre) :
@@ -247,13 +206,59 @@ bool inLookback = time >= (timenow - f_lookbackMs())
 
 
 //=====================================================================
-// PIVOTS (moteur — toujours actif, dans la fenêtre d'analyse)
+// PIVOTS — ZIGZAG STRUCTUREL AUTO-CALIBRÉ (moteur — toujours actif,
+// dans la fenêtre d'analyse)
+//
+// Remplace ta.pivothigh/pivotlow à fenêtre fixe (un nombre de bougies
+// à régler) par un zigzag : un nouveau swing haut n'est confirmé que
+// lorsque le prix redescend d'au moins zigzagMult x ATR(14) sous
+// l'extrême en formation, et symétriquement pour un swing bas. Le
+// seuil s'auto-calibre à la volatilité de l'instrument et du
+// timeframe — AUCUN réglage de sensibilité à toucher. Comme tout
+// zigzag, un swing déjà confirmé ne change plus jamais de valeur ;
+// seule l'extrémité en cours de formation reste provisoire jusqu'à son
+// propre renversement.
 //=====================================================================
-ph = ta.pivothigh(pivLen, pivLen)
-pl = ta.pivotlow(pivLen, pivLen)
-
 atrZone   = ta.atr(14) * idmZoneSize
 atrSniper = ta.atr(14) * sniperSize
+
+zigzagMult = 1.5
+float zigzagThresh = ta.atr(14) * zigzagMult
+
+var int   zzDir        = 1
+var float zzExtreme    = na
+var int   zzExtremeBar = na
+
+float ph = na
+float pl = na
+var int phBar = na
+var int plBar = na
+
+if na(zzExtreme)
+    zzExtreme := high
+    zzExtremeBar := bar_index
+
+if not na(zigzagThresh)
+    if zzDir == 1
+        if high > zzExtreme
+            zzExtreme := high
+            zzExtremeBar := bar_index
+        if low <= zzExtreme - zigzagThresh
+            ph := zzExtreme
+            phBar := zzExtremeBar
+            zzDir := -1
+            zzExtreme := low
+            zzExtremeBar := bar_index
+    else
+        if low < zzExtreme
+            zzExtreme := low
+            zzExtremeBar := bar_index
+        if high >= zzExtreme + zigzagThresh
+            pl := zzExtreme
+            plBar := zzExtremeBar
+            zzDir := 1
+            zzExtreme := high
+            zzExtremeBar := bar_index
 
 var float lastPH = na
 var float prevPH = na
@@ -266,12 +271,12 @@ var int lastPLBar = na
 if not na(ph) and inLookback
     prevPH := lastPH
     lastPH := ph
-    lastPHBar := bar_index[pivLen]
+    lastPHBar := phBar
 
     if showStruct
         string txt = na(prevPH) ? "H" : ph > prevPH ? "HH" : "LH"
         color col = na(prevPH) ? rangeCol : ph > prevPH ? bullCol : bearCol
-        label.new(bar_index[pivLen], ph, txt,
+        label.new(phBar, ph, txt,
              style=label.style_label_down,
              color=color.new(col, 80),
              textcolor=col,
@@ -280,12 +285,12 @@ if not na(ph) and inLookback
 if not na(pl) and inLookback
     prevPL := lastPL
     lastPL := pl
-    lastPLBar := bar_index[pivLen]
+    lastPLBar := plBar
 
     if showStruct
         string txt = na(prevPL) ? "L" : pl > prevPL ? "HL" : "LL"
         color col = na(prevPL) ? rangeCol : pl > prevPL ? bullCol : bearCol
-        label.new(bar_index[pivLen], pl, txt,
+        label.new(plBar, pl, txt,
              style=label.style_label_up,
              color=color.new(col, 80),
              textcolor=col,
@@ -432,7 +437,7 @@ if not na(ph) and inLookback
     bool keepHigherRef = confirmedTrend == 1 and not na(bosHigh) and ph <= bosHigh
     if not keepHigherRef
         bosHigh := ph
-        bosHighBar := bar_index[pivLen]
+        bosHighBar := phBar
 
 // Symétrique en baissier : le trait du BOS part TOUJOURS du LL le plus
 // bas tant que la tendance confirmée reste baissière — bosLow ne
@@ -444,7 +449,7 @@ if not na(pl) and inLookback
     bool keepLowerRef = confirmedTrend == -1 and not na(bosLow) and pl >= bosLow
     if not keepLowerRef
         bosLow := pl
-        bosLowBar := bar_index[pivLen]
+        bosLowBar := plBar
 
 var string lastBOS   = "-"
 var string lastCHoCH = "-"
@@ -679,11 +684,11 @@ int   idmCandidateBar = na
 // prix), IDM baissier toujours > moveExtreme (au-dessus du prix).
 if moveDir == 1 and not na(pl) and pl < moveExtreme
     idmCandidate := pl
-    idmCandidateBar := bar_index[pivLen]
+    idmCandidateBar := plBar
 
 if moveDir == -1 and not na(ph) and ph > moveExtreme
     idmCandidate := ph
-    idmCandidateBar := bar_index[pivLen]
+    idmCandidateBar := phBar
 
 int nPrev = array.size(idmLevel)
 float prevTopLevel = nPrev > 0 ? array.get(idmLevel, nPrev - 1) : na
@@ -1165,7 +1170,7 @@ if disActive and newMoveDown and not na(disBCBar)
 if not accActive and not na(pl)
     accActive := true
     accSC := pl
-    accSCBar := bar_index[pivLen]
+    accSCBar := plBar
     accLow := pl
     accTop := na(lastPH) ? high : math.max(lastPH, high)
     accSTBBar := na
@@ -1181,7 +1186,7 @@ if not accActive and not na(pl)
 if not disActive and not na(ph)
     disActive := true
     disBC := ph
-    disBCBar := bar_index[pivLen]
+    disBCBar := phBar
     disHigh := ph
     disBottom := na(lastPL) ? low : math.min(lastPL, low)
     disUTBar := na
