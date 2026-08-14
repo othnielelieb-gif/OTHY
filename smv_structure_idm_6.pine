@@ -22,10 +22,11 @@ indicator("SMV STRUCTURE — Moteur fractal (BOS/CHoCH/IDM)", "SMV Engine", over
 // après coup.
 //
 // Logique fractale : tout repose sur un zigzag structurel auto-calibré
-// sur l'ATR (voir section PIVOTS), sans aucune référence à une unité de
-// temps fixe ni le moindre réglage de sensibilité — la même mécanique
-// s'applique identiquement en 1m comme en Monthly, le seuil de
-// confirmation s'adapte tout seul à la volatilité du moment.
+// sur l'ATR (voir section PIVOTS) — AUCUN réglage de sensibilité exposé
+// à l'utilisateur. Le seuil de confirmation s'adapte tout seul à la
+// volatilité du moment ; sur M5/M15 spécifiquement, il se repositionne
+// en plus, tout seul, sur 1 de 3 paliers (1/2/3) selon le régime de
+// volatilité courant — toujours 100% autonome, jamais un input.
 //
 // BOS = extremum courant, pas juste le dernier pivot : tant que la
 // structure est haussière, bosHigh reste ancré sur le plus haut HH
@@ -235,7 +236,20 @@ bool inLookback = time >= (timenow - f_lookbackMs())
 atrZone   = ta.atr(14) * idmZoneSize
 atrSniper = ta.atr(14) * sniperSize
 
-zigzagMult = 1.5
+// Sensibilité automatique — AUCUN réglage exposé, toujours 100%
+// autonome. Sur M5 et M15 uniquement (timeframes les plus bruités), le
+// seuil de confirmation du zigzag se repositionne lui-même sur 1 de 3
+// paliers (1 = plus sensible / capte plus de swings, 3 = plus filtré /
+// ignore le bruit) selon le régime de volatilité courant (ATR rapide vs
+// sa propre moyenne longue) — recalculé bougie après bougie, jamais figé.
+// Sur tous les autres timeframes, la mécanique reste strictement celle
+// d'avant (multiplicateur fixe 1.5 x ATR14).
+bool  isFastTF   = timeframe.period == "5" or timeframe.period == "15"
+float atrFast    = ta.atr(14)
+float atrSlow    = ta.sma(atrFast, 100)
+float volRatio   = atrSlow > 0 ? atrFast / atrSlow : 1.0
+int   sensLevel  = volRatio >= 1.25 ? 3 : volRatio <= 0.85 ? 1 : 2
+float zigzagMult = isFastTF ? (sensLevel == 1 ? 1.0 : sensLevel == 2 ? 1.5 : 2.25) : 1.5
 float zigzagThresh = ta.atr(14) * zigzagMult
 
 var int   zzDir        = 1
