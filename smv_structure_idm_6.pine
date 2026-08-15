@@ -6,11 +6,17 @@ indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overla
 //
 // Indicateur volontairement resserré autour de la vraie stratégie :
 // Structure -> IDM -> Sniper Zone (le reteste précis) -> Liquidité
-// cible. Tout le reste (BOS/CHoCH visuels, Premium/Discount, FVG,
-// Supply/Demand, Sessions, VWAP, Biais Multi-TF, OTHY Radar) a été
-// retiré volontairement — soit inutile, soit remplacé par plus simple.
+// cible. Tout le reste (Premium/Discount, FVG, Supply/Demand, Sessions,
+// VWAP, Biais Multi-TF, OTHY Radar) a été retiré volontairement — soit
+// inutile, soit remplacé par plus simple.
 //
-// Le calcul (structure, BOS, CHoCH, mouvement, 0.5, IDM, récupération,
+// Structure BOS/BMS : moteur fusionné depuis "SMC Structures and FVG"
+// (LudoGH68), groupe de réglages "1b". Terminologie volontairement
+// inversée par rapport à l'original : ici BOS = RETOURNEMENT (pilote
+// confirmedTrend, fast-track sans attendre 3 bougies) et BMS =
+// CONTINUATION (attend la confirmation sur 3 bougies).
+//
+// Le calcul (structure, BOS, BMS, mouvement, 0.5, IDM, récupération,
 // phases) tourne TOUJOURS en interne, même quand un module d'affichage
 // est désactivé — désactiver un module n'affecte jamais le calcul d'un
 // autre.
@@ -44,6 +50,59 @@ pivLenManual = input.int(1, "Sensibilité manuelle (bougies)", minval=1, maxval=
 bullCol      = input.color(#26a69a, "Couleur haussière", group=gS)
 bearCol      = input.color(#ef5350, "Couleur baissière", group=gS)
 rangeCol     = input.color(#9e9e9e, "Couleur consolidation", group=gS)
+
+//=====================================================================
+// 1b. Cassures de structure — moteur fusionné depuis "SMC Structures and
+// FVG" (LudoGH68) : mêmes réglages que l'indicateur d'origine (cassure
+// par corps de bougie ou mèche, couleurs/style/épaisseur séparés,
+// historique). Seule la terminologie change : ici BOS = RETOURNEMENT
+// (pilote confirmedTrend), BMS = CONTINUATION — inversé par rapport à
+// l'indicateur d'origine, à ta demande.
+//=====================================================================
+gB = "1b. Cassures de structure — BOS (retournement) / BMS (continuation)"
+isStructBodyCandleBreak = input.bool(true, "Cassure validée par la clôture (corps de bougie)", group=gB,
+     tooltip="Coché (recommandé) : une cassure n'est validée que si le CORPS de la bougie (close) dépasse le niveau. Décoché : la mèche (high/low) suffit. Pilote aussi confirmedTrend (IDM, Sniper Zone, Liquidité Cible, Acheteur/Vendeur maintenant).")
+bosBullColor = input.color(color.yellow, "Couleur BOS haussier (retournement)", group=gB)
+bosBearColor = input.color(color.yellow, "Couleur BOS baissier (retournement)", group=gB)
+bosLineStyleOption = input.string("─", "Style BOS", options=["─", "┈", "╌"], group=gB)
+bosLineWidth = input.int(1, "Épaisseur BOS", minval=1, maxval=5, group=gB)
+bmsBullColor = input.color(color.silver, "Couleur BMS haussier (continuation)", group=gB)
+bmsBearColor = input.color(color.silver, "Couleur BMS baissier (continuation)", group=gB)
+bmsLineStyleOption = input.string("─", "Style BMS", options=["─", "┈", "╌"], group=gB)
+bmsLineWidth = input.int(1, "Épaisseur BMS", minval=1, maxval=5, group=gB)
+structHistoryNbr = input.int(10, "Nombre de cassures affichées (historique)", minval=1, maxval=50, group=gB)
+showCurrentStruct = input.bool(true, "Afficher la structure actuelle (ligne en cours)", group=gB)
+currentStructColor = input.color(color.blue, "Couleur structure actuelle", group=gB)
+currentStructLineStyleOption = input.string("─", "Style structure actuelle", options=["─", "┈", "╌"], group=gB)
+currentStructLineWidth = input.int(1, "Épaisseur structure actuelle", minval=1, maxval=5, group=gB)
+
+f_getLineStyle(string lineOption) =>
+    lineOption == "┈" ? line.style_dotted : lineOption == "╌" ? line.style_dashed : line.style_solid
+
+bosLineStyle = f_getLineStyle(bosLineStyleOption)
+bmsLineStyle = f_getLineStyle(bmsLineStyleOption)
+currentStructLineStyle = f_getLineStyle(currentStructLineStyleOption)
+
+// Bar du plus haut / plus bas significatif sur les 10 dernières bougies
+// (sert à replacer bosHigh/bosLow après une cassure) — porté tel quel
+// depuis get_structure_highest_bar/get_structure_lowest_bar.
+f_structHighestBar(int lookback) =>
+    var int idx = 0
+    int maxBar = bar_index > lookback ? ta.highestbars(high, lookback) : ta.highestbars(high, bar_index + 1)
+    for i = 0 to lookback - 1
+        if high[i+1] > high[i+2] and high[i] <= high[i+1] and ((i+1) * -1) >= maxBar
+            idx := (i+1) * -1
+    idx := idx == 0 ? maxBar : idx
+    idx
+
+f_structLowestBar(int lookback) =>
+    var int idx = 0
+    int minBar = bar_index > lookback ? ta.lowestbars(low, lookback) : ta.lowestbars(low, bar_index + 1)
+    for i = 0 to lookback - 1
+        if low[i+1] < low[i+2] and low[i] >= low[i+1] and ((i+1) * -1) >= minBar
+            idx := (i+1) * -1
+    idx := idx == 0 ? minBar : idx
+    idx
 
 //=====================================================================
 // 2. IDM (Inducement) — LE plus important : c'est là que tu attends le
@@ -291,86 +350,127 @@ if not na(pl) and inLookback
 
 
 //=====================================================================
-// STRUCTURE — 3 ÉTATS (moteur — toujours actif)
-//   1  = BULLISH        (HH + HL)
-//  -1  = BEARISH        (LH + LL)
-//   0  = CONSOLIDATION  (ni l'un ni l'autre : pause du marché)
-//=====================================================================
-bullStruct =
-     not na(lastPH) and not na(prevPH) and
-     not na(lastPL) and not na(prevPL) and
-     lastPH > prevPH and lastPL > prevPL
-
-bearStruct =
-     not na(lastPH) and not na(prevPH) and
-     not na(lastPL) and not na(prevPL) and
-     lastPH < prevPH and lastPL < prevPL
-
-allPiv = not na(lastPH) and not na(prevPH) and not na(lastPL) and not na(prevPL)
-
-var int bias = 0
-
-if bullStruct
-    bias := 1
-else if bearStruct
-    bias := -1
-else if allPiv
-    bias := 0
-
-
-//=====================================================================
-// CASSURES DE STRUCTURE — BOS / CHoCH (moteur — toujours actif, aucun
-// affichage : tu traces tes propres BOS/CHoCH. confirmedTrend reste le
-// pilote de tout le reste — IDM, Sniper Zone, Liquidité Cible.)
+// STRUCTURE + CASSURES BOS/BMS (moteur — toujours actif). Moteur fusionné
+// depuis "SMC Structures and FVG" (LudoGH68) : bosHigh/bosLow suivis avec
+// confirmation sur 3 bougies (ou clôture du corps si
+// isStructBodyCandleBreak), extension automatique tant qu'aucune cassure
+// n'a eu lieu. Un retournement (ex-CHoCH) est fast-track (pas d'attente
+// des 3 bougies), une continuation (ex-BOS) attend la confirmation —
+// exactement le moteur d'origine.
+//   bias : 1 = haussier, -1 = baissier, 0 = pas encore de structure
 //=====================================================================
 var float bosHigh = na
-var int bosHighBar = na
+var int   bosHighBar = na
 var float bosLow = na
-var int bosLowBar = na
+var int   bosLowBar = na
 var float brokenHigh    = na
 var int   brokenHighBar = na
 var float brokenLow     = na
 var int   brokenLowBar  = na
+var int   bias = 0
 
-bool breakUp =
-     not na(bosHigh) and
-     close > bosHigh and
-     (na(brokenHigh) or bosHigh != brokenHigh)
+var line[]  structLines       = array.new_line()
+var label[] structLabels      = array.new_label()
+var line    curStructHighLine = na
+var line    curStructLowLine  = na
 
-bool breakDown =
-     not na(bosLow) and
-     close < bosLow and
-     (na(brokenLow) or bosLow != brokenLow)
+if bar_index == 0
+    bosHighBar := bar_index
+    bosLowBar  := bar_index
+    bosHigh := high
+    bosLow  := low
+
+int structMaxBar = bar_index + f_structHighestBar(10)
+int structMinBar = bar_index + f_structLowestBar(10)
+
+float lowBreakPx  = isStructBodyCandleBreak ? close : low
+float highBreakPx = isStructBodyCandleBreak ? close : high
+
+bool isStructLowBroken =
+     (lowBreakPx < bosLow and lowBreakPx[1] >= bosLow and lowBreakPx[2] >= bosLow and lowBreakPx[3] >= bosLow and
+      bar_index[1] > bosLowBar and bar_index[2] > bosLowBar and bar_index[3] > bosLowBar) or
+     (bias == 1 and lowBreakPx < bosLow)
+
+bool isStructHighBroken =
+     (highBreakPx > bosHigh and highBreakPx[1] <= bosHigh and highBreakPx[2] <= bosHigh and highBreakPx[3] <= bosHigh and
+      bar_index[1] > bosHighBar and bar_index[2] > bosHighBar and bar_index[3] > bosHighBar) or
+     (bias == -1 and highBreakPx > bosHigh)
 
 bool bosBull   = false
 bool bosBear   = false
 bool chochBull = false
 bool chochBear = false
 
-if breakUp
-    if bias == -1
-        chochBull := true
-    else
-        bosBull := true
-    brokenHigh := bosHigh
-    brokenHighBar := bosHighBar
+if isStructLowBroken
+    if array.size(structLines) >= structHistoryNbr
+        line.delete(array.get(structLines, 0))
+        label.delete(array.get(structLabels, 0))
+        array.remove(structLines, 0)
+        array.remove(structLabels, 0)
 
-if breakDown
-    if bias == 1
-        chochBear := true
-    else
+    bool  isContinuation = bias == -1
+    string evTxt = isContinuation ? "BMS" : "BOS"
+    color  evCol = isContinuation ? bmsBearColor : bosBearColor
+
+    array.push(structLines, line.new(bosLowBar, bosLow, bar_index, bosLow, xloc=xloc.bar_index, extend=extend.none,
+         color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth))
+    array.push(structLabels, label.new(int(math.avg(bar_index, bosLowBar)), bosLow, text=evTxt, style=label.style_none, textcolor=evCol))
+
+    if isContinuation
         bosBear := true
+    else
+        chochBear := true
+
     brokenLow := bosLow
     brokenLowBar := bosLowBar
 
-if chochBull
-    bias := 1
-
-if chochBear
     bias := -1
+    bosHighBar := structMaxBar
+    bosLowBar  := bar_index
+    bosHigh := high[bar_index - bosHighBar]
+    bosLow  := low
 
-// TENDANCE CONFIRMÉE — ne change JAMAIS sur un BOS de continuation ni
-// sur une lecture de consolidation, seul un vrai CHoCH la fait
+else if isStructHighBroken
+    if array.size(structLines) >= structHistoryNbr
+        line.delete(array.get(structLines, 0))
+        label.delete(array.get(structLabels, 0))
+        array.remove(structLines, 0)
+        array.remove(structLabels, 0)
+
+    bool  isContinuation = bias == 1
+    string evTxt = isContinuation ? "BMS" : "BOS"
+    color  evCol = isContinuation ? bmsBullColor : bosBullColor
+
+    array.push(structLines, line.new(bosHighBar, bosHigh, bar_index, bosHigh, xloc=xloc.bar_index, extend=extend.none,
+         color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth))
+    array.push(structLabels, label.new(int(math.avg(bar_index, bosHighBar)), bosHigh, text=evTxt, style=label.style_none, textcolor=evCol))
+
+    if isContinuation
+        bosBull := true
+    else
+        chochBull := true
+
+    brokenHigh := bosHigh
+    brokenHighBar := bosHighBar
+
+    bias := 1
+    bosHighBar := bar_index
+    bosLowBar  := structMinBar
+    bosHigh := high
+    bosLow  := low[bar_index - bosLowBar]
+
+else
+    if high > bosHigh and (bias == 0 or bias == 1)
+        if not isStructBodyCandleBreak or not (bar_index[1] > bosHighBar and bar_index[2] > bosHighBar and bar_index[3] > bosHighBar)
+            bosHigh := high
+            bosHighBar := bar_index
+    else if low < bosLow and (bias == 0 or bias == -1)
+        if not isStructBodyCandleBreak or not (bar_index[1] > bosLowBar and bar_index[2] > bosLowBar and bar_index[3] > bosLowBar)
+            bosLow := low
+            bosLowBar := bar_index
+
+// TENDANCE CONFIRMÉE — ne change JAMAIS sur un BMS de continuation ni sur
+// une lecture de consolidation, seul un vrai BOS (retournement) la fait
 // basculer. Pilote l'ancrage de bosHigh/bosLow, la Sniper Zone, la
 // Liquidité Cible et la case "Acheteur/Vendeur maintenant".
 var int confirmedTrend = 0
@@ -379,23 +479,18 @@ if chochBull
     confirmedTrend := 1
 if chochBear
     confirmedTrend := -1
-if confirmedTrend == 0
-    if bosBull
-        confirmedTrend := 1
-    if bosBear
-        confirmedTrend := -1
 
-if not na(ph) and inLookback
-    bool keepHigherRef = confirmedTrend == 1 and not na(bosHigh) and ph <= bosHigh
-    if not keepHigherRef
-        bosHigh := ph
-        bosHighBar := phBar
-
-if not na(pl) and inLookback
-    bool keepLowerRef = confirmedTrend == -1 and not na(bosLow) and pl >= bosLow
-    if not keepLowerRef
-        bosLow := pl
-        bosLowBar := plBar
+// Structure actuelle en cours (optionnel) — matérialise bosHigh/bosLow,
+// les niveaux qui pilotent la Liquidité Cible et le repli du SL.
+if showCurrentStruct
+    if not na(curStructHighLine)
+        line.delete(curStructHighLine)
+    if not na(curStructLowLine)
+        line.delete(curStructLowLine)
+    curStructHighLine := line.new(bosHighBar, bosHigh, bar_index, bosHigh, xloc=xloc.bar_index,
+         color=currentStructColor, style=currentStructLineStyle, width=currentStructLineWidth)
+    curStructLowLine := line.new(bosLowBar, bosLow, bar_index, bosLow, xloc=xloc.bar_index,
+         color=currentStructColor, style=currentStructLineStyle, width=currentStructLineWidth)
 
 
 //=====================================================================
@@ -463,7 +558,7 @@ if showIntact
 //=====================================================================
 // MOTEUR DE MOUVEMENT (moteur — toujours actif)
 //
-// Une cassure (BOS ou CHoCH) lance un mouvement. Le moteur suit son
+// Une cassure (BMS ou BOS) lance un mouvement. Le moteur suit son
 // origine et son extrême pour calculer le niveau 0.5 — c'est ce 0.5 qui
 // juge la validité du retracement, et c'est moveDir qui pilote l'IDM.
 //=====================================================================
@@ -782,7 +877,7 @@ bool enteredSniperZone = inSniperNow and not inSniperNow[1]
 //
 // Point critique : si l'IDM est repris MAIS que, sur la même bougie, le
 // prix casse réellement la structure dans le sens opposé, ce n'est PAS
-// une continuation — c'est un CHoCH. Aucun signal d'entrée émis.
+// une continuation — c'est un BOS (retournement). Aucun signal d'entrée émis.
 //=====================================================================
 bool entrySignalBuy   = false
 bool entrySignalSell  = false
@@ -843,7 +938,7 @@ if array.size(idmLevel) > 0
                     if isTopTwo and blockedByChoch
                         signalBlockedByChoch := true
                     string doneTxt = isTopTwo and blockedByChoch ?
-                         array.get(idmKind, i) + " ✓ (CHoCH)" :
+                         array.get(idmKind, i) + " ✓ (BOS)" :
                          array.get(idmKind, i) + " ✓"
 
                     if not na(lnr)
@@ -1260,14 +1355,14 @@ if showOthySignal and barstate.islast
 //=====================================================================
 // ALERTES
 //=====================================================================
-alertcondition(bosBull, "BOS Bullish", "SMV : BOS haussier — continuation")
-alertcondition(bosBear, "BOS Bearish", "SMV : BOS baissier — continuation")
-alertcondition(chochBull, "CHoCH Bullish", "SMV : CHoCH haussier — changement de biais")
-alertcondition(chochBear, "CHoCH Bearish", "SMV : CHoCH baissier — changement de biais")
+alertcondition(bosBull, "BMS Bullish", "SMV : BMS haussier — continuation")
+alertcondition(bosBear, "BMS Bearish", "SMV : BMS baissier — continuation")
+alertcondition(chochBull, "BOS Bullish", "SMV : BOS haussier — changement de biais (retournement)")
+alertcondition(chochBear, "BOS Bearish", "SMV : BOS baissier — changement de biais (retournement)")
 alertcondition(isFS, "IDM déplacé (FS)", "SMV : retracement raté — l'IDM se déplace")
 alertcondition(entrySignalBuy, "Entrée ACHAT", "SMV : IDM récupéré — entrée ACHAT")
 alertcondition(entrySignalSell, "Entrée VENTE", "SMV : IDM récupéré — entrée VENTE")
-alertcondition(signalBlockedByChoch, "IDM repris → CHoCH", "SMV : IDM repris mais structure cassée en sens opposé — CHoCH, pas d'entrée")
+alertcondition(signalBlockedByChoch, "IDM repris → BOS", "SMV : IDM repris mais structure cassée en sens opposé — BOS (retournement), pas d'entrée")
 alertcondition(phaseAccConfirmed, "Fin d'accumulation", "SMV : accumulation/réaccumulation confirmée (SC/STB/SPRING)")
 alertcondition(phaseDisConfirmed, "Fin de distribution", "SMV : distribution/redistribution confirmée (BC/UT/UTAD)")
 alertcondition(enteredSniperZone, "Prix dans la Sniper Zone", "SMV : le prix vient d'entrer dans la Sniper Zone active (IDM)")
