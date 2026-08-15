@@ -108,13 +108,23 @@ showSniperZone = input.bool(true, "Afficher la Sniper Zone", group=gSn,
 sniperSize = input.float(0.12, "Épaisseur avant liquidation (x ATR)", minval=0.02, maxval=0.5, step=0.02, group=gSn,
      tooltip="Bande fine autour de l'IDM, préparée dès sa formation — bien plus étroite que la Zone à retester.")
 sniperCol  = input.color(#ffd54f, "Couleur Sniper Zone", group=gSn)
+showSniperRefine = input.bool(true, "Affiner sur la bougie de récupération (intrabar)", group=gSn,
+     tooltip="Dès que l'IDM est récupéré, resserre la zone sur le corps (open/close) de LA bougie qui fait la prise de liquidité — le \"chandelier qui prend l'argent\" du Module 4 SMV — au lieu de la bande ATR large. 100% intrabar, même timeframe, aucune requête externe.")
+refineCol = input.color(#26c6da, "Couleur zone affinée", group=gSn)
 
 //=====================================================================
 // 6. Premium / Discount (0.5)
 //=====================================================================
-gPd = "6. Premium / Discount (0.5)"
-showPd = input.bool(true, "Afficher le niveau 0.5 du mouvement", group=gPd)
-pdCol  = input.color(#90a4ae, "Couleur du 0.5", group=gPd)
+gPd = "6. Premium / Discount"
+showPdZones    = input.bool(true, "Afficher les zones Premium / Discount", group=gPd,
+     tooltip="Zones visuelles au-dessus/en dessous du 0.5 du mouvement confirmé — logique SMV Premium/Discount, jamais un Fibonacci affiché. Le 0.5 sert toujours au calcul interne, affiché ou non.")
+showPd         = input.bool(false, "Afficher le niveau 0.5 (équilibre)", group=gPd)
+showPdLabels   = input.bool(true, "Afficher les étiquettes PREMIUM / DISCOUNT + zone actuelle", group=gPd)
+pdExtend       = input.int(20, "Extension des zones (bougies)", minval=1, maxval=200, group=gPd)
+pdTransparency = input.int(88, "Transparence des zones", minval=0, maxval=100, group=gPd)
+premiumCol     = input.color(#ef5350, "Couleur Premium", group=gPd)
+discountCol    = input.color(#26a69a, "Couleur Discount", group=gPd)
+pdCol          = input.color(#90a4ae, "Couleur du 0.5 / équilibre", group=gPd)
 
 //=====================================================================
 // 7. FVG (Fair Value Gap)
@@ -183,6 +193,40 @@ showIntact = input.bool(true, "Afficher les niveaux Intact (High/Low en attente)
      tooltip="Intact Sellers (High) et Intact Buyers (Low) : le dernier sommet/creux pas encore balayé par le prix. Purement informatif, n'affecte jamais le moteur ni l'IDM.")
 intactBuyCol  = input.color(#4fc3f7, "Couleur Intact Buyers (Low)", group=gIL)
 intactSellCol = input.color(#ff8a65, "Couleur Intact Sellers (High)", group=gIL)
+
+//=====================================================================
+// 13. Liquidité Cible — l'IDM n'est PAS la destination du prix, c'est
+// une étape de retracement/affinage vers la vraie cible : la liquidité
+// pas encore balayée (les mêmes niveaux Intact ci-dessus, réutilisés
+// ici comme cible probable du mouvement confirmé). Purement informatif,
+// lecture seule de bosHigh/bosLow — n'influence jamais l'IDM, la Sniper
+// Zone ni aucun signal existant.
+//=====================================================================
+gLC = "13. Liquidité Cible"
+showLiquidityTarget = input.bool(true, "Afficher la cible de liquidité + distance parcourue", group=gLC,
+     tooltip="Tendance confirmée haussière -> cible = Intact Sellers (le High non balayé au-dessus). Baissière -> cible = Intact Buyers (le Low non balayé en dessous). Affiche aussi le % du chemin déjà parcouru depuis l'origine du mouvement, pour repérer si on entre encore loin de la cible ou trop tard.")
+targetCol = input.color(#ba68c8, "Couleur cible de liquidité", group=gLC)
+
+//=====================================================================
+// 14. Biais Multi-Timeframe — SEULE exception à la règle "un timeframe
+// à la fois" : une unique lecture combinée Daily/H4/H1/M15/M5,
+// pondérée par importance (Daily/H4 = contexte, H1 = timeframe
+// principal, M15/M5 = exécution), pour te situer rapidement. N'affecte
+// jamais le moteur structurel principal, qui reste strictement
+// mono-timeframe.
+//=====================================================================
+gMTF = "14. Biais Multi-Timeframe"
+showMultiTF = input.bool(true, "Afficher le biais Acheteur/Vendeur multi-timeframe", group=gMTF,
+     tooltip="Combine Daily(x3) + H4(x3) + H1(x2) + M15(x1) + M5(x1) en un score pondéré -> ACHETEUR / VENDEUR / MIXTE. Purement informatif : sert à te situer, jamais un signal d'entrée.")
+
+//=====================================================================
+// 15. VWAP — filtre contextuel additionnel (Module discuté) : ne
+// remplace jamais la structure SMV, ne bloque et ne déclenche aucun
+// signal existant.
+//=====================================================================
+gV = "15. VWAP"
+showVwap = input.bool(true, "Afficher le VWAP", group=gV)
+vwapCol  = input.color(#fdd835, "Couleur VWAP", group=gV)
 
 
 //=====================================================================
@@ -664,17 +708,156 @@ if moveDir == -1 and not newMoveDown and low < moveExtreme
 
 
 //=====================================================================
-// AFFICHAGE — Premium / Discount (0.5), indépendant
+// AFFICHAGE — Premium / Discount, indépendant (lecture seule de
+// moveOrigin/moveOriginBar/moveExtreme/moveFib50, déjà calculés par le
+// MOTEUR DE MOUVEMENT plus haut — aucune structure dupliquée, jamais de
+// Fibonacci affiché, seulement Premium/Discount/Équilibre).
 //=====================================================================
-var line fib50Line = na
+bool pdValidRange = moveDir != 0 and not na(moveOrigin) and not na(moveExtreme) and moveExtreme != moveOrigin
 
-if showPd and moveDir != 0 and not na(moveFib50)
+float pdRangeHigh = pdValidRange ? math.max(moveOrigin, moveExtreme) : na
+float pdRangeLow  = pdValidRange ? math.min(moveOrigin, moveExtreme) : na
+
+string currentZone = pdValidRange ? (close > moveFib50 ? "PREMIUM" : close < moveFib50 ? "DISCOUNT" : "ÉQUILIBRE") : "-"
+
+// Contexte SMV : on ne dit pas juste "Discount = achat" — on croise la
+// zone ET le sens du mouvement en cours (Discount en haussier a du
+// sens, Discount en baissier est juste une pause dans la baisse).
+bool bullishDiscount = pdValidRange and moveDir == 1 and close <= moveFib50
+bool bullishPremium  = pdValidRange and moveDir == 1 and close > moveFib50
+bool bearishPremium  = pdValidRange and moveDir == -1 and close >= moveFib50
+bool bearishDiscount = pdValidRange and moveDir == -1 and close < moveFib50
+
+var box   premiumBox  = na
+var box   discountBox = na
+var line  fib50Line   = na
+var label premiumLbl  = na
+var label discountLbl = na
+var label pdZoneLbl   = na
+
+if showPdZones and pdValidRange
+    if na(premiumBox)
+        premiumBox := box.new(moveOriginBar, pdRangeHigh, bar_index + pdExtend, moveFib50,
+             border_color=color.new(premiumCol, 45), border_width=1, bgcolor=color.new(premiumCol, pdTransparency))
+    else
+        box.set_left(premiumBox, moveOriginBar)
+        box.set_right(premiumBox, bar_index + pdExtend)
+        box.set_top(premiumBox, pdRangeHigh)
+        box.set_bottom(premiumBox, moveFib50)
+
+    if na(discountBox)
+        discountBox := box.new(moveOriginBar, moveFib50, bar_index + pdExtend, pdRangeLow,
+             border_color=color.new(discountCol, 45), border_width=1, bgcolor=color.new(discountCol, pdTransparency))
+    else
+        box.set_left(discountBox, moveOriginBar)
+        box.set_right(discountBox, bar_index + pdExtend)
+        box.set_top(discountBox, moveFib50)
+        box.set_bottom(discountBox, pdRangeLow)
+else
+    if not na(premiumBox)
+        box.delete(premiumBox)
+        premiumBox := na
+    if not na(discountBox)
+        box.delete(discountBox)
+        discountBox := na
+
+if showPd and pdValidRange
     if na(fib50Line)
-        fib50Line := line.new(moveOriginBar, moveFib50, bar_index + 5, moveFib50,
+        fib50Line := line.new(moveOriginBar, moveFib50, bar_index + pdExtend, moveFib50,
              color=color.new(pdCol, 40), style=line.style_dotted)
     else
         line.set_xy1(fib50Line, moveOriginBar, moveFib50)
-        line.set_xy2(fib50Line, bar_index + 5, moveFib50)
+        line.set_xy2(fib50Line, bar_index + pdExtend, moveFib50)
+else
+    if not na(fib50Line)
+        line.delete(fib50Line)
+        fib50Line := na
+
+if showPdLabels and pdValidRange
+    if na(premiumLbl)
+        premiumLbl := label.new(bar_index + pdExtend, pdRangeHigh, "PREMIUM",
+             style=label.style_label_down, color=color.new(premiumCol, 75), textcolor=premiumCol, size=size.small)
+    else
+        label.set_xy(premiumLbl, bar_index + pdExtend, pdRangeHigh)
+
+    if na(discountLbl)
+        discountLbl := label.new(bar_index + pdExtend, pdRangeLow, "DISCOUNT",
+             style=label.style_label_up, color=color.new(discountCol, 75), textcolor=discountCol, size=size.small)
+    else
+        label.set_xy(discountLbl, bar_index + pdExtend, pdRangeLow)
+
+    color  pdZoneCol = currentZone == "PREMIUM" ? premiumCol : currentZone == "DISCOUNT" ? discountCol : pdCol
+    string pdZoneTxt = (moveDir == 1 ? "MOUVEMENT HAUSSIER • " : "MOUVEMENT BAISSIER • ") + currentZone
+    if na(pdZoneLbl)
+        pdZoneLbl := label.new(bar_index, close, pdZoneTxt,
+             style=label.style_label_left, color=color.new(pdZoneCol, 75), textcolor=pdZoneCol, size=size.tiny)
+    else
+        label.set_xy(pdZoneLbl, bar_index, close)
+        label.set_text(pdZoneLbl, pdZoneTxt)
+        label.set_color(pdZoneLbl, color.new(pdZoneCol, 75))
+        label.set_textcolor(pdZoneLbl, pdZoneCol)
+else
+    if not na(premiumLbl)
+        label.delete(premiumLbl)
+        premiumLbl := na
+    if not na(discountLbl)
+        label.delete(discountLbl)
+        discountLbl := na
+    if not na(pdZoneLbl)
+        label.delete(pdZoneLbl)
+        pdZoneLbl := na
+
+
+//=====================================================================
+// LIQUIDITÉ CIBLE (lecture seule) — l'IDM n'est PAS la destination du
+// prix, c'est une étape de retracement/affinage vers la vraie cible :
+// la liquidité pas encore balayée. Réutilise bosHigh/bosLow (mêmes
+// niveaux que les zones Intact, module 12) comme cible probable du
+// mouvement CONFIRMÉ. N'influence jamais idmLevel/idmDir/idmDone, la
+// Sniper Zone ni aucun signal existant — purement informatif.
+//=====================================================================
+float targetLevel = na
+bool  targetValid = false
+
+if confirmedTrend == 1 and not na(bosHigh)
+    targetLevel := bosHigh
+    targetValid := true
+if confirmedTrend == -1 and not na(bosLow)
+    targetLevel := bosLow
+    targetValid := true
+
+// % du chemin déjà parcouru entre l'origine du mouvement en cours et
+// la cible de liquidité — pour repérer si on entre encore loin de la
+// cible ou si le plus gros du trajet est déjà fait (point 8 de la
+// méthode : éviter d'entrer trop tard).
+float targetProgressPct = na
+if targetValid and not na(moveOrigin) and targetLevel != moveOrigin
+    targetProgressPct := (close - moveOrigin) / (targetLevel - moveOrigin) * 100
+    targetProgressPct := math.max(0.0, math.min(100.0, targetProgressPct))
+
+var line  targetLine = na
+var label targetLbl  = na
+
+if showLiquidityTarget and targetValid
+    string targetTxt = "Cible liquidité " + str.tostring(targetLevel, format.mintick) +
+         (na(targetProgressPct) ? "" : " (" + str.tostring(targetProgressPct, "#") + "% parcouru)")
+    if na(targetLine)
+        targetLine := line.new(bar_index, targetLevel, bar_index + 1, targetLevel,
+             color=targetCol, style=line.style_dashed, width=2)
+        targetLbl := label.new(bar_index + 1, targetLevel, targetTxt,
+             style=label.style_label_left, color=color.new(targetCol, 80), textcolor=targetCol, size=size.small)
+    else
+        line.set_xy1(targetLine, bar_index, targetLevel)
+        line.set_xy2(targetLine, bar_index + 1, targetLevel)
+        label.set_xy(targetLbl, bar_index + 1, targetLevel)
+        label.set_text(targetLbl, targetTxt)
+else
+    if not na(targetLine)
+        line.delete(targetLine)
+        targetLine := na
+    if not na(targetLbl)
+        label.delete(targetLbl)
+        targetLbl := na
 
 
 //=====================================================================
@@ -752,6 +935,12 @@ var box[]    idmZoneA = array.new_box()      // peut contenir na si showIdmZone=
 // Supply/Demand (module 8, indépendant) : la Sniper Zone n'existe qu'à
 // travers l'IDM, jamais via une détection de bougie séparée.
 var box[] sniperZoneA = array.new_box()      // peut contenir na si showSniperZone=false
+
+// Zones de raffinage intrabar ("chandelier qui prend l'argent") — pas
+// strictement parallèle à idmZoneA/sniperZoneA (une par récupération
+// effective, pas une par IDM créé), donc gérée avec sa propre limite
+// d'historique, plus bas.
+var box[] sniperRefineBx = array.new_box()
 
 float idmCandidate    = na
 int   idmCandidateBar = na
@@ -973,6 +1162,11 @@ if array.size(idmLevel) > 0
             if recovered
                 array.set(idmDone, i, true)
 
+                // Position 1 (le plus récent) OU position 2 : les deux
+                // comptent comme "actuels" et déclenchent un signal.
+                bool isTopTwo       = i >= array.size(idmLevel) - 2
+                bool blockedByChoch = (dir == 1 and chochBear) or (dir == -1 and chochBull)
+
                 // Sniper Zone : dès que le prix part RÉELLEMENT pour le
                 // mouvement (l'IDM vient d'être liquidé), on la supprime
                 // immédiatement — elle ne doit être visible qu'au moment
@@ -982,10 +1176,23 @@ if array.size(idmLevel) > 0
                 if not na(szr)
                     box.delete(szr)
 
-                // Position 1 (le plus récent) OU position 2 : les deux
-                // comptent comme "actuels" et déclenchent un signal.
-                bool isTopTwo       = i >= array.size(idmLevel) - 2
-                bool blockedByChoch = (dir == 1 and chochBear) or (dir == -1 and chochBull)
+                // Raffinage intrabar (Module 4, "chandelier qui prend
+                // l'argent") : pour les deux IDM actuels non invalidés par
+                // un CHoCH, la suppression ci-dessus ne suffit pas — le
+                // corps (open/close) de LA bougie qui vient de faire la
+                // prise de liquidité devient une zone de précision, bien
+                // plus étroite que la bande ATR d'origine. 100% intrabar,
+                // même timeframe, aucune requête cross-TF.
+                if showSniperRefine and isTopTwo and not blockedByChoch
+                    float refTop = math.max(open, close)
+                    float refBot = math.min(open, close)
+                    array.push(sniperRefineBx, box.new(bar_index, refTop, bar_index + idmZoneExt, refBot,
+                         border_color=refineCol, border_width=2,
+                         bgcolor=color.new(refineCol, 80),
+                         text="Sniper affinée", text_color=refineCol,
+                         text_size=size.tiny, text_halign=text.align_left))
+                    if array.size(sniperRefineBx) > 15
+                        box.delete(array.shift(sniperRefineBx))
 
                 line lnr = array.get(idmLine, i)
                 label lbr = array.get(idmLbl, i)
@@ -1347,10 +1554,46 @@ bgcolor(showSessions and inNY ? nyCol : na, title="NYC Session (13h-16h)")
 
 
 //=====================================================================
+// VWAP — filtre contextuel additionnel, purement informatif : ne
+// bloque et ne déclenche jamais aucun signal existant.
+//=====================================================================
+float vwapVal = ta.vwap
+plot(showVwap ? vwapVal : na, title="VWAP", color=vwapCol, linewidth=2)
+
+
+//=====================================================================
+// BIAIS MULTI-TIMEFRAME — SEULE exception à la règle mono-timeframe :
+// combine Daily/H4/H1/M15/M5 (confirmedTrend de CE script, recalculé
+// sur chaque timeframe via request.security) en un score pondéré par
+// importance (Daily/H4 = contexte, H1 = timeframe principal, M15/M5 =
+// exécution). N'affecte jamais le moteur structurel principal, qui
+// reste strictement mono-timeframe — lecture 100% indépendante,
+// uniquement pour cette case du dashboard.
+//=====================================================================
+f_mtfIcon(int b) =>
+    b == 1 ? "▲" : b == -1 ? "▼" : "•"
+
+int biasD1  = request.security(syminfo.tickerid, "D",   confirmedTrend, lookahead=barmerge.lookahead_off)
+int biasH4  = request.security(syminfo.tickerid, "240", confirmedTrend, lookahead=barmerge.lookahead_off)
+int biasH1  = request.security(syminfo.tickerid, "60",  confirmedTrend, lookahead=barmerge.lookahead_off)
+int biasM15 = request.security(syminfo.tickerid, "15",  confirmedTrend, lookahead=barmerge.lookahead_off)
+int biasM5  = request.security(syminfo.tickerid, "5",   confirmedTrend, lookahead=barmerge.lookahead_off)
+
+int mtfScore = nz(biasD1) * 3 + nz(biasH4) * 3 + nz(biasH1) * 2 + nz(biasM15) * 1 + nz(biasM5) * 1
+
+string mtfConclusion =
+     mtfScore >= 4  ? "ACHETEUR" :
+     mtfScore <= -4 ? "VENDEUR" :
+     "MIXTE"
+
+string mtfDetail = "D1" + f_mtfIcon(biasD1) + " H4" + f_mtfIcon(biasH4) + " H1" + f_mtfIcon(biasH1) + " M15" + f_mtfIcon(biasM15) + " M5" + f_mtfIcon(biasM5)
+
+
+//=====================================================================
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si
 // tous les autres modules d'affichage sont désactivés
 //=====================================================================
-var table dash = table.new(position.top_right, 2, 14,
+var table dash = table.new(position.top_right, 2, 18,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showDash and barstate.islast
@@ -1477,6 +1720,52 @@ if showDash and barstate.islast
             sniperTxt := inSnip ? "Prix DANS la Sniper Zone ✓" : topDone ? "Déjà testée" : "En attente du retour du prix"
             sniperStatusCol := inSnip ? (topDir == 1 ? entryBuyCol : entrySellCol) : topDone ? idmDoneCol : idmActiveCol
 
+    // Retest en direct — % de pénétration dans la zone actuellement
+    // testée (Sniper Zone en priorité, sinon Zone à retester), pour
+    // juger si le retest est propre (touche le bord) ou déjà profond.
+    string retestTxt = "-"
+    color  retestCol = rangeCol
+    if nIdm > 0
+        box lastSnipR = array.get(sniperZoneA, nIdm - 1)
+        box lastZoneR = array.get(idmZoneA, nIdm - 1)
+        box refBoxRetest = not na(lastSnipR) ? lastSnipR : lastZoneR
+        if not na(refBoxRetest)
+            float rTop = box.get_top(refBoxRetest)
+            float rBot = box.get_bottom(refBoxRetest)
+            bool inZoneR = close <= rTop and close >= rBot
+            if inZoneR and rTop != rBot
+                float penetration = topDir == 1 ? (rTop - close) / (rTop - rBot) * 100 : (close - rBot) / (rTop - rBot) * 100
+                retestTxt := str.tostring(penetration, "#") + "% de pénétration"
+                retestCol := topDir == 1 ? entryBuyCol : entrySellCol
+            else
+                retestTxt := "Hors zone"
+
+    // Cible de liquidité — voir section LIQUIDITÉ CIBLE plus haut,
+    // simple lecture des variables déjà calculées (targetLevel/
+    // targetValid/targetProgressPct).
+    string targetDashTxt = targetValid ?
+         str.tostring(targetLevel, format.mintick) + (na(targetProgressPct) ? "" : " (" + str.tostring(targetProgressPct, "#") + "% parcouru)") :
+         "-"
+    color targetDashCol = targetValid ? targetCol : rangeCol
+
+    // Biais Multi-Timeframe — voir section dédiée plus haut, simple
+    // lecture de mtfConclusion/mtfDetail/mtfScore déjà calculés.
+    color mtfDashCol =
+         mtfConclusion == "ACHETEUR" ? entryBuyCol :
+         mtfConclusion == "VENDEUR" ? entrySellCol :
+         rangeCol
+
+    // VWAP — simple lecture de vwapVal déjà calculé.
+    string vwapTxt =
+         na(vwapVal) ? "-" :
+         close > vwapVal ? "Au-dessus (" + str.tostring(vwapVal, format.mintick) + ")" :
+         close < vwapVal ? "En dessous (" + str.tostring(vwapVal, format.mintick) + ")" :
+         "Sur le VWAP"
+    color vwapDashCol =
+         na(vwapVal) ? rangeCol :
+         close > vwapVal ? bullCol :
+         close < vwapVal ? bearCol : rangeCol
+
     table.cell(dash, 0, 0, "SMV — MOTEUR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
     table.merge_cells(dash, 0, 0, 1, 0)
 
@@ -1519,6 +1808,18 @@ if showDash and barstate.islast
     table.cell(dash, 0, 13, "Sniper Zone", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 13, sniperTxt, text_color=sniperStatusCol, text_size=size.small, bgcolor=dashBgCol)
 
+    table.cell(dash, 0, 14, "Retest en direct", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 14, retestTxt, text_color=retestCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 15, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 15, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 16, "Biais Multi-TF", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 16, mtfConclusion + " (" + mtfDetail + ")", text_color=mtfDashCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 17, "Prix vs VWAP", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 17, vwapTxt, text_color=vwapDashCol, text_size=size.small, bgcolor=dashBgCol)
+
 
 //=====================================================================
 // ALERTES
@@ -1535,3 +1836,5 @@ alertcondition(phaseAccConfirmed, "Fin d'accumulation", "SMV : accumulation/réa
 alertcondition(phaseDisConfirmed, "Fin de distribution", "SMV : distribution/redistribution confirmée (BC/UT/UTAD)")
 alertcondition(phaseEntryBuy, "Entrée ACHAT (Accumulation)", "SMV : SC/STB/SPRING confirmés par un BOS haussier — entrée ACHAT")
 alertcondition(phaseEntrySell, "Entrée VENTE (Distribution)", "SMV : BC/UT/UTAD confirmés par un BOS baissier — entrée VENTE")
+alertcondition(bullishDiscount, "SMV — Bullish Discount", "SMV : le prix est en Discount dans un mouvement haussier.")
+alertcondition(bearishPremium, "SMV — Bearish Premium", "SMV : le prix est en Premium dans un mouvement baissier.")
