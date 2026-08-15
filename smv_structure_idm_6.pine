@@ -1776,7 +1776,16 @@ int othySignalDirMTF = othySignalCodeMTF == 0 ? 0 : (othySignalCodeMTF % 2 == 1 
 float othyNearestIntactAbove = array.size(intactHighLevels) > 0 ? array.min(intactHighLevels) : na
 float othyNearestIntactBelow = array.size(intactLowLevels) > 0 ? array.max(intactLowLevels) : na
 
+// SL serré (règle SMV) — ancré sur l'IDM actif de CE timeframe quand il
+// existe (idmLevel est un simple float[], box-free, donc utilisable
+// dans request.security), pas sur bosLow/bosHigh (extrémum de toute la
+// tendance, potentiellement très loin — c'était le SL "trop grand").
+int   nIdmMTF   = array.size(idmLevel)
+float idmRefMTF = nIdmMTF > 0 ? array.get(idmLevel, nIdmMTF - 1) : na
+
 float othySlMTF =
+     othySignalDirMTF == 1 and not na(idmRefMTF)  ? idmRefMTF - ta.atr(14) * 0.15 :
+     othySignalDirMTF == -1 and not na(idmRefMTF) ? idmRefMTF + ta.atr(14) * 0.15 :
      othySignalDirMTF == 1  ? bosLow - ta.atr(14) * 0.1 :
      othySignalDirMTF == -1 ? bosHigh + ta.atr(14) * 0.1 :
      na
@@ -2185,11 +2194,22 @@ if showOthySignal and barstate.islast
          othySignalCode == 4 ? (not na(disUTADVal) ? disUTADVal : not na(disUTVal) ? disUTVal : close) :
          close
 
+    // SL serré (règle SMV : petit risque, grosse marge de TP) — ancré
+    // sur le niveau PRÉCIS qui invalide le scénario (l'IDM/sniper que
+    // le prix vient de/est en train de retester), pas sur bosLow/
+    // bosHigh (l'extrémum de TOUTE la tendance confirmée, qui peut être
+    // très loin du prix actuel — c'était le SL "trop grand" signalé).
+    // bosLow/bosHigh ne reste un repli que si aucun IDM actif n'existe.
+    int   nIdmSL   = array.size(idmLevel)
+    float idmRefSL = nIdmSL > 0 ? array.get(idmLevel, nIdmSL - 1) : na
+
     float slPx =
-         othySignalCode == 3  ? accLow - ta.atr(14) * 0.1 :
-         othySignalCode == 4  ? disHigh + ta.atr(14) * 0.1 :
-         dirCand == 1         ? bosLow - ta.atr(14) * 0.1 :
-         dirCand == -1        ? bosHigh + ta.atr(14) * 0.1 :
+         othySignalCode == 3          ? accLow - ta.atr(14) * 0.1 :
+         othySignalCode == 4          ? disHigh + ta.atr(14) * 0.1 :
+         dirCand == 1 and not na(idmRefSL)  ? idmRefSL - ta.atr(14) * 0.15 :
+         dirCand == -1 and not na(idmRefSL) ? idmRefSL + ta.atr(14) * 0.15 :
+         dirCand == 1                 ? bosLow - ta.atr(14) * 0.1 :
+         dirCand == -1                ? bosHigh + ta.atr(14) * 0.1 :
          na
 
     // TP : la liquidité cible du module 13 si elle est valide et
