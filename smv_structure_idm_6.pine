@@ -21,6 +21,12 @@ indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overla
 // est désactivé — désactiver un module n'affecte jamais le calcul d'un
 // autre.
 //
+// "Acheteur/Vendeur maintenant" et la Liquidité Cible se fient
+// UNIQUEMENT à la structure H1 (h1Bias, via request.security) — jamais
+// au chart courant. Haussier H1 -> acheteur -> cible = Intact Seller.
+// Baissier H1 -> vendeur -> cible = Intact Buyer. C'est la seule règle,
+// on ne mélange rien d'autre.
+//
 // L'IDM reste l'élément CENTRAL : c'est là que le prix se ravitaille en
 // liquidité avant de continuer sa route vers l'objectif (module
 // Liquidité Cible). La Sniper Zone est LE reteste précis, rattachée
@@ -87,7 +93,7 @@ currentStructLineStyle = f_getLineStyle(currentStructLineStyleOption)
 // (sert à replacer bosHigh/bosLow après une cassure) — porté tel quel
 // depuis get_structure_highest_bar/get_structure_lowest_bar.
 f_structHighestBar(int lookback) =>
-    var int idx = 0
+    int idx = 0
     int maxBar = bar_index > lookback ? ta.highestbars(high, lookback) : ta.highestbars(high, bar_index + 1)
     for i = 0 to lookback - 1
         if high[i+1] > high[i+2] and high[i] <= high[i+1] and ((i+1) * -1) >= maxBar
@@ -96,7 +102,7 @@ f_structHighestBar(int lookback) =>
     idx
 
 f_structLowestBar(int lookback) =>
-    var int idx = 0
+    int idx = 0
     int minBar = bar_index > lookback ? ta.lowestbars(low, lookback) : ta.lowestbars(low, bar_index + 1)
     for i = 0 to lookback - 1
         if low[i+1] < low[i+2] and low[i] >= low[i+1] and ((i+1) * -1) >= minBar
@@ -176,27 +182,14 @@ intactSellCol = input.color(#ff8a65, "Couleur Intact Sellers (High)", group=gIL)
 //=====================================================================
 // 7. Liquidité Cible — l'IDM n'est PAS la destination du prix, c'est
 // l'étape où il se ravitaille avant de continuer sa route. La cible
-// reste COHÉRENTE avec la case "Acheteur/Vendeur maintenant" du
-// dashboard : Acheteur -> vise un Intact Seller (High non balayé
-// au-dessus). Vendeur -> vise un Intact Buyer (Low non balayé en
-// dessous). Même logique reprise dans OTHY Signal pour les TP1-4.
+// reste COHÉRENTE avec la case "Acheteur/Vendeur maintenant" (structure
+// H1) : Acheteur -> vise un Intact Seller (High non balayé au-dessus).
+// Vendeur -> vise un Intact Buyer (Low non balayé en dessous).
 //=====================================================================
 gLC = "7. Liquidité Cible"
 showLiquidityTarget = input.bool(true, "Afficher la cible de liquidité + distance parcourue", group=gLC,
-     tooltip="Acheteur -> cible = Intact Seller (High non balayé au-dessus). Vendeur -> cible = Intact Buyer (Low non balayé en dessous). Affiche aussi le % du chemin déjà parcouru depuis l'origine du mouvement.")
+     tooltip="Acheteur (H1) -> cible = Intact Seller (High non balayé au-dessus). Vendeur (H1) -> cible = Intact Buyer (Low non balayé en dessous). Affiche aussi le % du chemin déjà parcouru depuis l'origine du mouvement.")
 targetCol = input.color(#ba68c8, "Couleur cible de liquidité", group=gLC)
-
-//=====================================================================
-// 8. OTHY Signal — lecture mécanique de TA stratégie : IDM récupéré ou
-// prix dans la Sniper Zone active, rien d'autre. SL serré sur l'IDM
-// précis (petit risque), TP1-TP4 = tes liquidités Intact en attente
-// (grosse marge), toujours dans le sens de la case "Acheteur/Vendeur
-// maintenant". N'affiche un scénario QUE si détecté ; sinon dit
-// clairement qu'il n'y a rien à faire. Pas un conseil financier.
-//=====================================================================
-gOS = "8. OTHY Signal"
-showOthySignal = input.bool(true, "Afficher le tableau OTHY Signal", group=gOS,
-     tooltip="N'affiche un scénario que si l'IDM actif vient d'être récupéré, ou si le prix est actuellement dans la Sniper Zone active — rien d'autre. SL serré sur l'IDM précis, TP1-TP4 = liquidités en attente. Lecture mécanique du moteur, jamais un conseil financier : vérifie toujours toi-même avant d'agir.")
 
 
 //=====================================================================
@@ -492,6 +485,12 @@ if showCurrentStruct
     curStructLowLine := line.new(bosLowBar, bosLow, bar_index, bosLow, xloc=xloc.bar_index,
          color=currentStructColor, style=currentStructLineStyle, width=currentStructLineWidth)
 
+// STRUCTURE H1 — seule référence pour "Acheteur/Vendeur maintenant" et la
+// Liquidité Cible : haussière -> acheteur (vise un Intact Seller),
+// baissière -> vendeur (vise un Intact Buyer). Rien d'autre n'entre en
+// compte, jamais le mélange avec la structure du chart courant.
+int h1Bias = request.security(syminfo.tickerid, "60", bias, lookahead=barmerge.lookahead_off)
+
 
 //=====================================================================
 // AFFICHAGE — Zones de Liquidité (Intact), indépendant. Jusqu'à 4
@@ -609,18 +608,19 @@ if moveDir == -1 and not newMoveDown and low < moveExtreme
 // LIQUIDITÉ CIBLE (lecture seule) — l'IDM n'est PAS la destination du
 // prix, c'est l'étape où il se ravitaille avant de continuer sa route
 // vers la vraie cible : la liquidité pas encore balayée. Réutilise
-// bosHigh/bosLow (mêmes niveaux que les zones Intact) comme cible du
-// mouvement CONFIRMÉ — TOUJOURS cohérente avec la case "Acheteur/
-// Vendeur maintenant" du dashboard (même confirmedTrend). N'influence
-// jamais idmLevel/idmDir/idmDone, la Sniper Zone ni aucun signal.
+// bosHigh/bosLow (mêmes niveaux que les zones Intact) comme cible, mais
+// la DIRECTION vient de h1Bias (structure H1) — TOUJOURS cohérente avec
+// la case "Acheteur/Vendeur maintenant" : H1 haussier -> cible = Intact
+// Seller (bosHigh), H1 baissier -> cible = Intact Buyer (bosLow).
+// N'influence jamais idmLevel/idmDir/idmDone ni la Sniper Zone.
 //=====================================================================
 float targetLevel = na
 bool  targetValid = false
 
-if confirmedTrend == 1 and not na(bosHigh)
+if h1Bias == 1 and not na(bosHigh)
     targetLevel := bosHigh
     targetValid := true
-if confirmedTrend == -1 and not na(bosLow)
+if h1Bias == -1 and not na(bosLow)
     targetLevel := bosLow
     targetValid := true
 
@@ -1099,259 +1099,6 @@ bool springJustFormed = accSpringBar == bar_index
 bool utJustFormed     = disUTBar == bar_index
 bool utadJustFormed   = disUTADBar == bar_index
 
-
-//=====================================================================
-// OTHY SIGNAL — MOTEUR (toujours actif, indépendant de l'affichage)
-//
-// Strictement TA stratégie : IDM récupéré (achat/vente confirmé), ou
-// prix actuellement dans la Sniper Zone active (reteste en cours).
-// Rien d'autre — pas de phase, pas de proximité de structure, pas de
-// fin de retracement générique.
-//
-// Code (impair = achat / pair = vente) :
-//   1/2 = IDM récupéré (signal confirmé)
-//   3/4 = prix dans la Sniper Zone active (reteste en cours)
-//   0   = rien de détecté
-//=====================================================================
-int  nIdmG    = array.size(idmLevel)
-int  topDirG  = nIdmG > 0 ? array.get(idmDir, nIdmG - 1) : 0
-bool topDoneG = nIdmG > 0 and array.get(idmDone, nIdmG - 1)
-bool othyZoneApproach = confirmedTrend != 0 and topDirG == confirmedTrend and not topDoneG and inSniperNow
-
-int othySignalCode =
-     entrySignalBuy                              ? 1 :
-     entrySignalSell                             ? 2 :
-     (othyZoneApproach and confirmedTrend == 1)   ? 3 :
-     (othyZoneApproach and confirmedTrend == -1)  ? 4 :
-     0
-
-// Copies triées des niveaux Intact (module 6) pour les TP1-4 — jamais
-// modifie les tableaux d'origine (array.copy avant array.sort).
-f_sortedAsc(array<float> src) =>
-    array<float> cp = array.copy(src)
-    array.sort(cp, order.ascending)
-    cp
-
-f_sortedDesc(array<float> src) =>
-    array<float> cp = array.copy(src)
-    array.sort(cp, order.descending)
-    cp
-
-
-//=====================================================================
-// DASHBOARD — lit uniquement l'état du moteur, fonctionne même si tous
-// les autres modules d'affichage sont désactivés
-//=====================================================================
-var table dash = table.new(position.top_right, 2, 8,
-     border_width=1, frame_width=1, frame_color=color.gray)
-
-if showDash and barstate.islast
-
-    string structTxt =
-         bias == 1 ? "BULLISH" :
-         bias == -1 ? "BEARISH" :
-         "CONSOLIDATION"
-
-    color structColor =
-         bias == 1 ? bullCol :
-         bias == -1 ? bearCol :
-         rangeCol
-
-    // Acheteur/Vendeur maintenant — lecture directe de confirmedTrend
-    // (ce chart, mono-timeframe). Pilote aussi la Liquidité Cible et
-    // OTHY Signal : toujours la MÊME direction partout.
-    string posTxt = confirmedTrend == 1 ? "ACHETEUR" : confirmedTrend == -1 ? "VENDEUR" : "NEUTRE"
-    color  posCol = confirmedTrend == 1 ? entryBuyCol : confirmedTrend == -1 ? entrySellCol : rangeCol
-
-    // IDM en attente — UN SEUL, le plus récent qui respecte la
-    // structure actuelle (règle 80/20 : direction == confirmedTrend).
-    // Se déplace automatiquement dès qu'un nouveau candidat remplace
-    // l'ancien — c'est normal, c'est la logique même de l'IDM.
-    int nIdm = array.size(idmLevel)
-    int idmWaitIdx = -1
-    if nIdm > 0
-        for i = nIdm - 1 to 0
-            if not array.get(idmDone, i) and (confirmedTrend == 0 or array.get(idmDir, i) == confirmedTrend)
-                idmWaitIdx := i
-                break
-
-    string idmWaitTxt = idmWaitIdx == -1 ? "-" :
-         (array.get(idmDir, idmWaitIdx) == 1 ? "IDBL " : "IDBR ") + str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
-    color idmWaitColCell = idmWaitIdx == -1 ? rangeCol : idmActiveCol
-
-    string retracementTxt =
-         moveDir == 0 ? "-" :
-         validTest ? "Normal (0.5 atteint)" :
-         "Superficiel (0.5 non atteint)"
-
-    color retracementCol =
-         moveDir == 0 ? rangeCol :
-         validTest ? idmDoneCol : idmWaitCol
-
-    // Statut Sniper Zone — celle du dernier IDM actif (donc TOUJOURS
-    // liée à l'IDM). "Peut ne pas être atteinte" : on affiche l'état
-    // réel, jamais une certitude.
-    string sniperTxt = "-"
-    color sniperStatusCol = rangeCol
-    bool topDone2 = nIdm > 0 and array.get(idmDone, nIdm - 1)
-    int  topDir2  = nIdm > 0 ? array.get(idmDir, nIdm - 1) : 0
-    if nIdm > 0
-        box lastSnip = array.get(sniperZoneA, nIdm - 1)
-        if not na(lastSnip)
-            float snTop = box.get_top(lastSnip)
-            float snBot = box.get_bottom(lastSnip)
-            bool inSnip = close <= snTop and close >= snBot
-            sniperTxt := inSnip ? "Prix DANS la Sniper Zone ✓" : topDone2 ? "Déjà testée" : "En attente du retour du prix"
-            sniperStatusCol := inSnip ? (topDir2 == 1 ? entryBuyCol : entrySellCol) : topDone2 ? idmDoneCol : idmActiveCol
-
-    string targetDashTxt = targetValid ?
-         str.tostring(targetLevel, format.mintick) + (na(targetProgressPct) ? "" : " (" + str.tostring(targetProgressPct, "#") + "% parcouru)") :
-         "-"
-    color targetDashCol = targetValid ? targetCol : rangeCol
-
-    string actionTxt = "-"
-    color actionCol = rangeCol
-
-    if entrySignalBuy
-        actionTxt := "ENTRER ACHAT MAINTENANT"
-        actionCol := entryBuyCol
-    else if entrySignalSell
-        actionTxt := "ENTRER VENTE MAINTENANT"
-        actionCol := entrySellCol
-    else if idmWaitIdx != -1
-        actionTxt := (array.get(idmDir, idmWaitIdx) == 1 ? "Préparer ACHAT — retest " : "Préparer VENTE — retest ") + str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
-        actionCol := idmActiveCol
-    else if nIdm > 0
-        actionTxt := "Attendre le prochain IDM"
-        actionCol := rangeCol
-
-    table.cell(dash, 0, 0, "SMV — MOTEUR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
-    table.merge_cells(dash, 0, 0, 1, 0)
-
-    table.cell(dash, 0, 1, "Structure", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 1, structTxt, text_color=structColor, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(dash, 0, 2, "Acheteur / Vendeur maintenant", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 2, posTxt, text_color=posCol, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(dash, 0, 3, "IDM en attente", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 3, idmWaitTxt, text_color=idmWaitColCell, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(dash, 0, 4, "Retracement", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 4, retracementTxt, text_color=retracementCol, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(dash, 0, 5, "Sniper Zone", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 5, sniperTxt, text_color=sniperStatusCol, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(dash, 0, 6, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 6, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(dash, 0, 7, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 7, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
-
-
-//=====================================================================
-// OTHY SIGNAL — lit uniquement othySignalCode (moteur ci-dessus).
-// N'affiche un trade QUE si un IDM vient d'être récupéré ou que le prix
-// est dans la Sniper Zone active ; sinon dit clairement qu'il n'y a
-// rien à faire. Toujours dans le sens de la tendance confirmée (règle
-// 80/20). SL = niveau précis de l'IDM actif (petit risque) ; TP1-TP4 =
-// tes liquidités Intact en attente (module 6), du plus proche au plus
-// loin (grosse marge) — cohérent avec la Liquidité Cible : achat vise
-// un Intact Seller, vente vise un Intact Buyer.
-//=====================================================================
-var table othy = table.new(position.bottom_right, 2, 6,
-     border_width=1, frame_width=1, frame_color=color.gray)
-
-if showOthySignal and barstate.islast
-
-    int dirCand = othySignalCode == 0 ? 0 : (othySignalCode % 2 == 1 ? 1 : -1)
-    bool hasSetup = othySignalCode != 0
-
-    float entryPx = close
-
-    // SL serré (règle SMV : petit risque, grosse marge de TP) — ancré
-    // sur le niveau PRÉCIS de l'IDM actif (petit buffer ATR), pas sur
-    // bosLow/bosHigh (extrémum de toute la tendance, potentiellement
-    // très loin du prix actuel). Uniquement si ce dernier IDM est
-    // ENCORE actif (pas déjà récupéré) — sinon repère périmé, on
-    // retombe sur bosLow/bosHigh.
-    int   nIdmSL    = array.size(idmLevel)
-    bool  topDoneSL = nIdmSL > 0 and array.get(idmDone, nIdmSL - 1)
-    float idmRefSL  = nIdmSL > 0 and not topDoneSL ? array.get(idmLevel, nIdmSL - 1) : na
-
-    float slPx =
-         dirCand == 1 and not na(idmRefSL)  ? idmRefSL - ta.atr(14) * 0.15 :
-         dirCand == -1 and not na(idmRefSL) ? idmRefSL + ta.atr(14) * 0.15 :
-         dirCand == 1                       ? bosLow - ta.atr(14) * 0.1 :
-         dirCand == -1                      ? bosHigh + ta.atr(14) * 0.1 :
-         na
-
-    // TP1-TP4 — TES liquidités en attente (module 6, Intact), triées
-    // par proximité. Achat -> Intact Sellers (au-dessus). Vente ->
-    // Intact Buyers (en dessous). Toujours cohérent avec la case
-    // "Acheteur/Vendeur maintenant" et la Liquidité Cible.
-    array<float> tpCandidates =
-         dirCand == 1  ? f_sortedAsc(intactHighLevels) :
-         dirCand == -1 ? f_sortedDesc(intactLowLevels) :
-         array.new_float()
-
-    float tp1raw = array.size(tpCandidates) > 0 ? array.get(tpCandidates, 0) : na
-    float tp2 = array.size(tpCandidates) > 1 ? array.get(tpCandidates, 1) : na
-    float tp3 = array.size(tpCandidates) > 2 ? array.get(tpCandidates, 2) : na
-    float tp4 = array.size(tpCandidates) > 3 ? array.get(tpCandidates, 3) : na
-
-    // Repli si aucune liquidité Intact n'est disponible dans ce sens :
-    // la cible du module Liquidité Cible, sinon un objectif à 2R.
-    float tpFallback = targetValid and confirmedTrend == dirCand ? targetLevel : na
-    float tpPx = not na(tp1raw) ? tp1raw : (not na(tpFallback) ? tpFallback : (not na(entryPx) and not na(slPx) ? (dirCand == 1 ? entryPx + (entryPx - slPx) * 2 : entryPx - (slPx - entryPx) * 2) : na))
-
-    bool  levelsValid = hasSetup and not na(entryPx) and not na(slPx) and not na(tpPx) and slPx != entryPx
-    float rr = levelsValid ? (dirCand == 1 ? (tpPx - entryPx) / (entryPx - slPx) : (entryPx - tpPx) / (slPx - entryPx)) : na
-
-    // Probabilité — 2 facteurs honnêtes seulement (retracement validé +
-    // R:R correct), jamais une statistique fabriquée.
-    bool cfRetrace = validTest
-    bool cfRR      = not na(rr) and rr >= 1.5
-    int score = (cfRetrace ? 1 : 0) + (cfRR ? 1 : 0)
-
-    string probaTxt = score >= 2 ? "ÉLEVÉE" : score == 1 ? "MOYENNE" : "FAIBLE"
-    color  probaCol = score >= 2 ? entryBuyCol : score == 1 ? idmWaitCol : entrySellCol
-
-    bool showTrade = hasSetup and levelsValid
-
-    string statusTxt =
-         othySignalCode == 1 or othySignalCode == 2 ? "IDM RÉCUPÉRÉ — SIGNAL CONFIRMÉ" :
-         othySignalCode == 3 or othySignalCode == 4 ? "PRIX DANS LA SNIPER ZONE — RETESTE EN COURS" :
-         "AUCUNE OPPORTUNITÉ"
-    string dirTxt = dirCand == 1 ? "ACHAT" : dirCand == -1 ? "VENTE" : "-"
-    color  dirCol = dirCand == 1 ? entryBuyCol : dirCand == -1 ? entrySellCol : rangeCol
-
-    string tpTxt = "TP1 " + str.tostring(tpPx, format.mintick) +
-         (na(tp2) ? "" : " / TP2 " + str.tostring(tp2, format.mintick)) +
-         (na(tp3) ? "" : " / TP3 " + str.tostring(tp3, format.mintick)) +
-         (na(tp4) ? "" : " / TP4 " + str.tostring(tp4, format.mintick)) +
-         " (R:R TP1 " + str.tostring(rr, "#.##") + ")"
-
-    table.cell(othy, 0, 0, "OTHY SIGNAL", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
-    table.merge_cells(othy, 0, 0, 1, 0)
-
-    table.cell(othy, 0, 1, "Statut", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(othy, 1, 1, showTrade ? statusTxt : "AUCUNE OPPORTUNITÉ", text_color=showTrade ? dirCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(othy, 0, 2, "Direction", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(othy, 1, 2, showTrade ? dirTxt : "-", text_color=showTrade ? dirCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(othy, 0, 3, "Entrée", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(othy, 1, 3, showTrade ? str.tostring(entryPx, format.mintick) : "-", text_color=dashValueCol, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(othy, 0, 4, "SL", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(othy, 1, 4, showTrade ? str.tostring(slPx, format.mintick) : "-", text_color=entrySellCol, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(othy, 0, 5, "TP (liquidités en attente)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(othy, 1, 5, showTrade ? tpTxt : "-", text_color=entryBuyCol, text_size=size.small, bgcolor=dashBgCol)
-
-
 //=====================================================================
 // ALERTES
 //=====================================================================
@@ -1367,7 +1114,7 @@ alertcondition(phaseAccConfirmed, "Fin d'accumulation", "SMV : accumulation/réa
 alertcondition(phaseDisConfirmed, "Fin de distribution", "SMV : distribution/redistribution confirmée (BC/UT/UTAD)")
 alertcondition(enteredSniperZone, "Prix dans la Sniper Zone", "SMV : le prix vient d'entrer dans la Sniper Zone active (IDM)")
 alertcondition(enteredTargetZone, "Prix proche de la liquidité cible", "SMV : le prix vient d'approcher la cible de liquidité (Intact)")
-alertcondition(stbJustFormed, "OTHY Signal — STB détecté", "OTHY SIGNAL : STB détecté en accumulation")
-alertcondition(springJustFormed, "OTHY Signal — SPRING détecté", "OTHY SIGNAL : SPRING détecté en accumulation")
-alertcondition(utJustFormed, "OTHY Signal — UT détecté", "OTHY SIGNAL : UT détecté en distribution")
-alertcondition(utadJustFormed, "OTHY Signal — UTAD détecté", "OTHY SIGNAL : UTAD détecté en distribution")
+alertcondition(stbJustFormed, "Phase — STB détecté", "SMV : STB détecté en accumulation")
+alertcondition(springJustFormed, "Phase — SPRING détecté", "SMV : SPRING détecté en accumulation")
+alertcondition(utJustFormed, "Phase — UT détecté", "SMV : UT détecté en distribution")
+alertcondition(utadJustFormed, "Phase — UTAD détecté", "SMV : UTAD détecté en distribution")
