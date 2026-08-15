@@ -1763,6 +1763,35 @@ int othySignalCodeMTF =
      othyRetraceEndDown  ? 8 :
      0
 
+// SL/TP dérivés de la MÊME direction que othySignalCodeMTF (impair =
+// achat / pair = vente) — jamais de confirmedTrend indépendant, sinon
+// le signal peut dire ACHAT (ex: phase d'accumulation détectée alors
+// que confirmedTrend est encore baissier) pendant que le SL/TP suivent
+// confirmedTrend et donnent une vente : exactement le bug rapporté
+// ("il dit d'acheter et met mon TP en vente"). TP = liquidité Intact la
+// plus proche dans CE sens (module 12, ton "TP1"), box-free donc
+// compatible avec request.security().
+int othySignalDirMTF = othySignalCodeMTF == 0 ? 0 : (othySignalCodeMTF % 2 == 1 ? 1 : -1)
+
+float othyNearestIntactAbove = array.size(intactHighLevels) > 0 ? array.min(intactHighLevels) : na
+float othyNearestIntactBelow = array.size(intactLowLevels) > 0 ? array.max(intactLowLevels) : na
+
+float othySlMTF =
+     othySignalDirMTF == 1  ? bosLow - ta.atr(14) * 0.1 :
+     othySignalDirMTF == -1 ? bosHigh + ta.atr(14) * 0.1 :
+     na
+
+float othyTpFallbackMTF =
+     targetValid and confirmedTrend == othySignalDirMTF ? targetLevel :
+     othySignalCodeMTF == 3 ? accTop :
+     othySignalCodeMTF == 4 ? disBottom :
+     na
+
+float othyTpMTF =
+     othySignalDirMTF == 1 and not na(othyNearestIntactAbove)  ? othyNearestIntactAbove :
+     othySignalDirMTF == -1 and not na(othyNearestIntactBelow) ? othyNearestIntactBelow :
+     othyTpFallbackMTF
+
 
 //=====================================================================
 // AFFICHAGE — FVG (indépendant, lecture seule des prix)
@@ -2122,6 +2151,19 @@ if showDash and barstate.islast
     table.cell(dash, 1, 17, vwapTxt, text_color=vwapDashCol, text_size=size.small, bgcolor=dashBgCol)
 
 
+// Copies triées des niveaux Intact (module 12) pour les TP1-4 — jamais
+// modifie les tableaux d'origine (array.copy avant array.sort).
+f_sortedAsc(array<float> src) =>
+    array<float> cp = array.copy(src)
+    array.sort(cp, order.ascending)
+    cp
+
+f_sortedDesc(array<float> src) =>
+    array<float> cp = array.copy(src)
+    array.sort(cp, order.descending)
+    cp
+
+
 //=====================================================================
 // OTHY SIGNAL — deuxième tableau, sous le principal. Lit uniquement
 // othySignalCode (calculé plus haut, moteur toujours actif) — jamais
@@ -2155,12 +2197,29 @@ if showOthySignal and barstate.islast
     // en cours (cassure du range) ; sinon, en dernier recours, un
     // objectif à 2R pour ne jamais bloquer un setup par ailleurs solide
     // faute de cible calculable.
-    float tpPrimary =
+    // TP1/TP2/TP3/TP4 — TES liquidités en attente (module 12, Intact),
+    // triées par proximité : la plus proche = TP1, puis TP2, TP3, TP4.
+    // Achat -> cible les Intact Sellers (highs non balayés, au-dessus).
+    // Vente -> cible les Intact Buyers (lows non balayés, en dessous).
+    array<float> tpCandidates =
+         dirCand == 1  ? f_sortedAsc(intactHighLevels) :
+         dirCand == -1 ? f_sortedDesc(intactLowLevels) :
+         array.new_float()
+
+    float tp1raw = array.size(tpCandidates) > 0 ? array.get(tpCandidates, 0) : na
+    float tp2 = array.size(tpCandidates) > 1 ? array.get(tpCandidates, 1) : na
+    float tp3 = array.size(tpCandidates) > 2 ? array.get(tpCandidates, 2) : na
+    float tp4 = array.size(tpCandidates) > 3 ? array.get(tpCandidates, 3) : na
+
+    // Repli si aucune liquidité Intact n'est disponible dans ce sens :
+    // la cible du module 13, sinon la borne de la phase en cours, sinon
+    // un objectif à 2R — jamais bloquer un setup faute de TP calculable.
+    float tpFallback =
          targetValid and confirmedTrend == dirCand ? targetLevel :
          othySignalCode == 3 ? accTop :
          othySignalCode == 4 ? disBottom :
          na
-    float tpPx = not na(tpPrimary) ? tpPrimary : (not na(entryPx) and not na(slPx) ? (dirCand == 1 ? entryPx + (entryPx - slPx) * 2 : entryPx - (slPx - entryPx) * 2) : na)
+    float tpPx = not na(tp1raw) ? tp1raw : (not na(tpFallback) ? tpFallback : (not na(entryPx) and not na(slPx) ? (dirCand == 1 ? entryPx + (entryPx - slPx) * 2 : entryPx - (slPx - entryPx) * 2) : na))
 
     bool  levelsValid = hasSetup and not na(entryPx) and not na(slPx) and not na(tpPx) and slPx != entryPx
     float rr = levelsValid ? (dirCand == 1 ? (tpPx - entryPx) / (entryPx - slPx) : (entryPx - tpPx) / (slPx - entryPx)) : na
@@ -2229,8 +2288,14 @@ if showOthySignal and barstate.islast
     table.cell(othy, 0, 5, "SL", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(othy, 1, 5, showTrade ? str.tostring(slPx, format.mintick) : "-", text_color=entrySellCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(othy, 0, 6, "TP (liquidité)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(othy, 1, 6, showTrade ? str.tostring(tpPx, format.mintick) + " (R:R " + str.tostring(rr, "#.##") + ")" : "-", text_color=entryBuyCol, text_size=size.small, bgcolor=dashBgCol)
+    string tpTxt = "TP1 " + str.tostring(tpPx, format.mintick) +
+         (na(tp2) ? "" : " / TP2 " + str.tostring(tp2, format.mintick)) +
+         (na(tp3) ? "" : " / TP3 " + str.tostring(tp3, format.mintick)) +
+         (na(tp4) ? "" : " / TP4 " + str.tostring(tp4, format.mintick)) +
+         " (R:R TP1 " + str.tostring(rr, "#.##") + ")"
+
+    table.cell(othy, 0, 6, "TP (liquidités en attente)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 6, showTrade ? tpTxt : "-", text_color=entryBuyCol, text_size=size.small, bgcolor=dashBgCol)
 
     table.cell(othy, 0, 7, "Probabilité", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(othy, 1, 7, showTrade ? probaTxt + " (" + str.tostring(score) + "/6 confluences)" : "-", text_color=showTrade ? probaCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
@@ -2264,12 +2329,12 @@ f_probLabel(int pct) =>
     s
 
 int   codeHTF = request.security(syminfo.tickerid, "240", othySignalCodeMTF, lookahead=barmerge.lookahead_off)
-float slHTF   = request.security(syminfo.tickerid, "240", (confirmedTrend == 1 ? bosLow - ta.atr(14) * 0.1 : confirmedTrend == -1 ? bosHigh + ta.atr(14) * 0.1 : na), lookahead=barmerge.lookahead_off)
-float tpHTF   = request.security(syminfo.tickerid, "240", (targetValid ? targetLevel : na), lookahead=barmerge.lookahead_off)
+float slHTF   = request.security(syminfo.tickerid, "240", othySlMTF, lookahead=barmerge.lookahead_off)
+float tpHTF   = request.security(syminfo.tickerid, "240", othyTpMTF, lookahead=barmerge.lookahead_off)
 
 int   codeLTF = request.security(syminfo.tickerid, "15", othySignalCodeMTF, lookahead=barmerge.lookahead_off)
-float slLTF   = request.security(syminfo.tickerid, "15", (confirmedTrend == 1 ? bosLow - ta.atr(14) * 0.1 : confirmedTrend == -1 ? bosHigh + ta.atr(14) * 0.1 : na), lookahead=barmerge.lookahead_off)
-float tpLTF   = request.security(syminfo.tickerid, "15", (targetValid ? targetLevel : na), lookahead=barmerge.lookahead_off)
+float slLTF   = request.security(syminfo.tickerid, "15", othySlMTF, lookahead=barmerge.lookahead_off)
+float tpLTF   = request.security(syminfo.tickerid, "15", othyTpMTF, lookahead=barmerge.lookahead_off)
 
 var table radar = table.new(position.bottom_left, 3, 4,
      border_width=1, frame_width=1, frame_color=color.gray)
