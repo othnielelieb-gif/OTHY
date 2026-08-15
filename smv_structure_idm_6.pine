@@ -46,7 +46,11 @@ indicator("SMV STRUCTURE — Moteur fractal (BOS/CHoCH/IDM)", "SMV Engine", over
 //=====================================================================
 gS = "1. Structure"
 showStruct   = input.bool(true, "Afficher HH / HL / LH / LL", group=gS,
-     tooltip="C'est le seul marquage qui apparaît dès qu'un swing structurel est confirmé, sans attendre de BOS/CHoCH ni de phase — la façon la plus rapide de voir un HL/LH se former. Aucun réglage de sensibilité : la détection des swings est 100% automatique (zigzag calibré sur l'ATR, voir plus bas).")
+     tooltip="C'est le seul marquage qui apparaît dès qu'un swing structurel est confirmé, sans attendre de BOS/CHoCH ni de phase — la façon la plus rapide de voir un HL/LH se former.")
+pivMode      = input.string("Auto", "Sensibilité des pivots", options=["Auto", "Manuel"], group=gS,
+     tooltip="Auto (recommandé) : le seuil du zigzag s'auto-calibre sur l'ATR du moment (+ paliers 1/2/3 spécifiques M5/M15). Manuel : tu fixes toi-même le multiplicateur ci-dessous, sur tous les timeframes, l'auto-calibrage est alors désactivé.")
+pivManualMult = input.float(1.5, "Sensibilité manuelle (x ATR)", minval=0.3, maxval=5.0, step=0.1, group=gS,
+     tooltip="Actif seulement si Sensibilité des pivots = Manuel. Plus petit = plus de pivots détectés (plus sensible). Plus grand = moins de pivots (plus filtré).")
 bullCol      = input.color(#26a69a, "Couleur haussière", group=gS)
 bearCol      = input.color(#ef5350, "Couleur baissière", group=gS)
 rangeCol     = input.color(#9e9e9e, "Couleur consolidation", group=gS)
@@ -325,7 +329,7 @@ float volRatio   = atrSlow > 0 ? atrFast / atrSlow : 1.0
 // jamais confirmée. M5/M15 doivent toujours capter au moins autant de
 // structure que les autres timeframes, souvent plus (paliers 0.7/1.0/1.5).
 int   sensLevel  = volRatio >= 1.25 ? 3 : volRatio <= 0.85 ? 1 : 2
-float zigzagMult = isFastTF ? (sensLevel == 1 ? 0.7 : sensLevel == 2 ? 1.0 : 1.5) : 1.5
+float zigzagMult = pivMode == "Manuel" ? pivManualMult : (isFastTF ? (sensLevel == 1 ? 0.7 : sensLevel == 2 ? 1.0 : 1.5) : 1.5)
 float zigzagThresh = ta.atr(14) * zigzagMult
 
 var int   zzDir        = 1
@@ -2219,7 +2223,7 @@ int codeM5  = request.security(syminfo.tickerid, "5",  othySignalCode, lookahead
 int codeM15 = request.security(syminfo.tickerid, "15", othySignalCode, lookahead=barmerge.lookahead_off)
 int codeH1  = request.security(syminfo.tickerid, "60", othySignalCode, lookahead=barmerge.lookahead_off)
 
-var table radar = table.new(position.bottom_left, 2, 5,
+var table radar = table.new(position.bottom_left, 2, 6,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showOthyRadar and barstate.islast
@@ -2234,20 +2238,41 @@ if showOthyRadar and barstate.islast
     color colM15 = codeM15 == 0 ? rangeCol : (codeM15 % 2 == 1 ? entryBuyCol : entrySellCol)
     color colH1  = codeH1  == 0 ? rangeCol : (codeH1  % 2 == 1 ? entryBuyCol : entrySellCol)
 
+    // Trade imminent — celui qui compte vraiment d'un coup d'œil, en
+    // plus du détail par timeframe ci-dessous (jamais à la place).
+    // Priorité au timeframe le plus rapide qui a un signal actif, car
+    // c'est le plus proche dans le temps.
+    string bestTf =
+         codeM1 != 0  ? "M1" :
+         codeM5 != 0  ? "M5" :
+         codeM15 != 0 ? "M15" :
+         codeH1 != 0  ? "H1" : "-"
+    int bestCode =
+         codeM1 != 0  ? codeM1 :
+         codeM5 != 0  ? codeM5 :
+         codeM15 != 0 ? codeM15 :
+         codeH1 != 0  ? codeH1 : 0
+    string bestTxt = bestCode == 0 ? "Aucun trade imminent" :
+         bestTf + " — " + (bestCode % 2 == 1 ? "ACHAT — " : "VENTE — ") + f_othyRadarLabel(bestCode)
+    color bestCol = bestCode == 0 ? rangeCol : (bestCode % 2 == 1 ? entryBuyCol : entrySellCol)
+
     table.cell(radar, 0, 0, "OTHY RADAR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
     table.merge_cells(radar, 0, 0, 1, 0)
 
-    table.cell(radar, 0, 1, "M1", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(radar, 1, 1, txtM1, text_color=colM1, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 0, 1, "Trade imminent", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 1, 1, bestTxt, text_color=bestCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(radar, 0, 2, "M5", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(radar, 1, 2, txtM5, text_color=colM5, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 0, 2, "M1", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 1, 2, txtM1, text_color=colM1, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(radar, 0, 3, "M15", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(radar, 1, 3, txtM15, text_color=colM15, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 0, 3, "M5", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 1, 3, txtM5, text_color=colM5, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(radar, 0, 4, "H1", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(radar, 1, 4, txtH1, text_color=colH1, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 0, 4, "M15", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 1, 4, txtM15, text_color=colM15, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(radar, 0, 5, "H1", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 1, 5, txtH1, text_color=colH1, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
