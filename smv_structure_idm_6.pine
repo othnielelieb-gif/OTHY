@@ -233,30 +233,32 @@ showVwap = input.bool(true, "Afficher le VWAP", group=gV)
 vwapCol  = input.color(#fdd835, "Couleur VWAP", group=gV)
 
 //=====================================================================
-// 16. OTHY Signal — deuxième tableau, sous le principal. Ne propose un
-// trade QUE si les confluences sont réunies (structure + retracement +
-// Premium/Discount + VWAP + Multi-TF + session) ; sinon affiche
-// clairement qu'il n'y a rien à faire. Jamais un signal aveugle, jamais
-// à contre-tendance (règle 80/20). SL = niveau structurel qui invalide
-// le scénario (bosLow/bosHigh) ; TP = la liquidité cible (module 13).
-// Purement une lecture mécanique de tout ce que le moteur calcule déjà
-// — ce n'est pas un conseil financier, à valider toi-même avant toute
-// prise de position.
+// 16. OTHY Signal — deuxième tableau, sous le principal. Affiche un
+// scénario dès qu'une des 5 sources détecte quelque chose (signal
+// confirmé, phase Wyckoff en formation, BOS imminent, fin de
+// retracement, zone en approche) ; sinon affiche clairement qu'il n'y a
+// rien à faire. Toujours dans le sens de la tendance confirmée (règle
+// 80/20). SL = niveau précis de l'IDM actif (petit risque) ; TP1-TP4 =
+// tes liquidités Intact en attente (module 12), du plus proche au plus
+// loin (grosse marge). Purement une lecture mécanique de tout ce que le
+// moteur calcule déjà — ce n'est pas un conseil financier, à valider
+// toi-même avant toute prise de position.
 //=====================================================================
 gOS = "16. OTHY Signal"
 showOthySignal = input.bool(true, "Afficher le tableau OTHY Signal", group=gOS,
-     tooltip="Deuxième tableau, sous le principal. N'affiche un scénario que lorsqu'un setup est détecté (signal confirmé, phase Wyckoff en formation, BOS imminent, fin de retracement ou zone en approche) — sinon indique clairement qu'il n'y a pas d'opportunité. Lecture mécanique du moteur, jamais un conseil financier : vérifie toujours toi-même avant d'agir.")
+     tooltip="Deuxième tableau, sous le principal. N'affiche un scénario que lorsqu'un setup est détecté (signal confirmé, phase Wyckoff en formation, BOS imminent, fin de retracement ou zone en approche) — sinon indique clairement qu'il n'y a pas d'opportunité. SL serré sur l'IDM précis, TP1-TP4 = liquidités en attente. Lecture mécanique du moteur, jamais un conseil financier : vérifie toujours toi-même avant d'agir.")
 
 //=====================================================================
-// 17. OTHY Radar — troisième tableau, signaux EN AVANCE sur M1/M5/M15
-// et H1 simultanément (via request.security sur othySignalCode,
-// calculé une seule fois plus haut — même moteur, aucune nouvelle
-// logique). Objectif : voir venir une opportunité avant qu'elle
-// n'arrive sur ton timeframe actuel, à toi de décider si tu la prends.
+// 17. OTHY Radar — troisième tableau, signaux EN AVANCE sur HTF (H4,
+// contexte) et LTF (M15, exécution) simultanément, via request.security
+// sur othySignalCodeMTF/othySlMTF/othyTpMTF (même moteur qu'OTHY
+// Signal, aucune nouvelle logique). Objectif : voir venir une
+// opportunité avant qu'elle n'arrive sur ton timeframe actuel, à toi de
+// décider si tu la prends.
 //=====================================================================
 gOR = "17. OTHY Radar"
-showOthyRadar = input.bool(true, "Afficher le tableau OTHY Radar (M1/M5/M15/H1)", group=gOR,
-     tooltip="Troisième tableau : balaie M1, M5, M15 et H1 en même temps pour repérer des signaux en avance sur ton timeframe actuel — même logique qu'OTHY Signal, juste appliquée à plusieurs unités de temps à la fois. Purement informatif, c'est toi qui décides.")
+showOthyRadar = input.bool(true, "Afficher le tableau OTHY Radar (HTF H4 / LTF M15)", group=gOR,
+     tooltip="Troisième tableau : balaie H4 (contexte) et M15 (exécution) en même temps pour repérer des signaux en avance sur ton timeframe actuel — même moteur qu'OTHY Signal (signal, SL serré, TP1). Purement informatif, c'est toi qui décides.")
 
 
 //=====================================================================
@@ -1780,8 +1782,11 @@ float othyNearestIntactBelow = array.size(intactLowLevels) > 0 ? array.max(intac
 // existe (idmLevel est un simple float[], box-free, donc utilisable
 // dans request.security), pas sur bosLow/bosHigh (extrémum de toute la
 // tendance, potentiellement très loin — c'était le SL "trop grand").
-int   nIdmMTF   = array.size(idmLevel)
-float idmRefMTF = nIdmMTF > 0 ? array.get(idmLevel, nIdmMTF - 1) : na
+// Uniquement si ce dernier IDM est ENCORE actif (pas déjà récupéré) —
+// un IDM "done" est un niveau consommé, pas une référence valable.
+int   nIdmMTF    = array.size(idmLevel)
+bool  topDoneMTF = nIdmMTF > 0 and array.get(idmDone, nIdmMTF - 1)
+float idmRefMTF  = nIdmMTF > 0 and not topDoneMTF ? array.get(idmLevel, nIdmMTF - 1) : na
 
 float othySlMTF =
      othySignalDirMTF == 1 and not na(idmRefMTF)  ? idmRefMTF - ta.atr(14) * 0.15 :
@@ -2200,8 +2205,13 @@ if showOthySignal and barstate.islast
     // bosHigh (l'extrémum de TOUTE la tendance confirmée, qui peut être
     // très loin du prix actuel — c'était le SL "trop grand" signalé).
     // bosLow/bosHigh ne reste un repli que si aucun IDM actif n'existe.
-    int   nIdmSL   = array.size(idmLevel)
-    float idmRefSL = nIdmSL > 0 ? array.get(idmLevel, nIdmSL - 1) : na
+    // Uniquement si ce dernier IDM est ENCORE actif (pas déjà récupéré)
+    // — un IDM "done" est un niveau consommé, l'utiliser comme référence
+    // de SL pour un nouveau setup (BOS imminent, fin de retracement...)
+    // serait un repère périmé, potentiellement très loin du prix actuel.
+    int   nIdmSL     = array.size(idmLevel)
+    bool  topDoneSL  = nIdmSL > 0 and array.get(idmDone, nIdmSL - 1)
+    float idmRefSL   = nIdmSL > 0 and not topDoneSL ? array.get(idmLevel, nIdmSL - 1) : na
 
     float slPx =
          othySignalCode == 3          ? accLow - ta.atr(14) * 0.1 :
