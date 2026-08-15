@@ -47,18 +47,22 @@ rangeCol     = input.color(#9e9e9e, "Couleur consolidation", group=gS)
 
 //=====================================================================
 // 2. IDM (Inducement) — LE plus important : c'est là que tu attends le
-// prix. Chaque nouveau candidat REMPLACE l'ancien (qui devient FS,
-// historique figé ou supprimé selon le réglage) — l'IDM se déplace,
-// c'est normal, le dashboard suit toujours le plus récent aligné avec
-// la structure actuelle.
+// prix. TOUJOURS les 3 IDM les plus récents, et TOUJOURS cohérents avec
+// la structure actuelle — dès qu'un CHoCH change de sens, les IDM de
+// l'ancien sens sont aussitôt retirés (deviennent FS), donc les 3 IDM
+// affichés ne montrent jamais un niveau qui ne respecte plus la
+// tendance confirmée. Chaque nouveau candidat REMPLACE le plus ancien
+// des 3 (qui devient FS, historique figé ou supprimé selon le
+// réglage) — l'IDM se déplace, c'est normal.
 //=====================================================================
 gI = "2. IDM (Inducement) — LE plus important"
-showIdmLines  = input.bool(true, "Afficher les 2 IDM actifs (lignes + étiquettes)", group=gI,
-     tooltip="Les deux IDM les plus récents — ceux qui comptent vraiment pour trader. Toujours prioritaires sur tout le reste de l'indicateur.")
+showIdmLines  = input.bool(true, "Afficher les 3 IDM actifs (lignes + étiquettes)", group=gI,
+     tooltip="Les trois IDM les plus récents ET cohérents avec la structure actuelle — ceux qui comptent vraiment pour trader. Toujours prioritaires sur tout le reste de l'indicateur.")
 showFsHistory = input.bool(false, "Afficher l'historique FS (anciens IDM figés)", group=gI,
-     tooltip="Décoché par défaut pour garder le graphique lisible. Une fois décoché, les anciens IDM (devenus FS) sont simplement supprimés dès qu'ils sortent du top 2, au lieu de rester affichés en grisé.")
+     tooltip="Décoché par défaut pour garder le graphique lisible. Une fois décoché, les anciens IDM (devenus FS, soit par ancienneté soit retirés par un CHoCH) sont simplement supprimés, au lieu de rester affichés en grisé.")
 idmActiveCol = input.color(#ab47bc, "IDM #1 — le plus récent (vrai signal à venir)", group=gI)
 idmWaitCol   = input.color(#ff9800, "IDM #2 — juste avant", group=gI)
+idmThirdCol  = input.color(#8d6e63, "IDM #3 — le plus ancien des 3", group=gI)
 fsCol        = input.color(#9e9e9e, "FS (historique, plus ancien)", group=gI)
 idmDoneCol   = input.color(#26c6da, "Marqueur \"retesté\"", group=gI)
 entryBuyCol  = input.color(#00e676, "Couleur achat", group=gI)
@@ -674,100 +678,102 @@ if newIDM
              text_halign=text.align_left)
     array.push(sniperZoneA, sn)
 
-    int n = array.size(idmLevel)
 
-    // L'ancien "le plus récent" passe en 2e position : reste "IDM",
-    // couleur secondaire, continue d'être surveillé et prolongé.
-    if n >= 2 and not array.get(idmDone, n - 2)
-        line ln2 = array.get(idmLine, n - 2)
-        if not na(ln2)
-            line.set_color(ln2, idmWaitCol)
-            line.set_width(ln2, 2)
-        label lb2 = array.get(idmLbl, n - 2)
-        if not na(lb2)
-            label.set_color(lb2, color.new(idmWaitCol, 75))
-            label.set_textcolor(lb2, idmWaitCol)
-        box sz2 = array.get(sniperZoneA, n - 2)
-        if not na(sz2)
-            box.set_border_width(sz2, 1)
+// MAINTENANCE (moteur — toujours actif) : au plus 3 IDM "actifs" à la
+// fois (kind == "IDM"), et TOUJOURS cohérents avec confirmedTrend. Dès
+// qu'un CHoCH change de sens, les IDM de l'ancien sens sont aussitôt
+// retirés (deviennent FS) — donc les 3 IDM affichés ne montrent JAMAIS
+// un niveau qui ne respecte plus la structure actuelle. Un seul passage
+// arrière-vers-l'avant : les 3 premiers rencontrés qui matchent
+// confirmedTrend restent "IDM", tout le reste (plus ancien ou d'un
+// autre sens) devient "FS".
+if array.size(idmLevel) > 0
+    int keepCount = 0
+    for i = array.size(idmLevel) - 1 to 0
+        bool kindIsIdm = array.get(idmKind, i) == "IDM"
+        if kindIsIdm
+            bool dirMismatch = confirmedTrend != 0 and array.get(idmDir, i) != confirmedTrend
+            if dirMismatch or keepCount >= 3
+                array.set(idmKind, i, "FS")
+                line lnR = array.get(idmLine, i)
+                label lbR = array.get(idmLbl, i)
+                box szR = array.get(sniperZoneA, i)
+                if showFsHistory
+                    if not na(lnR)
+                        line.set_x2(lnR, bar_index)
+                        line.set_color(lnR, color.new(fsCol, 55))
+                        line.set_width(lnR, 1)
+                    if not na(lbR)
+                        label.set_text(lbR, "FS")
+                        label.set_xy(lbR, bar_index, array.get(idmLevel, i))
+                        label.set_color(lbR, color.new(fsCol, 80))
+                        label.set_textcolor(lbR, fsCol)
+                    if not na(szR)
+                        box.set_right(szR, bar_index)
+                        box.set_border_color(szR, color.new(fsCol, 60))
+                        box.set_bgcolor(szR, color.new(fsCol, 94))
+                        box.set_text(szR, "")
+                else
+                    if not na(lnR)
+                        line.delete(lnR)
+                        array.set(idmLine, i, na)
+                    if not na(lbR)
+                        label.delete(lbR)
+                        array.set(idmLbl, i, na)
+                    if not na(szR)
+                        box.delete(szR)
+                        array.set(sniperZoneA, i, na)
+            else
+                keepCount += 1
 
-    // Celui qui sort du top 2 devient une FS. Si showFsHistory est
-    // actif, on la fige en gris (jamais supprimée). Sinon (par défaut),
-    // on la supprime directement pour garder le graphique lisible.
-    if n >= 3 and not array.get(idmDone, n - 3)
-        array.set(idmKind, n - 3, "FS")
-        line ln3 = array.get(idmLine, n - 3)
-        label lb3 = array.get(idmLbl, n - 3)
-        box sz3 = array.get(sniperZoneA, n - 3)
-        if showFsHistory
-            if not na(ln3)
-                line.set_x2(ln3, idmCandidateBar)
-                line.set_color(ln3, color.new(fsCol, 55))
-                line.set_width(ln3, 1)
-            if not na(lb3)
-                label.set_text(lb3, "FS")
-                label.set_xy(lb3, idmCandidateBar, array.get(idmLevel, n - 3))
-                label.set_color(lb3, color.new(fsCol, 80))
-                label.set_textcolor(lb3, fsCol)
-            if not na(sz3)
-                box.set_right(sz3, idmCandidateBar)
-                box.set_border_color(sz3, color.new(fsCol, 60))
-                box.set_bgcolor(sz3, color.new(fsCol, 94))
-                box.set_text(sz3, "")
-        else
-            if not na(ln3)
-                line.delete(ln3)
-            if not na(lb3)
-                label.delete(lb3)
-            if not na(sz3)
-                box.delete(sz3)
 
-
-// Prolongation des DEUX plus récents tant qu'ils ne sont pas recouverts.
+// Prolongation + coloration des 3 IDM actifs tant qu'ils ne sont pas
+// recouverts — rang 1 (le plus récent) = idmActiveCol, rang 2 =
+// idmWaitCol, rang 3 = idmThirdCol. Recalculé chaque bougie pour rester
+// correct même après un retrait par CHoCH ou une nouvelle création.
 int nNow = array.size(idmLevel)
 
 if nNow > 0
-    int topIdx = nNow - 1
-    if not array.get(idmDone, topIdx)
-        line lnTop = array.get(idmLine, topIdx)
-        if not na(lnTop)
-            line.set_x2(lnTop, bar_index + 1)
-        label lbTop = array.get(idmLbl, topIdx)
-        if not na(lbTop)
-            label.set_xy(lbTop, bar_index + 1, array.get(idmLevel, topIdx))
-        box szTop = array.get(sniperZoneA, topIdx)
-        if not na(szTop)
-            box.set_right(szTop, bar_index + sniperZoneExt)
-
-if nNow > 1
-    int secIdx = nNow - 2
-    if not array.get(idmDone, secIdx)
-        line lnSec = array.get(idmLine, secIdx)
-        if not na(lnSec)
-            line.set_x2(lnSec, bar_index + 1)
-        label lbSec = array.get(idmLbl, secIdx)
-        if not na(lbSec)
-            label.set_xy(lbSec, bar_index + 1, array.get(idmLevel, secIdx))
-        box szSec = array.get(sniperZoneA, secIdx)
-        if not na(szSec)
-            box.set_right(szSec, bar_index + sniperZoneExt)
+    int rank = 0
+    for i = nNow - 1 to 0
+        if array.get(idmKind, i) == "IDM" and rank < 3
+            rank += 1
+            color rankCol = rank == 1 ? idmActiveCol : rank == 2 ? idmWaitCol : idmThirdCol
+            if not array.get(idmDone, i)
+                line lnP = array.get(idmLine, i)
+                if not na(lnP)
+                    line.set_x2(lnP, bar_index + 1)
+                    line.set_color(lnP, rankCol)
+                    line.set_width(lnP, rank == 1 ? 3 : 2)
+                label lbP = array.get(idmLbl, i)
+                if not na(lbP)
+                    label.set_xy(lbP, bar_index + 1, array.get(idmLevel, i))
+                    label.set_color(lbP, color.new(rankCol, 75))
+                    label.set_textcolor(lbP, rankCol)
+                box szP = array.get(sniperZoneA, i)
+                if not na(szP)
+                    box.set_right(szP, bar_index + sniperZoneExt)
+                    box.set_border_width(szP, rank == 1 ? 2 : 1)
 
 
 //=====================================================================
-// ALERTES — zones de prédilection (lecture seule de la Sniper Zone du
-// plus récent IDM actif). Calculées à chaque bougie (pas seulement
+// ALERTES — zones de prédilection (lecture seule des Sniper Zones des
+// IDM actifs, kind == "IDM", donc les 3 les plus récents ET cohérents
+// avec confirmedTrend). Calculées à chaque bougie (pas seulement
 // barstate.islast) pour qu'alertcondition() détecte l'ENTRÉE dans la
 // zone, pas juste "être dedans" en continu.
 //=====================================================================
 bool inSniperNow = false
 
-if nNow > 0
-    box topSniperA = array.get(sniperZoneA, nNow - 1)
-    if not na(topSniperA)
-        float tsTop = box.get_top(topSniperA)
-        float tsBot = box.get_bottom(topSniperA)
-        if close <= tsTop and close >= tsBot
-            inSniperNow := true
+if array.size(idmLevel) > 0
+    for i = array.size(idmLevel) - 1 to 0
+        if array.get(idmKind, i) == "IDM"
+            box sniperChk = array.get(sniperZoneA, i)
+            if not na(sniperChk)
+                float tsTop = box.get_top(sniperChk)
+                float tsBot = box.get_bottom(sniperChk)
+                if close <= tsTop and close >= tsBot
+                    inSniperNow := true
 
 bool enteredSniperZone = inSniperNow and not inSniperNow[1]
 
@@ -776,9 +782,9 @@ bool enteredSniperZone = inSniperNow and not inSniperNow[1]
 // RÉCUPÉRATION DE L'IDM (moteur — toujours actif)
 //
 // Vérifiée pour TOUS les IDM encore actifs, même les anciens FS. Les
-// DEUX plus récents déclenchent le vrai signal d'entrée dès que le prix
-// revient les chercher. Un ancien FS (position 3+) retesté plus tard ne
-// déclenche jamais de signal, juste un marquage "✓" informatif.
+// TROIS plus récents (kind == "IDM") déclenchent le vrai signal d'entrée
+// dès que le prix revient les chercher. Un ancien FS retesté plus tard
+// ne déclenche jamais de signal, juste un marquage "✓" informatif.
 //
 // Point critique : si l'IDM est repris MAIS que, sur la même bougie, le
 // prix casse réellement la structure dans le sens opposé, ce n'est PAS
@@ -798,7 +804,7 @@ if array.size(idmLevel) > 0
             if recovered
                 array.set(idmDone, i, true)
 
-                bool isTopTwo       = i >= array.size(idmLevel) - 2
+                bool isActiveIdm    = array.get(idmKind, i) == "IDM"
                 bool blockedByChoch = (dir == 1 and chochBear) or (dir == -1 and chochBull)
 
                 // Sniper Zone : dès que le prix part RÉELLEMENT pour le
@@ -812,7 +818,7 @@ if array.size(idmLevel) > 0
                 // existait vraiment (règle 80/20 respectée). Bande TRÈS
                 // fine centrée exactement sur le niveau IDM que la mèche
                 // de CETTE bougie vient de toucher.
-                if showSniperRefine and isTopTwo and not blockedByChoch and not na(szr)
+                if showSniperRefine and isActiveIdm and not blockedByChoch and not na(szr)
                     float refineThick = atrSniper / 4
                     float refTop = lvl + refineThick
                     float refBot = lvl - refineThick
@@ -827,7 +833,7 @@ if array.size(idmLevel) > 0
                 line lnr = array.get(idmLine, i)
                 label lbr = array.get(idmLbl, i)
 
-                if isTopTwo and not blockedByChoch
+                if isActiveIdm and not blockedByChoch
                     color entryCol = dir == 1 ? entryBuyCol : entrySellCol
 
                     if not na(lnr)
@@ -840,9 +846,9 @@ if array.size(idmLevel) > 0
                     else
                         entrySignalSell := true
                 else
-                    if isTopTwo and blockedByChoch
+                    if isActiveIdm and blockedByChoch
                         signalBlockedByChoch := true
-                    string doneTxt = isTopTwo and blockedByChoch ?
+                    string doneTxt = isActiveIdm and blockedByChoch ?
                          array.get(idmKind, i) + " ✓ (CHoCH)" :
                          array.get(idmKind, i) + " ✓"
 
@@ -1018,10 +1024,10 @@ bool utadJustFormed   = disUTADBar == bar_index
 //   3/4 = prix dans la Sniper Zone active (reteste en cours)
 //   0   = rien de détecté
 //=====================================================================
-int  nIdmG    = array.size(idmLevel)
-int  topDirG  = nIdmG > 0 ? array.get(idmDir, nIdmG - 1) : 0
-bool topDoneG = nIdmG > 0 and array.get(idmDone, nIdmG - 1)
-bool othyZoneApproach = confirmedTrend != 0 and topDirG == confirmedTrend and not topDoneG and inSniperNow
+// inSniperNow ne scanne QUE les Sniper Zones des IDM kind == "IDM"
+// (donc déjà garanties cohérentes avec confirmedTrend par la
+// MAINTENANCE plus haut) — inutile de re-vérifier la direction ici.
+bool othyZoneApproach = confirmedTrend != 0 and inSniperNow
 
 int othySignalCode =
      entrySignalBuy                              ? 1 :
@@ -1042,12 +1048,35 @@ f_sortedDesc(array<float> src) =>
     array.sort(cp, order.descending)
     cp
 
+// Index du plus récent IDM ENCORE actif (kind == "IDM", donc garanti
+// cohérent avec confirmedTrend par la MAINTENANCE plus haut) — jamais
+// la position brute nIdmLevel-1, qui peut être une FS tout juste
+// retirée (CHoCH sans nouveau candidat pas encore formé).
+f_mostRecentActiveIdm() =>
+    int foundIdx = -1
+    if array.size(idmLevel) > 0
+        for i = array.size(idmLevel) - 1 to 0
+            if array.get(idmKind, i) == "IDM"
+                foundIdx := i
+                break
+    foundIdx
+
+// Texte/couleur d'une ligne "IDM #n" du dashboard — idx = -1 -> rien.
+f_idmRowTxt(int idx) =>
+    string s = idx == -1 ? "-" :
+         (array.get(idmDir, idx) == 1 ? "IDBL " : "IDBR ") + str.tostring(array.get(idmLevel, idx), format.mintick) + (array.get(idmDone, idx) ? " ✓" : " (attente)")
+    s
+
+f_idmRowCol(int idx, color rankCol) =>
+    color c = idx == -1 ? rangeCol : array.get(idmDone, idx) ? idmDoneCol : rankCol
+    c
+
 
 //=====================================================================
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si tous
 // les autres modules d'affichage sont désactivés
 //=====================================================================
-var table dash = table.new(position.top_right, 2, 8,
+var table dash = table.new(position.top_right, 2, 10,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showDash and barstate.islast
@@ -1068,21 +1097,29 @@ if showDash and barstate.islast
     string posTxt = confirmedTrend == 1 ? "ACHETEUR" : confirmedTrend == -1 ? "VENDEUR" : "NEUTRE"
     color  posCol = confirmedTrend == 1 ? entryBuyCol : confirmedTrend == -1 ? entrySellCol : rangeCol
 
-    // IDM en attente — UN SEUL, le plus récent qui respecte la
-    // structure actuelle (règle 80/20 : direction == confirmedTrend).
-    // Se déplace automatiquement dès qu'un nouveau candidat remplace
-    // l'ancien — c'est normal, c'est la logique même de l'IDM.
+    // Les 3 IDM actifs — TOUJOURS cohérents avec confirmedTrend (garanti
+    // par la MAINTENANCE du moteur, pas un filtre séparé ici). Rang 1 =
+    // le plus récent, jusqu'à rang 3. Se déplacent automatiquement dès
+    // qu'un nouveau candidat remplace le plus ancien des 3 — normal,
+    // c'est la logique même de l'IDM.
     int nIdm = array.size(idmLevel)
-    int idmWaitIdx = -1
+    var int[] idmRanks = array.new_int()
+    array.clear(idmRanks)
     if nIdm > 0
         for i = nIdm - 1 to 0
-            if not array.get(idmDone, i) and (confirmedTrend == 0 or array.get(idmDir, i) == confirmedTrend)
-                idmWaitIdx := i
-                break
+            if array.get(idmKind, i) == "IDM" and array.size(idmRanks) < 3
+                array.push(idmRanks, i)
 
-    string idmWaitTxt = idmWaitIdx == -1 ? "-" :
-         (array.get(idmDir, idmWaitIdx) == 1 ? "IDBL " : "IDBR ") + str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
-    color idmWaitColCell = idmWaitIdx == -1 ? rangeCol : idmActiveCol
+    int idmIdx1 = array.size(idmRanks) > 0 ? array.get(idmRanks, 0) : -1
+    int idmIdx2 = array.size(idmRanks) > 1 ? array.get(idmRanks, 1) : -1
+    int idmIdx3 = array.size(idmRanks) > 2 ? array.get(idmRanks, 2) : -1
+
+    string idmTxt1 = f_idmRowTxt(idmIdx1)
+    string idmTxt2 = f_idmRowTxt(idmIdx2)
+    string idmTxt3 = f_idmRowTxt(idmIdx3)
+    color  idmCol1 = f_idmRowCol(idmIdx1, idmActiveCol)
+    color  idmCol2 = f_idmRowCol(idmIdx2, idmWaitCol)
+    color  idmCol3 = f_idmRowCol(idmIdx3, idmThirdCol)
 
     string retracementTxt =
          moveDir == 0 ? "-" :
@@ -1093,15 +1130,15 @@ if showDash and barstate.islast
          moveDir == 0 ? rangeCol :
          validTest ? idmDoneCol : idmWaitCol
 
-    // Statut Sniper Zone — celle du dernier IDM actif (donc TOUJOURS
-    // liée à l'IDM). "Peut ne pas être atteinte" : on affiche l'état
-    // réel, jamais une certitude.
+    // Statut Sniper Zone — celle du rang 1 (l'IDM le plus récent,
+    // TOUJOURS lié à l'IDM). "Peut ne pas être atteinte" : on affiche
+    // l'état réel, jamais une certitude.
     string sniperTxt = "-"
     color sniperStatusCol = rangeCol
-    bool topDone2 = nIdm > 0 and array.get(idmDone, nIdm - 1)
-    int  topDir2  = nIdm > 0 ? array.get(idmDir, nIdm - 1) : 0
-    if nIdm > 0
-        box lastSnip = array.get(sniperZoneA, nIdm - 1)
+    if idmIdx1 != -1
+        bool topDone2 = array.get(idmDone, idmIdx1)
+        int  topDir2  = array.get(idmDir, idmIdx1)
+        box lastSnip = array.get(sniperZoneA, idmIdx1)
         if not na(lastSnip)
             float snTop = box.get_top(lastSnip)
             float snBot = box.get_bottom(lastSnip)
@@ -1123,8 +1160,8 @@ if showDash and barstate.islast
     else if entrySignalSell
         actionTxt := "ENTRER VENTE MAINTENANT"
         actionCol := entrySellCol
-    else if idmWaitIdx != -1
-        actionTxt := (array.get(idmDir, idmWaitIdx) == 1 ? "Préparer ACHAT — retest " : "Préparer VENTE — retest ") + str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
+    else if idmIdx1 != -1
+        actionTxt := (array.get(idmDir, idmIdx1) == 1 ? "Préparer ACHAT — retest " : "Préparer VENTE — retest ") + str.tostring(array.get(idmLevel, idmIdx1), format.mintick)
         actionCol := idmActiveCol
     else if nIdm > 0
         actionTxt := "Attendre le prochain IDM"
@@ -1139,20 +1176,26 @@ if showDash and barstate.islast
     table.cell(dash, 0, 2, "Acheteur / Vendeur maintenant", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 2, posTxt, text_color=posCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 3, "IDM en attente", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 3, idmWaitTxt, text_color=idmWaitColCell, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 3, "IDM #1 (récent)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 3, idmTxt1, text_color=idmCol1, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 4, "Retracement", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 4, retracementTxt, text_color=retracementCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 4, "IDM #2", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 4, idmTxt2, text_color=idmCol2, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 5, "Sniper Zone", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 5, sniperTxt, text_color=sniperStatusCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 5, "IDM #3", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 5, idmTxt3, text_color=idmCol3, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 6, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 6, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 6, "Retracement", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 6, retracementTxt, text_color=retracementCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 7, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 7, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 7, "Sniper Zone", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 7, sniperTxt, text_color=sniperStatusCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 8, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 8, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 9, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 9, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
@@ -1181,9 +1224,9 @@ if showOthySignal and barstate.islast
     // très loin du prix actuel). Uniquement si ce dernier IDM est
     // ENCORE actif (pas déjà récupéré) — sinon repère périmé, on
     // retombe sur bosLow/bosHigh.
-    int   nIdmSL    = array.size(idmLevel)
-    bool  topDoneSL = nIdmSL > 0 and array.get(idmDone, nIdmSL - 1)
-    float idmRefSL  = nIdmSL > 0 and not topDoneSL ? array.get(idmLevel, nIdmSL - 1) : na
+    int   activeIdmIdx = f_mostRecentActiveIdm()
+    bool  activeIdmDone = activeIdmIdx != -1 and array.get(idmDone, activeIdmIdx)
+    float idmRefSL  = activeIdmIdx != -1 and not activeIdmDone ? array.get(idmLevel, activeIdmIdx) : na
 
     float slPx =
          dirCand == 1 and not na(idmRefSL)  ? idmRefSL - ta.atr(14) * 0.15 :
