@@ -2210,13 +2210,15 @@ if showOthySignal and barstate.islast
 // prends. N'affecte jamais le moteur mono-timeframe principal.
 //=====================================================================
 f_othyRadarLabel(int code) =>
-    code == 1 or code == 2  ? "Signal confirmé" :
-    code == 3                ? "Spring/STB (accum.)" :
-    code == 4                ? "UT/UTAD (distrib.)" :
-    code == 5 or code == 6  ? "BOS imminent" :
-    code == 7 or code == 8  ? "Fin retracement" :
-    code == 9 or code == 10 ? "Zone en approche" :
-    "-"
+    string lbl =
+         code == 1 or code == 2  ? "Signal confirmé" :
+         code == 3               ? "Spring/STB (accum.)" :
+         code == 4               ? "UT/UTAD (distrib.)" :
+         code == 5 or code == 6  ? "BOS imminent" :
+         code == 7 or code == 8  ? "Fin retracement" :
+         code == 9 or code == 10 ? "Zone en approche" :
+         "-"
+    lbl
 
 int codeM1  = request.security(syminfo.tickerid, "1",  othySignalCode, lookahead=barmerge.lookahead_off)
 int codeM5  = request.security(syminfo.tickerid, "5",  othySignalCode, lookahead=barmerge.lookahead_off)
