@@ -2047,11 +2047,18 @@ if showOthySignal and barstate.islast
     bool  levelsValid = hasSetup and not na(entryPx) and not na(slPx) and not na(tpPx) and slPx != entryPx
     float rr = levelsValid ? (dirCand == 1 ? (tpPx - entryPx) / (entryPx - slPx) : (entryPx - tpPx) / (slPx - entryPx)) : na
 
-    // Confluences (1 point chacune, max 6) — jamais une probabilité
-    // statistique fabriquée, juste le compte des conditions du moteur
-    // déjà bâties précédemment qui s'alignent réellement.
-    bool cfRetrace  = validTest
-    bool cfZone     = (dirCand == 1 and bullishDiscount) or (dirCand == -1 and bearishPremium)
+    // Deux fondamentaux SMV, non négociables (pas un simple point parmi
+    // d'autres) : le retracement a vraiment atteint le 0.5, ET le prix
+    // est du bon côté du Premium/Discount pour cette direction. Sans
+    // ces deux-là, ce n'est pas une configuration SMV valide, quel que
+    // soit le reste — donc pas de trade, peu importe les confirmations.
+    bool cfRetrace = validTest
+    bool cfZone    = (dirCand == 1 and bullishDiscount) or (dirCand == -1 and bearishPremium)
+    bool coreValid = cfRetrace and cfZone
+
+    // Confirmations secondaires — n'autorisent jamais un trade à elles
+    // seules, elles ne font que graduer la confiance une fois les
+    // fondamentaux réunis.
     bool aboveVwapO = not na(vwapVal) and close > vwapVal
     bool belowVwapO = not na(vwapVal) and close < vwapVal
     bool cfVwap     = (dirCand == 1 and aboveVwapO) or (dirCand == -1 and belowVwapO)
@@ -2059,14 +2066,15 @@ if showOthySignal and barstate.islast
     bool cfSession  = inAsian1 or inAsian2 or inNY
     bool cfRR       = not na(rr) and rr >= 1.5
 
-    int score = (cfRetrace ? 1 : 0) + (cfZone ? 1 : 0) + (cfVwap ? 1 : 0) + (cfMtf ? 1 : 0) + (cfSession ? 1 : 0) + (cfRR ? 1 : 0)
+    int confirmScore = (cfVwap ? 1 : 0) + (cfMtf ? 1 : 0) + (cfSession ? 1 : 0)
 
-    string probaTxt = score >= 5 ? "ÉLEVÉE" : score >= 3 ? "MOYENNE" : "FAIBLE"
-    color  probaCol = score >= 5 ? entryBuyCol : score >= 3 ? idmWaitCol : entrySellCol
+    string probaTxt = confirmScore >= 2 ? "ÉLEVÉE" : confirmScore == 1 ? "MOYENNE" : "FAIBLE"
+    color  probaCol = confirmScore >= 2 ? entryBuyCol : confirmScore == 1 ? idmWaitCol : entrySellCol
 
-    // Règle explicite : pas de trade si les conditions ne sont pas
-    // réunies (score trop faible, pas de setup actif, ou R:R absurde).
-    bool showTrade = hasSetup and levelsValid and score >= 3
+    // Règle explicite : les fondamentaux SMV ET un R:R correct sont
+    // obligatoires — les confirmations secondaires ne font que graduer
+    // la probabilité affichée, jamais autoriser un trade à elles seules.
+    bool showTrade = hasSetup and levelsValid and coreValid and cfRR
 
     // Style — réutilise le Biais Multi-TF déjà calculé (aucune requête
     // supplémentaire) : Swing si Daily+H4 alignés, Scalping si H1 +
@@ -2105,7 +2113,7 @@ if showOthySignal and barstate.islast
     table.cell(othy, 1, 6, showTrade ? str.tostring(tpPx, format.mintick) + " (R:R " + str.tostring(rr, "#.##") + ")" : "-", text_color=entryBuyCol, text_size=size.small, bgcolor=dashBgCol)
 
     table.cell(othy, 0, 7, "Probabilité", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(othy, 1, 7, showTrade ? probaTxt + " (" + str.tostring(score) + "/6 confluences)" : "-", text_color=showTrade ? probaCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 7, showTrade ? probaTxt + " (" + str.tostring(confirmScore) + "/3 confirmations)" : "-", text_color=showTrade ? probaCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
