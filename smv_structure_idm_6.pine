@@ -88,7 +88,7 @@ maxHistory   = input.int(100, "Nombre max d'IDM historiques", minval=10, maxval=
 //=====================================================================
 gZ = "4. Zone à retester"
 showIdmZone = input.bool(true, "Afficher les zones à retester", group=gZ,
-     tooltip="Haussier -> zone EN DESSOUS de l'IDM (IDBL). Baissier -> zone AU-DESSUS (IDBR). Une zone par IDM.")
+     tooltip="Haussier -> zone EN DESSOUS de l'IDM (IDBL). Baissier -> zone AU-DESSUS (IDBR). Une zone par IDM, dessinée SEULEMENT le jour où le prix vient vraiment la toucher — jamais de zone prédictive affichée avant coup.")
 idmZoneSize = input.float(0.5, "Épaisseur de la zone (x ATR)", minval=0.1, maxval=3.0, step=0.1, group=gZ)
 idmZoneExt  = input.int(15, "Prolongement de la zone (bougies)", minval=3, maxval=60, group=gZ)
 
@@ -190,7 +190,7 @@ nyCol    = input.color(color.new(#ffa726, 85), "Couleur session NYC", group=gSes
 //=====================================================================
 gIL = "12. Zones de Liquidité (Intact)"
 showIntact = input.bool(true, "Afficher les niveaux Intact (High/Low en attente)", group=gIL,
-     tooltip="Intact Sellers (High) et Intact Buyers (Low) : le dernier sommet/creux pas encore balayé par le prix. Purement informatif, n'affecte jamais le moteur ni l'IDM.")
+     tooltip="Jusqu'à 4 Intact Sellers (les 4 derniers sommets pas encore balayés) et 4 Intact Buyers (les 4 derniers creux pas encore balayés), simultanément. Chaque niveau disparaît dès qu'une bougie le traverse. Purement informatif, n'affecte jamais le moteur ni l'IDM.")
 intactBuyCol  = input.color(#4fc3f7, "Couleur Intact Buyers (Low)", group=gIL)
 intactSellCol = input.color(#ff8a65, "Couleur Intact Sellers (High)", group=gIL)
 
@@ -339,10 +339,26 @@ var float lastPL = na
 var float prevPL = na
 var int lastPLBar = na
 
+// Liquidité Intact — les 4 derniers pivots hauts/bas CONFIRMÉS pas
+// encore balayés, chacun de son côté (module 12). Un pivot est retiré
+// dès qu'une bougie balaye son niveau (voir la purge plus bas, section
+// AFFICHAGE — Zones de Liquidité) ; sinon, uniquement les 4 plus
+// récents sont conservés par côté.
+var float[] intactHighLevels = array.new_float()
+var int[]   intactHighBars   = array.new_int()
+var float[] intactLowLevels  = array.new_float()
+var int[]   intactLowBars    = array.new_int()
+
 if not na(ph) and inLookback
     prevPH := lastPH
     lastPH := ph
     lastPHBar := phBar
+
+    array.push(intactHighLevels, ph)
+    array.push(intactHighBars, phBar)
+    if array.size(intactHighLevels) > 4
+        array.shift(intactHighLevels)
+        array.shift(intactHighBars)
 
     if showStruct
         string txt = na(prevPH) ? "H" : ph > prevPH ? "HH" : "LH"
@@ -357,6 +373,12 @@ if not na(pl) and inLookback
     prevPL := lastPL
     lastPL := pl
     lastPLBar := plBar
+
+    array.push(intactLowLevels, pl)
+    array.push(intactLowBars, plBar)
+    if array.size(intactLowLevels) > 4
+        array.shift(intactLowLevels)
+        array.shift(intactLowBars)
 
     if showStruct
         string txt = na(prevPL) ? "L" : pl > prevPL ? "HL" : "LL"
@@ -602,52 +624,69 @@ if array.size(bosLineArr) > maxBosHistory
 
 
 //=====================================================================
-// AFFICHAGE — Zones de Liquidité (Intact), indépendant, lecture seule
-// de bosHigh/bosLow (déjà calculés par le moteur CASSURES ci-dessus —
-// aucune influence dessus). Intact Sellers = dernier High pas encore
-// balayé ; Intact Buyers = dernier Low pas encore balayé. Un seul
-// trait par côté, repositionné en direct bougie après bougie tant que
-// le niveau ne change pas (nouvelle référence ou cassure).
+// AFFICHAGE — Zones de Liquidité (Intact), indépendant. Jusqu'à 4
+// niveaux par côté (intactHighLevels/intactLowLevels, alimentés dans la
+// section PIVOTS plus haut — aucune influence sur bosHigh/bosLow ni sur
+// le moteur). Purge d'abord tout niveau balayé par CETTE bougie (une
+// bougie a traversé le niveau), puis redessine tout à partir des
+// tableaux de données pour rester strictement synchronisé — un niveau
+// peut être retiré du milieu du tableau, pas seulement le plus ancien.
 //=====================================================================
-var line  intactHighLine = na
-var label intactHighLbl  = na
-var line  intactLowLine  = na
-var label intactLowLbl   = na
+if array.size(intactHighLevels) > 0
+    for idx = array.size(intactHighLevels) - 1 to 0
+        if high >= array.get(intactHighLevels, idx)
+            array.remove(intactHighLevels, idx)
+            array.remove(intactHighBars, idx)
+
+if array.size(intactLowLevels) > 0
+    for idx = array.size(intactLowLevels) - 1 to 0
+        if low <= array.get(intactLowLevels, idx)
+            array.remove(intactLowLevels, idx)
+            array.remove(intactLowBars, idx)
+
+var line[]  intactHighLines = array.new_line()
+var label[] intactHighLbls  = array.new_label()
+var line[]  intactLowLines  = array.new_line()
+var label[] intactLowLbls   = array.new_label()
+
+if array.size(intactHighLines) > 0
+    for idx = array.size(intactHighLines) - 1 to 0
+        line.delete(array.get(intactHighLines, idx))
+        label.delete(array.get(intactHighLbls, idx))
+    array.clear(intactHighLines)
+    array.clear(intactHighLbls)
+
+if array.size(intactLowLines) > 0
+    for idx = array.size(intactLowLines) - 1 to 0
+        line.delete(array.get(intactLowLines, idx))
+        label.delete(array.get(intactLowLbls, idx))
+    array.clear(intactLowLines)
+    array.clear(intactLowLbls)
 
 if showIntact
-    if not na(bosHigh)
-        if na(intactHighLine)
-            intactHighLine := line.new(bosHighBar, bosHigh, bar_index + 1, bosHigh,
-                 color=intactSellCol, style=line.style_dashed, width=1)
-            intactHighLbl := label.new(bar_index + 1, bosHigh, "Intact Sellers",
+    if array.size(intactHighLevels) > 0
+        for idx = 0 to array.size(intactHighLevels) - 1
+            float lvlH = array.get(intactHighLevels, idx)
+            int   barH = array.get(intactHighBars, idx)
+            int   rankH = array.size(intactHighLevels) - idx
+            string txtH = "Intact Sellers #" + str.tostring(rankH)
+            array.push(intactHighLines, line.new(barH, lvlH, bar_index + 8, lvlH,
+                 color=intactSellCol, style=line.style_dashed, width=1))
+            array.push(intactHighLbls, label.new(bar_index + 8, lvlH, txtH,
                  style=label.style_label_left, color=color.new(intactSellCol, 80),
-                 textcolor=intactSellCol, size=size.small)
-        else
-            line.set_xy1(intactHighLine, bosHighBar, bosHigh)
-            line.set_xy2(intactHighLine, bar_index + 1, bosHigh)
-            label.set_xy(intactHighLbl, bar_index + 1, bosHigh)
-    if not na(bosLow)
-        if na(intactLowLine)
-            intactLowLine := line.new(bosLowBar, bosLow, bar_index + 1, bosLow,
-                 color=intactBuyCol, style=line.style_dashed, width=1)
-            intactLowLbl := label.new(bar_index + 1, bosLow, "Intact Buyers",
+                 textcolor=intactSellCol, size=size.small))
+
+    if array.size(intactLowLevels) > 0
+        for idx = 0 to array.size(intactLowLevels) - 1
+            float lvlL = array.get(intactLowLevels, idx)
+            int   barL = array.get(intactLowBars, idx)
+            int   rankL = array.size(intactLowLevels) - idx
+            string txtL = "Intact Buyers #" + str.tostring(rankL)
+            array.push(intactLowLines, line.new(barL, lvlL, bar_index + 8, lvlL,
+                 color=intactBuyCol, style=line.style_dashed, width=1))
+            array.push(intactLowLbls, label.new(bar_index + 8, lvlL, txtL,
                  style=label.style_label_left, color=color.new(intactBuyCol, 80),
-                 textcolor=intactBuyCol, size=size.small)
-        else
-            line.set_xy1(intactLowLine, bosLowBar, bosLow)
-            line.set_xy2(intactLowLine, bar_index + 1, bosLow)
-            label.set_xy(intactLowLbl, bar_index + 1, bosLow)
-else
-    if not na(intactHighLine)
-        line.delete(intactHighLine)
-        label.delete(intactHighLbl)
-        intactHighLine := na
-        intactHighLbl := na
-    if not na(intactLowLine)
-        line.delete(intactLowLine)
-        label.delete(intactLowLbl)
-        intactLowLine := na
-        intactLowLbl := na
+                 textcolor=intactBuyCol, size=size.small))
 
 
 //=====================================================================
@@ -708,25 +747,65 @@ if moveDir == -1 and not newMoveDown and low < moveExtreme
 
 
 //=====================================================================
-// AFFICHAGE — Premium / Discount, indépendant (lecture seule de
-// moveOrigin/moveOriginBar/moveExtreme/moveFib50, déjà calculés par le
-// MOTEUR DE MOUVEMENT plus haut — aucune structure dupliquée, jamais de
-// Fibonacci affiché, seulement Premium/Discount/Équilibre).
+// PORTÉE DU PREMIUM/DISCOUNT — du DERNIER pivot bas confirmé au DERNIER
+// pivot haut confirmé (et inversement en baissier), PAS le niveau juste
+// cassé + l'extrême du moment (moveOrigin/moveExtreme, réservés au
+// moteur IDM/retracement 80-20 — jamais touchés ici, aucun changement
+// de logique IDM). L'ancrage ne se redécale que lorsqu'un NOUVEAU pivot
+// opposé se confirme, jamais à chaque petit BOS de continuation —
+// sinon la zone redevient minuscule à chaque cassure interne, ce qui
+// était le bug : la zone doit couvrir toute la jambe en cours, pas
+// juste le dernier segment cassé.
 //=====================================================================
-bool pdValidRange = moveDir != 0 and not na(moveOrigin) and not na(moveExtreme) and moveExtreme != moveOrigin
+var float pdOrigin     = na
+var int   pdOriginBar  = na
+var float pdExtreme    = na
+var int   pdExtremeBar = na
 
-float pdRangeHigh = pdValidRange ? math.max(moveOrigin, moveExtreme) : na
-float pdRangeLow  = pdValidRange ? math.min(moveOrigin, moveExtreme) : na
+if confirmedTrend == 1 and not na(lastPL)
+    if na(pdOriginBar) or lastPLBar > pdOriginBar
+        pdOrigin := lastPL
+        pdOriginBar := lastPLBar
+        pdExtreme := high
+        pdExtremeBar := bar_index
+    else if high > pdExtreme
+        pdExtreme := high
+        pdExtremeBar := bar_index
 
-string currentZone = pdValidRange ? (close > moveFib50 ? "PREMIUM" : close < moveFib50 ? "DISCOUNT" : "ÉQUILIBRE") : "-"
+if confirmedTrend == -1 and not na(lastPH)
+    if na(pdOriginBar) or lastPHBar > pdOriginBar
+        pdOrigin := lastPH
+        pdOriginBar := lastPHBar
+        pdExtreme := low
+        pdExtremeBar := bar_index
+    else if low < pdExtreme
+        pdExtreme := low
+        pdExtremeBar := bar_index
+
+float pdFib50 = (not na(pdOrigin) and not na(pdExtreme)) ? (pdOrigin + pdExtreme) / 2.0 : na
+
+
+//=====================================================================
+// AFFICHAGE — Premium / Discount, indépendant (lecture seule de
+// pdOrigin/pdOriginBar/pdExtreme/pdFib50 ci-dessus — aucune structure
+// dupliquée, jamais de Fibonacci affiché, seulement Premium/Discount/
+// Équilibre. Le moteur IDM continue d'utiliser exclusivement moveOrigin/
+// moveExtreme/moveFib50, inchangés).
+//=====================================================================
+bool pdValidRange = confirmedTrend != 0 and not na(pdOrigin) and not na(pdExtreme) and pdExtreme != pdOrigin
+
+float pdRangeHigh = pdValidRange ? math.max(pdOrigin, pdExtreme) : na
+float pdRangeLow  = pdValidRange ? math.min(pdOrigin, pdExtreme) : na
+
+string currentZone = pdValidRange ? (close > pdFib50 ? "PREMIUM" : close < pdFib50 ? "DISCOUNT" : "ÉQUILIBRE") : "-"
 
 // Contexte SMV : on ne dit pas juste "Discount = achat" — on croise la
-// zone ET le sens du mouvement en cours (Discount en haussier a du
-// sens, Discount en baissier est juste une pause dans la baisse).
-bool bullishDiscount = pdValidRange and moveDir == 1 and close <= moveFib50
-bool bullishPremium  = pdValidRange and moveDir == 1 and close > moveFib50
-bool bearishPremium  = pdValidRange and moveDir == -1 and close >= moveFib50
-bool bearishDiscount = pdValidRange and moveDir == -1 and close < moveFib50
+// zone ET la tendance CONFIRMÉE (Discount en haussier a du sens,
+// Discount en baissier est juste une pause dans la baisse).
+bool bullishDiscount = pdValidRange and confirmedTrend == 1 and close <= pdFib50
+bool bullishPremium  = pdValidRange and confirmedTrend == 1 and close > pdFib50
+bool bearishPremium  = pdValidRange and confirmedTrend == -1 and close >= pdFib50
+bool bearishDiscount = pdValidRange and confirmedTrend == -1 and close < pdFib50
 
 var box   premiumBox  = na
 var box   discountBox = na
@@ -737,21 +816,21 @@ var label pdZoneLbl   = na
 
 if showPdZones and pdValidRange
     if na(premiumBox)
-        premiumBox := box.new(moveOriginBar, pdRangeHigh, bar_index + pdExtend, moveFib50,
+        premiumBox := box.new(pdOriginBar, pdRangeHigh, bar_index + pdExtend, pdFib50,
              border_color=color.new(premiumCol, 45), border_width=1, bgcolor=color.new(premiumCol, pdTransparency))
     else
-        box.set_left(premiumBox, moveOriginBar)
+        box.set_left(premiumBox, pdOriginBar)
         box.set_right(premiumBox, bar_index + pdExtend)
         box.set_top(premiumBox, pdRangeHigh)
-        box.set_bottom(premiumBox, moveFib50)
+        box.set_bottom(premiumBox, pdFib50)
 
     if na(discountBox)
-        discountBox := box.new(moveOriginBar, moveFib50, bar_index + pdExtend, pdRangeLow,
+        discountBox := box.new(pdOriginBar, pdFib50, bar_index + pdExtend, pdRangeLow,
              border_color=color.new(discountCol, 45), border_width=1, bgcolor=color.new(discountCol, pdTransparency))
     else
-        box.set_left(discountBox, moveOriginBar)
+        box.set_left(discountBox, pdOriginBar)
         box.set_right(discountBox, bar_index + pdExtend)
-        box.set_top(discountBox, moveFib50)
+        box.set_top(discountBox, pdFib50)
         box.set_bottom(discountBox, pdRangeLow)
 else
     if not na(premiumBox)
@@ -763,11 +842,11 @@ else
 
 if showPd and pdValidRange
     if na(fib50Line)
-        fib50Line := line.new(moveOriginBar, moveFib50, bar_index + pdExtend, moveFib50,
+        fib50Line := line.new(pdOriginBar, pdFib50, bar_index + pdExtend, pdFib50,
              color=color.new(pdCol, 40), style=line.style_dotted)
     else
-        line.set_xy1(fib50Line, moveOriginBar, moveFib50)
-        line.set_xy2(fib50Line, bar_index + pdExtend, moveFib50)
+        line.set_xy1(fib50Line, pdOriginBar, pdFib50)
+        line.set_xy2(fib50Line, bar_index + pdExtend, pdFib50)
 else
     if not na(fib50Line)
         line.delete(fib50Line)
@@ -787,7 +866,7 @@ if showPdLabels and pdValidRange
         label.set_xy(discountLbl, bar_index + pdExtend, pdRangeLow)
 
     color  pdZoneCol = currentZone == "PREMIUM" ? premiumCol : currentZone == "DISCOUNT" ? discountCol : pdCol
-    string pdZoneTxt = (moveDir == 1 ? "MOUVEMENT HAUSSIER • " : "MOUVEMENT BAISSIER • ") + currentZone
+    string pdZoneTxt = (confirmedTrend == 1 ? "MOUVEMENT HAUSSIER • " : "MOUVEMENT BAISSIER • ") + currentZone
     if na(pdZoneLbl)
         pdZoneLbl := label.new(bar_index, close, pdZoneTxt,
              style=label.style_label_left, color=color.new(pdZoneCol, 75), textcolor=pdZoneCol, size=size.tiny)
@@ -842,14 +921,14 @@ if showLiquidityTarget and targetValid
     string targetTxt = "Cible liquidité " + str.tostring(targetLevel, format.mintick) +
          (na(targetProgressPct) ? "" : " (" + str.tostring(targetProgressPct, "#") + "% parcouru)")
     if na(targetLine)
-        targetLine := line.new(bar_index, targetLevel, bar_index + 1, targetLevel,
+        targetLine := line.new(bar_index, targetLevel, bar_index + 16, targetLevel,
              color=targetCol, style=line.style_dashed, width=2)
-        targetLbl := label.new(bar_index + 1, targetLevel, targetTxt,
+        targetLbl := label.new(bar_index + 16, targetLevel, targetTxt,
              style=label.style_label_left, color=color.new(targetCol, 80), textcolor=targetCol, size=size.small)
     else
         line.set_xy1(targetLine, bar_index, targetLevel)
-        line.set_xy2(targetLine, bar_index + 1, targetLevel)
-        label.set_xy(targetLbl, bar_index + 1, targetLevel)
+        line.set_xy2(targetLine, bar_index + 16, targetLevel)
+        label.set_xy(targetLbl, bar_index + 16, targetLevel)
         label.set_text(targetLbl, targetTxt)
 else
     if not na(targetLine)
@@ -858,6 +937,9 @@ else
     if not na(targetLbl)
         label.delete(targetLbl)
         targetLbl := na
+
+bool nearTargetNow  = targetValid and math.abs(close - targetLevel) <= ta.atr(14) * 0.15
+bool enteredTargetZone = nearTargetNow and not nearTargetNow[1]
 
 
 //=====================================================================
@@ -927,7 +1009,17 @@ var bool[]   idmDone  = array.new_bool()
 var string[] idmKind  = array.new_string()   // "IDM" ou "FS"
 var line[]   idmLine  = array.new_line()     // peut contenir na si showIdmLines=false
 var label[]  idmLbl   = array.new_label()    // peut contenir na si showIdmLines=false
-var box[]    idmZoneA = array.new_box()      // peut contenir na si showIdmZone=false
+var box[]    idmZoneA = array.new_box()      // peut contenir na si showIdmZone=false et/ou pas encore retestée
+
+// Zone à retester — bornes figées à la formation de l'IDM, mais le
+// box.new() lui-même n'est créé QUE si le prix vient vraiment toucher
+// cette bande (idmZoneTouched), plus bas dans la section Prolongation
+// des DEUX plus récents. Jamais de zone "radar" prédictive affichée
+// avant coup.
+var float[] idmZoneTop     = array.new_float()
+var float[] idmZoneBot     = array.new_float()
+var int[]   idmZoneBar     = array.new_int()
+var bool[]  idmZoneTouched = array.new_bool()
 
 // Sniper Zone — tableau STRICTEMENT parallèle à idmZoneA (mêmes
 // indices, même cycle de vie : création, promotion en 2e position,
@@ -1002,20 +1094,17 @@ if newIDM
     // identique.
     bool dirAllowed = confirmedTrend == 0 or confirmedTrend == moveDir
 
-    box zn = na
-    if showIdmZone and dirAllowed
-        float zTop = moveDir == 1 ? idmCandidate : idmCandidate + atrZone
-        float zBot = moveDir == 1 ? idmCandidate - atrZone : idmCandidate
-        zn := box.new(idmCandidateBar, zTop, bar_index + idmZoneExt, zBot,
-             border_color=idmActiveCol,
-             border_width=2,
-             border_style=line.style_dashed,
-             bgcolor=color.new(idmActiveCol, 78),
-             text="Zone à retester",
-             text_color=idmActiveCol,
-             text_size=size.tiny,
-             text_halign=text.align_left)
-    array.push(idmZoneA, zn)
+    // Bornes figées maintenant (contexte de formation de CET IDM), mais
+    // le dessin est différé — voir section Prolongation plus bas, qui
+    // ne crée la boîte que le jour où le prix touche vraiment cette
+    // bande, jamais avant.
+    float zTopNew = moveDir == 1 ? idmCandidate : idmCandidate + atrZone
+    float zBotNew = moveDir == 1 ? idmCandidate - atrZone : idmCandidate
+    array.push(idmZoneTop, zTopNew)
+    array.push(idmZoneBot, zBotNew)
+    array.push(idmZoneBar, idmCandidateBar)
+    array.push(idmZoneTouched, false)
+    array.push(idmZoneA, na)
 
     // Sniper Zone — préparée MAINTENANT, dès la formation de l'IDM, pas
     // seulement une fois le prix revenu. Bande fine centrée sur l'IDM
@@ -1108,6 +1197,21 @@ if nNow > 0
         label lbTop = array.get(idmLbl, topIdx)
         if not na(lbTop)
             label.set_xy(lbTop, bar_index + 1, array.get(idmLevel, topIdx))
+
+        // Zone à retester — créée SEULEMENT le jour où le prix touche
+        // vraiment la bande (idmZoneTouched), jamais avant : plus de
+        // zone "radar" prédictive qui traîne pour rien sur le graphique.
+        if showIdmZone and not array.get(idmZoneTouched, topIdx)
+            bool dirAllowedTop = confirmedTrend == 0 or confirmedTrend == array.get(idmDir, topIdx)
+            float zTopChkT = array.get(idmZoneTop, topIdx)
+            float zBotChkT = array.get(idmZoneBot, topIdx)
+            if dirAllowedTop and low <= zTopChkT and high >= zBotChkT
+                array.set(idmZoneTouched, topIdx, true)
+                array.set(idmZoneA, topIdx, box.new(array.get(idmZoneBar, topIdx), zTopChkT, bar_index + idmZoneExt, zBotChkT,
+                     border_color=idmActiveCol, border_width=2, border_style=line.style_dashed,
+                     bgcolor=color.new(idmActiveCol, 78), text="Zone à retester",
+                     text_color=idmActiveCol, text_size=size.tiny, text_halign=text.align_left))
+
         box bzTop = array.get(idmZoneA, topIdx)
         if not na(bzTop)
             box.set_right(bzTop, bar_index + idmZoneExt)
@@ -1124,12 +1228,51 @@ if nNow > 1
         label lbSec = array.get(idmLbl, secIdx)
         if not na(lbSec)
             label.set_xy(lbSec, bar_index + 1, array.get(idmLevel, secIdx))
+
+        if showIdmZone and not array.get(idmZoneTouched, secIdx)
+            bool dirAllowedSec = confirmedTrend == 0 or confirmedTrend == array.get(idmDir, secIdx)
+            float zTopChkS = array.get(idmZoneTop, secIdx)
+            float zBotChkS = array.get(idmZoneBot, secIdx)
+            if dirAllowedSec and low <= zTopChkS and high >= zBotChkS
+                array.set(idmZoneTouched, secIdx, true)
+                array.set(idmZoneA, secIdx, box.new(array.get(idmZoneBar, secIdx), zTopChkS, bar_index + idmZoneExt, zBotChkS,
+                     border_color=idmWaitCol, border_width=2, border_style=line.style_dashed,
+                     bgcolor=color.new(idmWaitCol, 78), text="Zone à retester",
+                     text_color=idmWaitCol, text_size=size.tiny, text_halign=text.align_left))
+
         box bzSec = array.get(idmZoneA, secIdx)
         if not na(bzSec)
             box.set_right(bzSec, bar_index + idmZoneExt)
         box szSec = array.get(sniperZoneA, secIdx)
         if not na(szSec)
             box.set_right(szSec, bar_index + idmZoneExt)
+
+
+//=====================================================================
+// ALERTES — zones de prédilection (lecture seule des boîtes du plus
+// récent IDM actif, top position). Calculées à chaque bougie (pas
+// seulement barstate.islast) pour que alertcondition() puisse détecter
+// l'ENTRÉE dans la zone, pas juste "être dedans" en continu.
+//=====================================================================
+bool inSniperNow = false
+bool inIdmZoneNow = false
+
+if nNow > 0
+    box topSniperA = array.get(sniperZoneA, nNow - 1)
+    if not na(topSniperA)
+        float tsTop = box.get_top(topSniperA)
+        float tsBot = box.get_bottom(topSniperA)
+        if close <= tsTop and close >= tsBot
+            inSniperNow := true
+    box topZoneA = array.get(idmZoneA, nNow - 1)
+    if not na(topZoneA)
+        float tzTop = box.get_top(topZoneA)
+        float tzBot = box.get_bottom(topZoneA)
+        if close <= tzTop and close >= tzBot
+            inIdmZoneNow := true
+
+bool enteredSniperZone = inSniperNow and not inSniperNow[1]
+bool enteredIdmZone    = inIdmZoneNow and not inIdmZoneNow[1]
 
 
 //=====================================================================
@@ -1177,18 +1320,22 @@ if array.size(idmLevel) > 0
                     box.delete(szr)
 
                 // Raffinage intrabar (Module 4, "chandelier qui prend
-                // l'argent") : pour les deux IDM actuels non invalidés par
-                // un CHoCH, la suppression ci-dessus ne suffit pas — le
-                // corps (open/close) de LA bougie qui vient de faire la
-                // prise de liquidité devient une zone de précision, bien
-                // plus étroite que la bande ATR d'origine. 100% intrabar,
-                // même timeframe, aucune requête cross-TF.
-                if showSniperRefine and isTopTwo and not blockedByChoch
-                    float refTop = math.max(open, close)
-                    float refBot = math.min(open, close)
+                // l'argent") : uniquement si la Sniper Zone d'origine
+                // existait vraiment (not na(szr) -> la règle 80/20 avait
+                // autorisé sa création dans ce sens ; sinon on ne dessine
+                // rien, jamais de zone achat en tendance baissière ou
+                // inversement). Bande TRÈS fine (pas un carré), centrée
+                // exactement sur le niveau IDM que la mèche de CETTE
+                // bougie vient de toucher pour déclencher `recovered` —
+                // garantit que la zone "rencontre" toujours une vraie
+                // bougie à son extrémité. 100% intrabar, même timeframe.
+                if showSniperRefine and isTopTwo and not blockedByChoch and not na(szr)
+                    float refineThick = atrSniper / 4
+                    float refTop = lvl + refineThick
+                    float refBot = lvl - refineThick
                     array.push(sniperRefineBx, box.new(bar_index, refTop, bar_index + idmZoneExt, refBot,
                          border_color=refineCol, border_width=2,
-                         bgcolor=color.new(refineCol, 80),
+                         bgcolor=color.new(refineCol, 70),
                          text="Sniper affinée", text_color=refineCol,
                          text_size=size.tiny, text_halign=text.align_left))
                     if array.size(sniperRefineBx) > 15
@@ -1253,8 +1400,8 @@ if array.size(idmLevel) > 0
                         box.set_text(bzr, "")
 
 
-// limitation historique — 8 tableaux liés (dont sniperZoneA), on garde
-// tout synchronisé
+// limitation historique — 12 tableaux liés (dont sniperZoneA et les 4
+// tableaux de la Zone à retester différée), on garde tout synchronisé
 if array.size(idmLevel) > maxHistory
     line oldLn = array.shift(idmLine)
     if not na(oldLn)
@@ -1272,6 +1419,10 @@ if array.size(idmLevel) > maxHistory
     array.shift(idmDir)
     array.shift(idmDone)
     array.shift(idmKind)
+    array.shift(idmZoneTop)
+    array.shift(idmZoneBot)
+    array.shift(idmZoneBar)
+    array.shift(idmZoneTouched)
 
 
 //=====================================================================
@@ -1643,13 +1794,13 @@ if showDash and barstate.islast
          moveDir == 0 ? rangeCol :
          validTest ? idmDoneCol : idmWaitCol
 
-    string pdTxt =
-         moveDir == 0 or na(moveFib50) ? "-" :
-         close < moveFib50 ? "Discount" :
-         close > moveFib50 ? "Premium" : "Équilibre"
+    // Même lecture que sur le graphique (currentZone, ancrée dernier
+    // pivot bas <-> dernier pivot haut) — jamais deux versions
+    // différentes du Premium/Discount entre le dashboard et le dessin.
+    string pdTxt = currentZone == "-" ? "-" : currentZone == "PREMIUM" ? "Premium" : currentZone == "DISCOUNT" ? "Discount" : "Équilibre"
 
     color pdColCell =
-         moveDir == 0 or na(moveFib50) ? rangeCol :
+         currentZone == "-" ? rangeCol :
          pdTxt == "Discount" ? bullCol :
          pdTxt == "Premium" ? bearCol : rangeCol
 
@@ -1756,15 +1907,27 @@ if showDash and barstate.islast
          rangeCol
 
     // VWAP — simple lecture de vwapVal déjà calculé.
+    // Interprétation croisée avec la tendance CONFIRMÉE — le VWAP seul
+    // ne dit rien, c'est sa position PAR RAPPORT à confirmedTrend qui
+    // renforce ou tempère le scénario (jamais un signal en soi).
+    bool aboveVwap = not na(vwapVal) and close > vwapVal
+    bool belowVwap = not na(vwapVal) and close < vwapVal
+
     string vwapTxt =
          na(vwapVal) ? "-" :
-         close > vwapVal ? "Au-dessus (" + str.tostring(vwapVal, format.mintick) + ")" :
-         close < vwapVal ? "En dessous (" + str.tostring(vwapVal, format.mintick) + ")" :
+         confirmedTrend == 1 and aboveVwap ? "Confirme (prix > VWAP, tendance haussière)" :
+         confirmedTrend == 1 and belowVwap ? "Prudence (prix < VWAP en tendance haussière)" :
+         confirmedTrend == -1 and belowVwap ? "Confirme (prix < VWAP, tendance baissière)" :
+         confirmedTrend == -1 and aboveVwap ? "Prudence (prix > VWAP en tendance baissière)" :
+         aboveVwap ? "Au-dessus (" + str.tostring(vwapVal, format.mintick) + ")" :
+         belowVwap ? "En dessous (" + str.tostring(vwapVal, format.mintick) + ")" :
          "Sur le VWAP"
+
     color vwapDashCol =
          na(vwapVal) ? rangeCol :
-         close > vwapVal ? bullCol :
-         close < vwapVal ? bearCol : rangeCol
+         (confirmedTrend == 1 and aboveVwap) or (confirmedTrend == -1 and belowVwap) ? entryBuyCol :
+         (confirmedTrend == 1 and belowVwap) or (confirmedTrend == -1 and aboveVwap) ? idmWaitCol :
+         rangeCol
 
     table.cell(dash, 0, 0, "SMV — MOTEUR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
     table.merge_cells(dash, 0, 0, 1, 0)
@@ -1814,8 +1977,16 @@ if showDash and barstate.islast
     table.cell(dash, 0, 15, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 15, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
 
+    // Cohérence : quand la conclusion est tranchée, on précise pour
+    // quelle liquidité (module 13, timeframe courant) ce biais joue —
+    // jamais un "ACHETEUR"/"VENDEUR" sec sans destination.
+    string mtfTargetTxt =
+         mtfConclusion == "MIXTE" or not targetValid ? "" :
+         " → cible " + str.tostring(targetLevel, format.mintick)
+    string mtfLine = mtfConclusion + " (" + mtfDetail + ")" + mtfTargetTxt
+
     table.cell(dash, 0, 16, "Biais Multi-TF", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 16, mtfConclusion + " (" + mtfDetail + ")", text_color=mtfDashCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 16, mtfLine, text_color=mtfDashCol, text_size=size.small, bgcolor=dashBgCol)
 
     table.cell(dash, 0, 17, "Prix vs VWAP", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 17, vwapTxt, text_color=vwapDashCol, text_size=size.small, bgcolor=dashBgCol)
@@ -1838,3 +2009,6 @@ alertcondition(phaseEntryBuy, "Entrée ACHAT (Accumulation)", "SMV : SC/STB/SPRI
 alertcondition(phaseEntrySell, "Entrée VENTE (Distribution)", "SMV : BC/UT/UTAD confirmés par un BOS baissier — entrée VENTE")
 alertcondition(bullishDiscount, "SMV — Bullish Discount", "SMV : le prix est en Discount dans un mouvement haussier.")
 alertcondition(bearishPremium, "SMV — Bearish Premium", "SMV : le prix est en Premium dans un mouvement baissier.")
+alertcondition(enteredSniperZone, "Prix dans la Sniper Zone", "SMV : le prix vient d'entrer dans la Sniper Zone active (IDM)")
+alertcondition(enteredIdmZone, "Prix dans la Zone à retester", "SMV : le prix vient d'entrer dans la Zone à retester (IDM)")
+alertcondition(enteredTargetZone, "Prix proche de la liquidité cible", "SMV : le prix vient d'approcher la cible de liquidité (Intact)")
