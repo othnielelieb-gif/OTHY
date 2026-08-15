@@ -1729,6 +1729,24 @@ int othySignalCode =
      (othyZoneApproach and confirmedTrend == -1) ? 10 :
      0
 
+// Version "sûre pour request.security" — othySignalCode ci-dessus
+// dépend indirectement de box.get_top/box.get_bottom sur des boîtes
+// créées par box.new (via othyZoneApproach), ce que Pine interdit
+// formellement de faire voyager vers un autre timeframe. Cette version
+// retire uniquement la branche 9/10 (zone en approche, IDM/Sniper) —
+// OTHY Signal (mono-timeframe) garde othySignalCode complet ; OTHY
+// Radar (multi-timeframe) utilise cette version filtrée ci-dessous.
+int othySignalCodeMTF =
+     othyConfirmedBuy   ? 1 :
+     othyConfirmedSell  ? 2 :
+     othyPhaseAcc       ? 3 :
+     othyPhaseDis       ? 4 :
+     othyNearBosUp       ? 5 :
+     othyNearBosDown     ? 6 :
+     othyRetraceEndUp    ? 7 :
+     othyRetraceEndDown  ? 8 :
+     0
+
 
 //=====================================================================
 // AFFICHAGE — FVG (indépendant, lecture seule des prix)
@@ -2220,10 +2238,10 @@ f_othyRadarLabel(int code) =>
          "-"
     lbl
 
-int codeM1  = request.security(syminfo.tickerid, "1",  othySignalCode, lookahead=barmerge.lookahead_off)
-int codeM5  = request.security(syminfo.tickerid, "5",  othySignalCode, lookahead=barmerge.lookahead_off)
-int codeM15 = request.security(syminfo.tickerid, "15", othySignalCode, lookahead=barmerge.lookahead_off)
-int codeH1  = request.security(syminfo.tickerid, "60", othySignalCode, lookahead=barmerge.lookahead_off)
+int codeM1  = request.security(syminfo.tickerid, "1",  othySignalCodeMTF, lookahead=barmerge.lookahead_off)
+int codeM5  = request.security(syminfo.tickerid, "5",  othySignalCodeMTF, lookahead=barmerge.lookahead_off)
+int codeM15 = request.security(syminfo.tickerid, "15", othySignalCodeMTF, lookahead=barmerge.lookahead_off)
+int codeH1  = request.security(syminfo.tickerid, "60", othySignalCodeMTF, lookahead=barmerge.lookahead_off)
 
 var table radar = table.new(position.bottom_left, 2, 6,
      border_width=1, frame_width=1, frame_color=color.gray)
