@@ -241,7 +241,18 @@ vwapCol  = input.color(#fdd835, "Couleur VWAP", group=gV)
 //=====================================================================
 gOS = "16. OTHY Signal"
 showOthySignal = input.bool(true, "Afficher le tableau OTHY Signal", group=gOS,
-     tooltip="Deuxième tableau, sous le principal. N'affiche un scénario que lorsque les confluences sont réunies — sinon indique clairement qu'il n'y a pas d'opportunité. Toujours dans le sens de la tendance confirmée (règle 80/20). Lecture mécanique du moteur, jamais un conseil financier : vérifie toujours toi-même avant d'agir.")
+     tooltip="Deuxième tableau, sous le principal. N'affiche un scénario que lorsqu'un setup est détecté (signal confirmé, phase Wyckoff en formation, BOS imminent, fin de retracement ou zone en approche) — sinon indique clairement qu'il n'y a pas d'opportunité. Lecture mécanique du moteur, jamais un conseil financier : vérifie toujours toi-même avant d'agir.")
+
+//=====================================================================
+// 17. OTHY Radar — troisième tableau, signaux EN AVANCE sur M1/M5/M15
+// et H1 simultanément (via request.security sur othySignalCode,
+// calculé une seule fois plus haut — même moteur, aucune nouvelle
+// logique). Objectif : voir venir une opportunité avant qu'elle
+// n'arrive sur ton timeframe actuel, à toi de décider si tu la prends.
+//=====================================================================
+gOR = "17. OTHY Radar"
+showOthyRadar = input.bool(true, "Afficher le tableau OTHY Radar (M1/M5/M15/H1)", group=gOR,
+     tooltip="Troisième tableau : balaie M1, M5, M15 et H1 en même temps pour repérer des signaux en avance sur ton timeframe actuel — même logique qu'OTHY Signal, juste appliquée à plusieurs unités de temps à la fois. Purement informatif, c'est toi qui décides.")
 
 
 //=====================================================================
@@ -1665,6 +1676,57 @@ bool utadJustFormed   = disUTADBar == bar_index
 
 
 //=====================================================================
+// OTHY SIGNAL — MOTEUR (toujours actif, indépendant de l'affichage,
+// calculé SANS condition pour que le tableau OTHY Signal et le tableau
+// OTHY Radar multi-timeframe lisent tous les deux la MÊME source de
+// vérité, jamais deux logiques différentes du même signal).
+//
+// Objectif demandé : ne pas se limiter à l'événement d'UNE bougie
+// (récupération d'IDM / phase bouclée) — repérer aussi les entrées
+// PRÉCOCES : BOS imminent (prix proche de casser la structure) et fin
+// de retracement (0.5 déjà atteint, bougie qui repart dans le sens du
+// mouvement) pour viser une continuation avant la confirmation totale.
+//
+// Hiérarchie (code de priorité, impair = achat / pair = vente) :
+//   1/2  = signal confirmé (IDM récupéré ou phase Wyckoff bouclée)
+//   3/4  = phase Wyckoff en formation (SC/STB/SPRING ou BC/UT/UTAD)
+//   5/6  = BOS imminent (prix proche de bosHigh/bosLow)
+//   7/8  = fin de retracement, 0.5 atteint, bougie de retournement
+//   9/10 = prix dans une zone IDM/Sniper active (règle 80/20)
+//   0    = rien de détecté
+//=====================================================================
+float othyNearBosThresh = ta.atr(14) * 0.3
+bool othyNearBosUp   = not na(bosHigh) and close < bosHigh and (bosHigh - close) <= othyNearBosThresh
+bool othyNearBosDown = not na(bosLow) and close > bosLow and (close - bosLow) <= othyNearBosThresh
+
+bool othyRetraceEndUp   = moveDir == 1 and validTest and close > open
+bool othyRetraceEndDown = moveDir == -1 and validTest and close < open
+
+bool othyConfirmedBuy  = entrySignalBuy or phaseEntryBuy
+bool othyConfirmedSell = entrySignalSell or phaseEntrySell
+bool othyPhaseAcc = accActive and (not na(accSTBBar) or not na(accSpringBar))
+bool othyPhaseDis = disActive and (not na(disUTBar) or not na(disUTADBar))
+
+int  nIdmG    = array.size(idmLevel)
+int  topDirG  = nIdmG > 0 ? array.get(idmDir, nIdmG - 1) : 0
+bool topDoneG = nIdmG > 0 and array.get(idmDone, nIdmG - 1)
+bool othyZoneApproach = confirmedTrend != 0 and topDirG == confirmedTrend and not topDoneG and (inSniperNow or inIdmZoneNow)
+
+int othySignalCode =
+     othyConfirmedBuy                            ? 1 :
+     othyConfirmedSell                           ? 2 :
+     othyPhaseAcc                                ? 3 :
+     othyPhaseDis                                ? 4 :
+     othyNearBosUp                               ? 5 :
+     othyNearBosDown                             ? 6 :
+     othyRetraceEndUp                            ? 7 :
+     othyRetraceEndDown                          ? 8 :
+     (othyZoneApproach and confirmedTrend == 1)  ? 9 :
+     (othyZoneApproach and confirmedTrend == -1) ? 10 :
+     0
+
+
+//=====================================================================
 // AFFICHAGE — FVG (indépendant, lecture seule des prix)
 //=====================================================================
 var box[] fvgBoxes = array.new_box()
@@ -2023,64 +2085,31 @@ if showDash and barstate.islast
 
 
 //=====================================================================
-// OTHY SIGNAL — deuxième tableau, sous le principal. Lecture mécanique
-// de tout ce que le moteur calcule déjà (structure, IDM, Premium/
-// Discount, liquidité cible, VWAP, biais Multi-TF, sessions) — jamais
-// une nouvelle logique, jamais à contre-tendance. N'affiche un trade
-// QUE si le score de confluence est suffisant ; sinon dit clairement
-// qu'il n'y a rien à faire. Pas un conseil financier : à vérifier
-// toi-même avant toute prise de position.
+// OTHY SIGNAL — deuxième tableau, sous le principal. Lit uniquement
+// othySignalCode (calculé plus haut, moteur toujours actif) — jamais
+// une logique différente d'OTHY Radar (3e tableau, plus bas). N'affiche
+// un trade QUE si un des 5 types de setup est détecté ; sinon dit
+// clairement qu'il n'y a rien à faire. Pas un conseil financier : à
+// vérifier toi-même avant toute prise de position.
 //=====================================================================
 var table othy = table.new(position.bottom_right, 2, 8,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showOthySignal and barstate.islast
 
-    int   nIdmO    = array.size(idmLevel)
-    int   topDirO  = nIdmO > 0 ? array.get(idmDir, nIdmO - 1) : 0
-    float topLvlO  = nIdmO > 0 ? array.get(idmLevel, nIdmO - 1) : na
-    bool  topDoneO = nIdmO > 0 and array.get(idmDone, nIdmO - 1)
-
-    // Sources de signal, par ordre de priorité :
-    //   1. Signal confirmé (IDM récupéré ou phase Wyckoff bouclée)
-    //   2. Phase en formation — SC/STB/SPRING (accumulation) ou
-    //      BC/UT/UTAD (distribution) : comme demandé, ce sont de bons
-    //      endroits pour préparer un trade, même AVANT la confirmation
-    //      complète par un BOS. Valable même si la tendance confirmée
-    //      n'a pas encore basculé — c'est justement le rôle d'une phase
-    //      que d'annoncer un retournement à venir.
-    //   3. Prix en approche d'une zone IDM/Sniper active, dans le sens
-    //      de la tendance confirmée (règle 80/20).
-    bool triggerConfirmedBuy  = entrySignalBuy or phaseEntryBuy
-    bool triggerConfirmedSell = entrySignalSell or phaseEntrySell
-    bool triggerPhaseAcc = accActive and (not na(accSTBBar) or not na(accSpringBar))
-    bool triggerPhaseDis = disActive and (not na(disUTBar) or not na(disUTADBar))
-    bool triggerApproachIdm = confirmedTrend != 0 and topDirO == confirmedTrend and not topDoneO and (inSniperNow or inIdmZoneNow)
-
-    int dirCand =
-         triggerConfirmedBuy  ? 1 :
-         triggerConfirmedSell ? -1 :
-         triggerPhaseAcc      ? 1 :
-         triggerPhaseDis      ? -1 :
-         triggerApproachIdm   ? confirmedTrend :
-         0
-
-    bool srcConfirmed = triggerConfirmedBuy or triggerConfirmedSell
-    bool srcPhaseAcc  = not srcConfirmed and triggerPhaseAcc
-    bool srcPhaseDis  = not srcConfirmed and not srcPhaseAcc and triggerPhaseDis
-    bool hasSetup = dirCand != 0
+    int dirCand = othySignalCode == 0 ? 0 : (othySignalCode % 2 == 1 ? 1 : -1)
+    bool hasSetup = othySignalCode != 0
 
     float entryPx =
-         srcConfirmed ? close :
-         srcPhaseAcc  ? (not na(accSpringVal) ? accSpringVal : not na(accSTBVal) ? accSTBVal : close) :
-         srcPhaseDis  ? (not na(disUTADVal) ? disUTADVal : not na(disUTVal) ? disUTVal : close) :
+         othySignalCode == 3 ? (not na(accSpringVal) ? accSpringVal : not na(accSTBVal) ? accSTBVal : close) :
+         othySignalCode == 4 ? (not na(disUTADVal) ? disUTADVal : not na(disUTVal) ? disUTVal : close) :
          close
 
     float slPx =
-         srcPhaseAcc      ? accLow - ta.atr(14) * 0.1 :
-         srcPhaseDis      ? disHigh + ta.atr(14) * 0.1 :
-         dirCand == 1     ? bosLow - ta.atr(14) * 0.1 :
-         dirCand == -1    ? bosHigh + ta.atr(14) * 0.1 :
+         othySignalCode == 3  ? accLow - ta.atr(14) * 0.1 :
+         othySignalCode == 4  ? disHigh + ta.atr(14) * 0.1 :
+         dirCand == 1         ? bosLow - ta.atr(14) * 0.1 :
+         dirCand == -1        ? bosHigh + ta.atr(14) * 0.1 :
          na
 
     // TP : la liquidité cible du module 13 si elle est valide et
@@ -2090,8 +2119,8 @@ if showOthySignal and barstate.islast
     // faute de cible calculable.
     float tpPrimary =
          targetValid and confirmedTrend == dirCand ? targetLevel :
-         srcPhaseAcc ? accTop :
-         srcPhaseDis ? disBottom :
+         othySignalCode == 3 ? accTop :
+         othySignalCode == 4 ? disBottom :
          na
     float tpPx = not na(tpPrimary) ? tpPrimary : (not na(entryPx) and not na(slPx) ? (dirCand == 1 ? entryPx + (entryPx - slPx) * 2 : entryPx - (slPx - entryPx) * 2) : na)
 
@@ -2116,7 +2145,7 @@ if showOthySignal and barstate.islast
     color  probaCol = score >= 4 ? entryBuyCol : score >= 2 ? idmWaitCol : entrySellCol
 
     // Seule vraie condition pour afficher un trade : un setup a été
-    // détecté (une des 3 sources ci-dessus) ET les niveaux se calculent
+    // détecté (othySignalCode != 0) ET les niveaux se calculent
     // proprement. Jamais rien d'inventé à partir de zéro.
     bool showTrade = hasSetup and levelsValid
 
@@ -2132,12 +2161,14 @@ if showOthySignal and barstate.islast
          "Style non confirmé (HTF/LTF pas alignés)"
 
     string statusTxt =
-         srcConfirmed              ? "SIGNAL CONFIRMÉ" :
-         srcPhaseAcc and not na(accSpringBar) ? "SPRING détecté (accumulation)" :
-         srcPhaseAcc               ? "STB détecté (accumulation)" :
-         srcPhaseDis and not na(disUTADBar)   ? "UTAD détecté (distribution)" :
-         srcPhaseDis                ? "UT détecté (distribution)" :
-         triggerApproachIdm         ? "ZONE EN APPROCHE (IDM)" :
+         othySignalCode == 1 or othySignalCode == 2  ? "SIGNAL CONFIRMÉ" :
+         othySignalCode == 3 and not na(accSpringBar) ? "SPRING détecté (accumulation)" :
+         othySignalCode == 3                          ? "STB détecté (accumulation)" :
+         othySignalCode == 4 and not na(disUTADBar)   ? "UTAD détecté (distribution)" :
+         othySignalCode == 4                          ? "UT détecté (distribution)" :
+         othySignalCode == 5 or othySignalCode == 6   ? "BOS IMMINENT (structure proche)" :
+         othySignalCode == 7 or othySignalCode == 8   ? "FIN DE RETRACEMENT — continuation" :
+         othySignalCode == 9 or othySignalCode == 10  ? "ZONE EN APPROCHE (IDM)" :
          "AUCUNE OPPORTUNITÉ"
     string dirTxt = dirCand == 1 ? "ACHAT" : dirCand == -1 ? "VENTE" : "-"
     color  dirCol = dirCand == 1 ? entryBuyCol : dirCand == -1 ? entrySellCol : rangeCol
@@ -2168,6 +2199,58 @@ if showOthySignal and barstate.islast
 
 
 //=====================================================================
+// OTHY RADAR — troisième tableau. Balaie M1/M5/M15/H1 EN MÊME TEMPS via
+// request.security sur othySignalCode (LE même calcul qu'OTHY Signal,
+// juste évalué sur d'autres timeframes) — jamais une logique différente.
+// Purement informatif, signaux EN AVANCE : à toi de décider si tu les
+// prends. N'affecte jamais le moteur mono-timeframe principal.
+//=====================================================================
+f_othyRadarLabel(int code) =>
+    code == 1 or code == 2  ? "Signal confirmé" :
+    code == 3                ? "Spring/STB (accum.)" :
+    code == 4                ? "UT/UTAD (distrib.)" :
+    code == 5 or code == 6  ? "BOS imminent" :
+    code == 7 or code == 8  ? "Fin retracement" :
+    code == 9 or code == 10 ? "Zone en approche" :
+    "-"
+
+int codeM1  = request.security(syminfo.tickerid, "1",  othySignalCode, lookahead=barmerge.lookahead_off)
+int codeM5  = request.security(syminfo.tickerid, "5",  othySignalCode, lookahead=barmerge.lookahead_off)
+int codeM15 = request.security(syminfo.tickerid, "15", othySignalCode, lookahead=barmerge.lookahead_off)
+int codeH1  = request.security(syminfo.tickerid, "60", othySignalCode, lookahead=barmerge.lookahead_off)
+
+var table radar = table.new(position.bottom_left, 2, 5,
+     border_width=1, frame_width=1, frame_color=color.gray)
+
+if showOthyRadar and barstate.islast
+
+    string txtM1  = codeM1  == 0 ? "-" : (codeM1  % 2 == 1 ? "▲ " : "▼ ") + f_othyRadarLabel(codeM1)
+    string txtM5  = codeM5  == 0 ? "-" : (codeM5  % 2 == 1 ? "▲ " : "▼ ") + f_othyRadarLabel(codeM5)
+    string txtM15 = codeM15 == 0 ? "-" : (codeM15 % 2 == 1 ? "▲ " : "▼ ") + f_othyRadarLabel(codeM15)
+    string txtH1  = codeH1  == 0 ? "-" : (codeH1  % 2 == 1 ? "▲ " : "▼ ") + f_othyRadarLabel(codeH1)
+
+    color colM1  = codeM1  == 0 ? rangeCol : (codeM1  % 2 == 1 ? entryBuyCol : entrySellCol)
+    color colM5  = codeM5  == 0 ? rangeCol : (codeM5  % 2 == 1 ? entryBuyCol : entrySellCol)
+    color colM15 = codeM15 == 0 ? rangeCol : (codeM15 % 2 == 1 ? entryBuyCol : entrySellCol)
+    color colH1  = codeH1  == 0 ? rangeCol : (codeH1  % 2 == 1 ? entryBuyCol : entrySellCol)
+
+    table.cell(radar, 0, 0, "OTHY RADAR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
+    table.merge_cells(radar, 0, 0, 1, 0)
+
+    table.cell(radar, 0, 1, "M1", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 1, 1, txtM1, text_color=colM1, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(radar, 0, 2, "M5", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 1, 2, txtM5, text_color=colM5, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(radar, 0, 3, "M15", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 1, 3, txtM15, text_color=colM15, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(radar, 0, 4, "H1", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(radar, 1, 4, txtH1, text_color=colH1, text_size=size.small, bgcolor=dashBgCol)
+
+
+//=====================================================================
 // ALERTES
 //=====================================================================
 alertcondition(bosBull, "BOS Bullish", "SMV : BOS haussier — continuation")
@@ -2193,3 +2276,7 @@ alertcondition(stbJustFormed, "OTHY Signal — STB détecté", "OTHY SIGNAL : ST
 alertcondition(springJustFormed, "OTHY Signal — SPRING détecté", "OTHY SIGNAL : SPRING détecté en accumulation — zone d'achat potentielle en formation, vérifier le tableau OTHY Signal")
 alertcondition(utJustFormed, "OTHY Signal — UT détecté", "OTHY SIGNAL : UT détecté en distribution — zone de vente potentielle en formation, vérifier le tableau OTHY Signal")
 alertcondition(utadJustFormed, "OTHY Signal — UTAD détecté", "OTHY SIGNAL : UTAD détecté en distribution — zone de vente potentielle en formation, vérifier le tableau OTHY Signal")
+alertcondition(othyNearBosUp, "OTHY Signal — BOS haussier imminent", "OTHY SIGNAL : le prix approche de la structure — BOS haussier possible, vérifier le tableau OTHY Signal")
+alertcondition(othyNearBosDown, "OTHY Signal — BOS baissier imminent", "OTHY SIGNAL : le prix approche de la structure — BOS baissier possible, vérifier le tableau OTHY Signal")
+alertcondition(othyRetraceEndUp, "OTHY Signal — Fin de retracement (achat)", "OTHY SIGNAL : 0.5 atteint, bougie de retournement haussier — continuation possible, vérifier le tableau OTHY Signal")
+alertcondition(othyRetraceEndDown, "OTHY Signal — Fin de retracement (vente)", "OTHY SIGNAL : 0.5 atteint, bougie de retournement baissier — continuation possible, vérifier le tableau OTHY Signal")
