@@ -228,6 +228,21 @@ gV = "15. VWAP"
 showVwap = input.bool(true, "Afficher le VWAP", group=gV)
 vwapCol  = input.color(#fdd835, "Couleur VWAP", group=gV)
 
+//=====================================================================
+// 16. OTHY Signal — deuxième tableau, sous le principal. Ne propose un
+// trade QUE si les confluences sont réunies (structure + retracement +
+// Premium/Discount + VWAP + Multi-TF + session) ; sinon affiche
+// clairement qu'il n'y a rien à faire. Jamais un signal aveugle, jamais
+// à contre-tendance (règle 80/20). SL = niveau structurel qui invalide
+// le scénario (bosLow/bosHigh) ; TP = la liquidité cible (module 13).
+// Purement une lecture mécanique de tout ce que le moteur calcule déjà
+// — ce n'est pas un conseil financier, à valider toi-même avant toute
+// prise de position.
+//=====================================================================
+gOS = "16. OTHY Signal"
+showOthySignal = input.bool(true, "Afficher le tableau OTHY Signal", group=gOS,
+     tooltip="Deuxième tableau, sous le principal. N'affiche un scénario que lorsque les confluences sont réunies — sinon indique clairement qu'il n'y a pas d'opportunité. Toujours dans le sens de la tendance confirmée (règle 80/20). Lecture mécanique du moteur, jamais un conseil financier : vérifie toujours toi-même avant d'agir.")
+
 
 //=====================================================================
 // FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
@@ -292,8 +307,14 @@ bool  isFastTF   = timeframe.period == "5" or timeframe.period == "15"
 float atrFast    = ta.atr(14)
 float atrSlow    = ta.sma(atrFast, 100)
 float volRatio   = atrSlow > 0 ? atrFast / atrSlow : 1.0
+// Correction : les 3 paliers ne doivent JAMAIS dépasser le seuil de
+// base (1.5, utilisé par tous les autres timeframes) — sinon M5/M15
+// deviennent MOINS sensibles que prévu en période calme, ce qui a
+// supprimé toute formation de BOS/CHoCH (donc d'IDM) faute de cassure
+// jamais confirmée. M5/M15 doivent toujours capter au moins autant de
+// structure que les autres timeframes, souvent plus (paliers 0.7/1.0/1.5).
 int   sensLevel  = volRatio >= 1.25 ? 3 : volRatio <= 0.85 ? 1 : 2
-float zigzagMult = isFastTF ? (sensLevel == 1 ? 1.0 : sensLevel == 2 ? 1.5 : 2.25) : 1.5
+float zigzagMult = isFastTF ? (sensLevel == 1 ? 0.7 : sensLevel == 2 ? 1.0 : 1.5) : 1.5
 float zigzagThresh = ta.atr(14) * zigzagMult
 
 var int   zzDir        = 1
@@ -1993,6 +2014,101 @@ if showDash and barstate.islast
 
 
 //=====================================================================
+// OTHY SIGNAL — deuxième tableau, sous le principal. Lecture mécanique
+// de tout ce que le moteur calcule déjà (structure, IDM, Premium/
+// Discount, liquidité cible, VWAP, biais Multi-TF, sessions) — jamais
+// une nouvelle logique, jamais à contre-tendance. N'affiche un trade
+// QUE si le score de confluence est suffisant ; sinon dit clairement
+// qu'il n'y a rien à faire. Pas un conseil financier : à vérifier
+// toi-même avant toute prise de position.
+//=====================================================================
+var table othy = table.new(position.bottom_right, 2, 8,
+     border_width=1, frame_width=1, frame_color=color.gray)
+
+if showOthySignal and barstate.islast
+
+    int   nIdmO    = array.size(idmLevel)
+    int   topDirO  = nIdmO > 0 ? array.get(idmDir, nIdmO - 1) : 0
+    float topLvlO  = nIdmO > 0 ? array.get(idmLevel, nIdmO - 1) : na
+    bool  topDoneO = nIdmO > 0 and array.get(idmDone, nIdmO - 1)
+
+    // Direction candidate : uniquement dans le sens de la tendance
+    // confirmée (règle 80/20) — jamais un trade à contre-courant.
+    int dirCand = confirmedTrend
+
+    bool triggerConfirmed = (entrySignalBuy and dirCand == 1) or (entrySignalSell and dirCand == -1) or (phaseEntryBuy and dirCand == 1) or (phaseEntrySell and dirCand == -1)
+    bool triggerApproach  = dirCand != 0 and not topDoneO and topDirO == dirCand and (inSniperNow or inIdmZoneNow)
+    bool hasSetup = dirCand != 0 and (triggerConfirmed or triggerApproach)
+
+    float entryPx = triggerConfirmed ? topLvlO : close
+    float slPx = dirCand == 1 ? bosLow - ta.atr(14) * 0.1 : dirCand == -1 ? bosHigh + ta.atr(14) * 0.1 : na
+    float tpPx = targetValid ? targetLevel : na
+
+    bool  levelsValid = hasSetup and not na(entryPx) and not na(slPx) and not na(tpPx) and slPx != entryPx
+    float rr = levelsValid ? (dirCand == 1 ? (tpPx - entryPx) / (entryPx - slPx) : (entryPx - tpPx) / (slPx - entryPx)) : na
+
+    // Confluences (1 point chacune, max 6) — jamais une probabilité
+    // statistique fabriquée, juste le compte des conditions du moteur
+    // déjà bâties précédemment qui s'alignent réellement.
+    bool cfRetrace  = validTest
+    bool cfZone     = (dirCand == 1 and bullishDiscount) or (dirCand == -1 and bearishPremium)
+    bool aboveVwapO = not na(vwapVal) and close > vwapVal
+    bool belowVwapO = not na(vwapVal) and close < vwapVal
+    bool cfVwap     = (dirCand == 1 and aboveVwapO) or (dirCand == -1 and belowVwapO)
+    bool cfMtf      = (dirCand == 1 and mtfConclusion == "ACHETEUR") or (dirCand == -1 and mtfConclusion == "VENDEUR")
+    bool cfSession  = inAsian1 or inAsian2 or inNY
+    bool cfRR       = not na(rr) and rr >= 1.5
+
+    int score = (cfRetrace ? 1 : 0) + (cfZone ? 1 : 0) + (cfVwap ? 1 : 0) + (cfMtf ? 1 : 0) + (cfSession ? 1 : 0) + (cfRR ? 1 : 0)
+
+    string probaTxt = score >= 5 ? "ÉLEVÉE" : score >= 3 ? "MOYENNE" : "FAIBLE"
+    color  probaCol = score >= 5 ? entryBuyCol : score >= 3 ? idmWaitCol : entrySellCol
+
+    // Règle explicite : pas de trade si les conditions ne sont pas
+    // réunies (score trop faible, pas de setup actif, ou R:R absurde).
+    bool showTrade = hasSetup and levelsValid and score >= 3
+
+    // Style — réutilise le Biais Multi-TF déjà calculé (aucune requête
+    // supplémentaire) : Swing si Daily+H4 alignés, Scalping si H1 +
+    // (M15 ou M5) alignés.
+    bool swingAligned = dirCand != 0 and biasD1 == dirCand and biasH4 == dirCand
+    bool scalpAligned = dirCand != 0 and biasH1 == dirCand and (biasM15 == dirCand or biasM5 == dirCand)
+    string styleTxt =
+         swingAligned and scalpAligned ? "Swing + Scalping" :
+         swingAligned ? "Swing" :
+         scalpAligned ? "Scalping" :
+         "Style non confirmé (HTF/LTF pas alignés)"
+
+    string statusTxt = triggerConfirmed ? "SIGNAL CONFIRMÉ" : triggerApproach ? "ZONE EN APPROCHE" : "AUCUNE OPPORTUNITÉ"
+    string dirTxt = dirCand == 1 ? "ACHAT" : dirCand == -1 ? "VENTE" : "-"
+    color  dirCol = dirCand == 1 ? entryBuyCol : dirCand == -1 ? entrySellCol : rangeCol
+
+    table.cell(othy, 0, 0, "OTHY SIGNAL", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
+    table.merge_cells(othy, 0, 0, 1, 0)
+
+    table.cell(othy, 0, 1, "Statut", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 1, showTrade ? statusTxt : "AUCUNE OPPORTUNITÉ", text_color=showTrade ? dirCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(othy, 0, 2, "Direction", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 2, showTrade ? dirTxt : "-", text_color=showTrade ? dirCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(othy, 0, 3, "Style", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 3, showTrade ? styleTxt : "-", text_color=dashValueCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(othy, 0, 4, "Entrée", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 4, showTrade ? str.tostring(entryPx, format.mintick) : "-", text_color=dashValueCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(othy, 0, 5, "SL", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 5, showTrade ? str.tostring(slPx, format.mintick) : "-", text_color=entrySellCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(othy, 0, 6, "TP (liquidité)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 6, showTrade ? str.tostring(tpPx, format.mintick) + " (R:R " + str.tostring(rr, "#.##") + ")" : "-", text_color=entryBuyCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(othy, 0, 7, "Probabilité", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 7, showTrade ? probaTxt + " (" + str.tostring(score) + "/6 confluences)" : "-", text_color=showTrade ? probaCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
+
+
+//=====================================================================
 // ALERTES
 //=====================================================================
 alertcondition(bosBull, "BOS Bullish", "SMV : BOS haussier — continuation")
@@ -2012,3 +2128,5 @@ alertcondition(bearishPremium, "SMV — Bearish Premium", "SMV : le prix est en 
 alertcondition(enteredSniperZone, "Prix dans la Sniper Zone", "SMV : le prix vient d'entrer dans la Sniper Zone active (IDM)")
 alertcondition(enteredIdmZone, "Prix dans la Zone à retester", "SMV : le prix vient d'entrer dans la Zone à retester (IDM)")
 alertcondition(enteredTargetZone, "Prix proche de la liquidité cible", "SMV : le prix vient d'approcher la cible de liquidité (Intact)")
+alertcondition((entrySignalBuy and confirmedTrend == 1) or (phaseEntryBuy and confirmedTrend == 1), "OTHY Signal — Achat confirmé", "OTHY SIGNAL : configuration d'achat confirmée dans le sens de la tendance — vérifier le tableau OTHY Signal avant d'agir")
+alertcondition((entrySignalSell and confirmedTrend == -1) or (phaseEntrySell and confirmedTrend == -1), "OTHY Signal — Vente confirmée", "OTHY SIGNAL : configuration de vente confirmée dans le sens de la tendance — vérifier le tableau OTHY Signal avant d'agir")
