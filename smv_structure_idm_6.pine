@@ -1655,6 +1655,15 @@ if not disActive and not na(ph)
         label.new(disBCBar, disBC, "BC", style=label.style_label_down, color=color.new(bearCol, 70), textcolor=bearCol, size=size.small)
 
 
+// Détection "vient de se former" pour les alertes OTHY Signal — accSTBBar
+// etc. sont posés une seule fois, exactement sur la bougie de formation
+// (voir section PHASES ci-dessus), donc comparer à bar_index suffit.
+bool stbJustFormed    = accSTBBar == bar_index
+bool springJustFormed = accSpringBar == bar_index
+bool utJustFormed     = disUTBar == bar_index
+bool utadJustFormed   = disUTADBar == bar_index
+
+
 //=====================================================================
 // AFFICHAGE — FVG (indépendant, lecture seule des prix)
 //=====================================================================
@@ -2032,33 +2041,68 @@ if showOthySignal and barstate.islast
     float topLvlO  = nIdmO > 0 ? array.get(idmLevel, nIdmO - 1) : na
     bool  topDoneO = nIdmO > 0 and array.get(idmDone, nIdmO - 1)
 
-    // Direction candidate : uniquement dans le sens de la tendance
-    // confirmée (règle 80/20) — jamais un trade à contre-courant.
-    int dirCand = confirmedTrend
+    // Sources de signal, par ordre de priorité :
+    //   1. Signal confirmé (IDM récupéré ou phase Wyckoff bouclée)
+    //   2. Phase en formation — SC/STB/SPRING (accumulation) ou
+    //      BC/UT/UTAD (distribution) : comme demandé, ce sont de bons
+    //      endroits pour préparer un trade, même AVANT la confirmation
+    //      complète par un BOS. Valable même si la tendance confirmée
+    //      n'a pas encore basculé — c'est justement le rôle d'une phase
+    //      que d'annoncer un retournement à venir.
+    //   3. Prix en approche d'une zone IDM/Sniper active, dans le sens
+    //      de la tendance confirmée (règle 80/20).
+    bool triggerConfirmedBuy  = entrySignalBuy or phaseEntryBuy
+    bool triggerConfirmedSell = entrySignalSell or phaseEntrySell
+    bool triggerPhaseAcc = accActive and (not na(accSTBBar) or not na(accSpringBar))
+    bool triggerPhaseDis = disActive and (not na(disUTBar) or not na(disUTADBar))
+    bool triggerApproachIdm = confirmedTrend != 0 and topDirO == confirmedTrend and not topDoneO and (inSniperNow or inIdmZoneNow)
 
-    bool triggerConfirmed = (entrySignalBuy and dirCand == 1) or (entrySignalSell and dirCand == -1) or (phaseEntryBuy and dirCand == 1) or (phaseEntrySell and dirCand == -1)
-    bool triggerApproach  = dirCand != 0 and not topDoneO and topDirO == dirCand and (inSniperNow or inIdmZoneNow)
-    bool hasSetup = dirCand != 0 and (triggerConfirmed or triggerApproach)
+    int dirCand =
+         triggerConfirmedBuy  ? 1 :
+         triggerConfirmedSell ? -1 :
+         triggerPhaseAcc      ? 1 :
+         triggerPhaseDis      ? -1 :
+         triggerApproachIdm   ? confirmedTrend :
+         0
 
-    float entryPx = triggerConfirmed ? topLvlO : close
-    float slPx = dirCand == 1 ? bosLow - ta.atr(14) * 0.1 : dirCand == -1 ? bosHigh + ta.atr(14) * 0.1 : na
-    float tpPx = targetValid ? targetLevel : na
+    bool srcConfirmed = triggerConfirmedBuy or triggerConfirmedSell
+    bool srcPhaseAcc  = not srcConfirmed and triggerPhaseAcc
+    bool srcPhaseDis  = not srcConfirmed and not srcPhaseAcc and triggerPhaseDis
+    bool hasSetup = dirCand != 0
+
+    float entryPx =
+         srcConfirmed ? close :
+         srcPhaseAcc  ? (not na(accSpringVal) ? accSpringVal : not na(accSTBVal) ? accSTBVal : close) :
+         srcPhaseDis  ? (not na(disUTADVal) ? disUTADVal : not na(disUTVal) ? disUTVal : close) :
+         close
+
+    float slPx =
+         srcPhaseAcc      ? accLow - ta.atr(14) * 0.1 :
+         srcPhaseDis      ? disHigh + ta.atr(14) * 0.1 :
+         dirCand == 1     ? bosLow - ta.atr(14) * 0.1 :
+         dirCand == -1    ? bosHigh + ta.atr(14) * 0.1 :
+         na
+
+    // TP : la liquidité cible du module 13 si elle est valide et
+    // alignée avec cette direction ; sinon la borne opposée de la phase
+    // en cours (cassure du range) ; sinon, en dernier recours, un
+    // objectif à 2R pour ne jamais bloquer un setup par ailleurs solide
+    // faute de cible calculable.
+    float tpPrimary =
+         targetValid and confirmedTrend == dirCand ? targetLevel :
+         srcPhaseAcc ? accTop :
+         srcPhaseDis ? disBottom :
+         na
+    float tpPx = not na(tpPrimary) ? tpPrimary : (not na(entryPx) and not na(slPx) ? (dirCand == 1 ? entryPx + (entryPx - slPx) * 2 : entryPx - (slPx - entryPx) * 2) : na)
 
     bool  levelsValid = hasSetup and not na(entryPx) and not na(slPx) and not na(tpPx) and slPx != entryPx
     float rr = levelsValid ? (dirCand == 1 ? (tpPx - entryPx) / (entryPx - slPx) : (entryPx - tpPx) / (slPx - entryPx)) : na
 
-    // Deux fondamentaux SMV, non négociables (pas un simple point parmi
-    // d'autres) : le retracement a vraiment atteint le 0.5, ET le prix
-    // est du bon côté du Premium/Discount pour cette direction. Sans
-    // ces deux-là, ce n'est pas une configuration SMV valide, quel que
-    // soit le reste — donc pas de trade, peu importe les confirmations.
-    bool cfRetrace = validTest
-    bool cfZone    = (dirCand == 1 and bullishDiscount) or (dirCand == -1 and bearishPremium)
-    bool coreValid = cfRetrace and cfZone
-
-    // Confirmations secondaires — n'autorisent jamais un trade à elles
-    // seules, elles ne font que graduer la confiance une fois les
-    // fondamentaux réunis.
+    // Confluences — informatives seulement, elles graduent la
+    // probabilité affichée mais ne bloquent jamais un setup détecté.
+    // Tu gardes la main pour juger toi-même au cas par cas.
+    bool cfRetrace  = validTest
+    bool cfZone     = (dirCand == 1 and bullishDiscount) or (dirCand == -1 and bearishPremium)
     bool aboveVwapO = not na(vwapVal) and close > vwapVal
     bool belowVwapO = not na(vwapVal) and close < vwapVal
     bool cfVwap     = (dirCand == 1 and aboveVwapO) or (dirCand == -1 and belowVwapO)
@@ -2066,15 +2110,15 @@ if showOthySignal and barstate.islast
     bool cfSession  = inAsian1 or inAsian2 or inNY
     bool cfRR       = not na(rr) and rr >= 1.5
 
-    int confirmScore = (cfVwap ? 1 : 0) + (cfMtf ? 1 : 0) + (cfSession ? 1 : 0)
+    int score = (cfRetrace ? 1 : 0) + (cfZone ? 1 : 0) + (cfVwap ? 1 : 0) + (cfMtf ? 1 : 0) + (cfSession ? 1 : 0) + (cfRR ? 1 : 0)
 
-    string probaTxt = confirmScore >= 2 ? "ÉLEVÉE" : confirmScore == 1 ? "MOYENNE" : "FAIBLE"
-    color  probaCol = confirmScore >= 2 ? entryBuyCol : confirmScore == 1 ? idmWaitCol : entrySellCol
+    string probaTxt = score >= 4 ? "ÉLEVÉE" : score >= 2 ? "MOYENNE" : "FAIBLE"
+    color  probaCol = score >= 4 ? entryBuyCol : score >= 2 ? idmWaitCol : entrySellCol
 
-    // Règle explicite : les fondamentaux SMV ET un R:R correct sont
-    // obligatoires — les confirmations secondaires ne font que graduer
-    // la probabilité affichée, jamais autoriser un trade à elles seules.
-    bool showTrade = hasSetup and levelsValid and coreValid and cfRR
+    // Seule vraie condition pour afficher un trade : un setup a été
+    // détecté (une des 3 sources ci-dessus) ET les niveaux se calculent
+    // proprement. Jamais rien d'inventé à partir de zéro.
+    bool showTrade = hasSetup and levelsValid
 
     // Style — réutilise le Biais Multi-TF déjà calculé (aucune requête
     // supplémentaire) : Swing si Daily+H4 alignés, Scalping si H1 +
@@ -2087,7 +2131,14 @@ if showOthySignal and barstate.islast
          scalpAligned ? "Scalping" :
          "Style non confirmé (HTF/LTF pas alignés)"
 
-    string statusTxt = triggerConfirmed ? "SIGNAL CONFIRMÉ" : triggerApproach ? "ZONE EN APPROCHE" : "AUCUNE OPPORTUNITÉ"
+    string statusTxt =
+         srcConfirmed              ? "SIGNAL CONFIRMÉ" :
+         srcPhaseAcc and not na(accSpringBar) ? "SPRING détecté (accumulation)" :
+         srcPhaseAcc               ? "STB détecté (accumulation)" :
+         srcPhaseDis and not na(disUTADBar)   ? "UTAD détecté (distribution)" :
+         srcPhaseDis                ? "UT détecté (distribution)" :
+         triggerApproachIdm         ? "ZONE EN APPROCHE (IDM)" :
+         "AUCUNE OPPORTUNITÉ"
     string dirTxt = dirCand == 1 ? "ACHAT" : dirCand == -1 ? "VENTE" : "-"
     color  dirCol = dirCand == 1 ? entryBuyCol : dirCand == -1 ? entrySellCol : rangeCol
 
@@ -2113,7 +2164,7 @@ if showOthySignal and barstate.islast
     table.cell(othy, 1, 6, showTrade ? str.tostring(tpPx, format.mintick) + " (R:R " + str.tostring(rr, "#.##") + ")" : "-", text_color=entryBuyCol, text_size=size.small, bgcolor=dashBgCol)
 
     table.cell(othy, 0, 7, "Probabilité", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(othy, 1, 7, showTrade ? probaTxt + " (" + str.tostring(confirmScore) + "/3 confirmations)" : "-", text_color=showTrade ? probaCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(othy, 1, 7, showTrade ? probaTxt + " (" + str.tostring(score) + "/6 confluences)" : "-", text_color=showTrade ? probaCol : rangeCol, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
@@ -2138,3 +2189,7 @@ alertcondition(enteredIdmZone, "Prix dans la Zone à retester", "SMV : le prix v
 alertcondition(enteredTargetZone, "Prix proche de la liquidité cible", "SMV : le prix vient d'approcher la cible de liquidité (Intact)")
 alertcondition((entrySignalBuy and confirmedTrend == 1) or (phaseEntryBuy and confirmedTrend == 1), "OTHY Signal — Achat confirmé", "OTHY SIGNAL : configuration d'achat confirmée dans le sens de la tendance — vérifier le tableau OTHY Signal avant d'agir")
 alertcondition((entrySignalSell and confirmedTrend == -1) or (phaseEntrySell and confirmedTrend == -1), "OTHY Signal — Vente confirmée", "OTHY SIGNAL : configuration de vente confirmée dans le sens de la tendance — vérifier le tableau OTHY Signal avant d'agir")
+alertcondition(stbJustFormed, "OTHY Signal — STB détecté", "OTHY SIGNAL : STB détecté en accumulation — zone d'achat potentielle en formation, vérifier le tableau OTHY Signal")
+alertcondition(springJustFormed, "OTHY Signal — SPRING détecté", "OTHY SIGNAL : SPRING détecté en accumulation — zone d'achat potentielle en formation, vérifier le tableau OTHY Signal")
+alertcondition(utJustFormed, "OTHY Signal — UT détecté", "OTHY SIGNAL : UT détecté en distribution — zone de vente potentielle en formation, vérifier le tableau OTHY Signal")
+alertcondition(utadJustFormed, "OTHY Signal — UTAD détecté", "OTHY SIGNAL : UTAD détecté en distribution — zone de vente potentielle en formation, vérifier le tableau OTHY Signal")
