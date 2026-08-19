@@ -206,24 +206,15 @@ refineCol = input.color(#26c6da, "Couleur zone affinée", group=gSn)
 sniperZoneExt = input.int(15, "Prolongation des zones (bougies)", minval=3, maxval=60, group=gSn)
 
 //=====================================================================
-// 4. Phases — repères Wyckoff SC/STB/SPRING/BC/UT/UTAD. Le rectangle
-// Accumulation/Distribution reste purement informatif (tracé après
-// coup, une fois confirmé par un BOS). La zone d'intervention, elle,
-// est TRADABLE : tracée en temps réel dès que l'UTAD (Supply) ou le
-// SPRING (Demand) se forme — le 2e test, plus profond, créé lors du
-// retest du niveau UT/STB. Largeur = exactement la bougie signature
-// (celle qui crée l'UTAD/SPRING). Reste affichée jusqu'au prochain
-// cycle (nouveau SC/BC), pas supprimée si le prix la traverse.
+// 4. Phases — repères Wyckoff SC/STB/SPRING/BC/UT/UTAD, purement
+// informatifs (bons endroits pour préparer un trade). Pas de zone
+// d'intervention ni d'étiquette d'entrée séparée — l'IDM et la Sniper
+// Zone restent les seules zones d'action.
 //=====================================================================
 gPh = "4. Phases"
 showPhaseBox     = input.bool(true, "Afficher le rectangle Accumulation/Distribution", group=gPh)
 showPhaseMarkers = input.bool(true, "Afficher SC / STB / SPRING / BC / UT / UTAD", group=gPh)
 phaseCol         = input.color(#ffa726, "Couleur manipulations (STB/SPRING/UT/UTAD)", group=gPh)
-showInterventionZone = input.bool(true, "Afficher la zone d'intervention (UTAD/SPRING)", group=gPh,
-     tooltip="Zone tradable = bougie signature de l'UTAD (Supply) ou du SPRING (Demand), le 2e test qui se forme lors du retest du niveau UT/STB. TP1 affiché = SC/BC (~80% de la position) ; TP2 = la Liquidité Cible existante, plus loin (le reste).")
-supplyZoneCol = input.color(#e53935, "Couleur zone Supply (UT/UTAD)", group=gPh)
-demandZoneCol = input.color(#43a047, "Couleur zone Demand (STB/SPRING)", group=gPh)
-phaseZoneExt  = input.int(20, "Prolongation zone d'intervention (bougies)", minval=5, maxval=80, group=gPh)
 
 //=====================================================================
 // 5. Dashboard
@@ -1152,12 +1143,6 @@ var float disUTADVal = na
 var int   disAge = 0
 var int   disStartBias = 0
 
-// Zones d'intervention tradables — une par côté, remplacée seulement au
-// prochain cycle (nouveau SC/BC), jamais supprimée par simple passage du
-// prix.
-var box demandInterventionZone = na
-var box supplyInterventionZone = na
-
 bool phaseAccConfirmed = false
 bool phaseDisConfirmed = false
 
@@ -1175,16 +1160,6 @@ if accActive
             accSpringVal := low
             if showPhaseMarkers
                 label.new(accSpringBar, accSpringVal, "SPRING", style=label.style_label_up, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
-            // Zone d'intervention Demand — bougie signature du SPRING
-            // (le retest qui le crée), TP1 = SC. Reste jusqu'au prochain
-            // cycle (nouveau SC), pas supprimée par le passage du prix.
-            if showInterventionZone
-                string demandTxt = "SPRING — TP1 " + str.tostring(accSC, format.mintick)
-                demandInterventionZone := box.new(bar_index, high, bar_index + phaseZoneExt, low,
-                     border_color=demandZoneCol, border_width=2,
-                     bgcolor=color.new(demandZoneCol, 82),
-                     text=demandTxt, text_color=demandZoneCol,
-                     text_size=size.tiny, text_halign=text.align_left)
         accLow := low
     if newMoveDown
         accActive := false
@@ -1205,16 +1180,6 @@ if disActive
             disUTADVal := high
             if showPhaseMarkers
                 label.new(disUTADBar, disUTADVal, "UTAD", style=label.style_label_down, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
-            // Zone d'intervention Supply — bougie signature de l'UTAD
-            // (le retest qui le crée), TP1 = BC. Reste jusqu'au prochain
-            // cycle (nouveau BC), pas supprimée par le passage du prix.
-            if showInterventionZone
-                string supplyTxt = "UTAD — TP1 " + str.tostring(disBC, format.mintick)
-                supplyInterventionZone := box.new(bar_index, high, bar_index + phaseZoneExt, low,
-                     border_color=supplyZoneCol, border_width=2,
-                     bgcolor=color.new(supplyZoneCol, 82),
-                     text=supplyTxt, text_color=supplyZoneCol,
-                     text_size=size.tiny, text_halign=text.align_left)
         disHigh := high
     if newMoveUp
         disActive := false
@@ -1242,11 +1207,6 @@ if disActive and newMoveDown and not na(disBCBar)
         label.new(disBCBar, botD, phTxt, style=label.style_label_up, color=color.new(bearCol, 55), textcolor=bearCol, size=size.small)
 
 if not accActive and not na(pl)
-    // Nouveau cycle d'accumulation : l'ancienne zone d'intervention
-    // Demand est périmée (elle appartenait au cycle précédent).
-    if not na(demandInterventionZone)
-        box.delete(demandInterventionZone)
-        demandInterventionZone := na
     accActive := true
     accSC := pl
     accSCBar := plBar
@@ -1262,11 +1222,6 @@ if not accActive and not na(pl)
         label.new(accSCBar, accSC, "SC", style=label.style_label_up, color=color.new(bullCol, 70), textcolor=bullCol, size=size.small)
 
 if not disActive and not na(ph)
-    // Nouveau cycle de distribution : l'ancienne zone d'intervention
-    // Supply est périmée (elle appartenait au cycle précédent).
-    if not na(supplyInterventionZone)
-        box.delete(supplyInterventionZone)
-        supplyInterventionZone := na
     disActive := true
     disBC := ph
     disBCBar := phBar
@@ -1285,14 +1240,6 @@ bool stbJustFormed    = accSTBBar == bar_index
 bool springJustFormed = accSpringBar == bar_index
 bool utJustFormed     = disUTBar == bar_index
 bool utadJustFormed   = disUTADBar == bar_index
-
-// Prolongation continue des zones d'intervention tant qu'elles n'ont pas
-// été remplacées par le cycle suivant (voir plus haut) — reste
-// atteignable même si le prix met du temps à revenir la chercher.
-if not na(demandInterventionZone)
-    box.set_right(demandInterventionZone, bar_index + phaseZoneExt)
-if not na(supplyInterventionZone)
-    box.set_right(supplyInterventionZone, bar_index + phaseZoneExt)
 
 //=====================================================================
 // ALERTES
