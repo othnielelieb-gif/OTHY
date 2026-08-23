@@ -1,11 +1,5 @@
 //@version=6
-// max_bars_back : OBLIGATOIRE ici. Les modules Order Block et
-// Supply/Demand lisent l'historique avec un index VARIABLE (high[k],
-// low[k], close[k] dans une boucle de recherche). Dans ce cas Pine ne
-// sait pas déduire tout seul la taille du buffer d'historique et lève
-// une erreur d'exécution qui arrête TOUT le script (plus rien ne
-// s'affiche, pas même la structure). On la fixe explicitement.
-indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=500)
+indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 
 //=====================================================================
 // MOTEUR DE CALCUL vs AFFICHAGE
@@ -610,15 +604,16 @@ int h1Bias = request.security(syminfo.tickerid, "60", f_h1Bias(), lookahead=barm
 // Un OB n'existe QUE si une cassure de structure (BOS ou BMS) vient de
 // se produire : c'est la dernière bougie de couleur OPPOSÉE juste avant
 // l'impulsion qui a cassé. Pas de cassure = pas d'OB.
-//   Cassure HAUSSIÈRE -> on cherche en arrière la dernière bougie
-//                        BAISSIÈRE (close < open) = Bullish OB.
+//   Cassure HAUSSIÈRE -> dernière bougie BAISSIÈRE = Bullish OB.
 //   Cassure BAISSIÈRE -> dernière bougie HAUSSIÈRE = Bearish OB.
 //
-// Zone = le corps complet de CETTE bougie (high/low), donc très étroite
-// — c'est la différence avec la zone Supply/Demand large du module 9.
+// Zone = le high/low complet de CETTE bougie, donc très étroite — c'est
+// la différence avec la zone Supply/Demand large du module 9.
 //
-// Mitigation : dès que le prix revient toucher l'OB, il change de
-// couleur mais RESTE affiché, pour observer la réaction du prix dessus.
+// IMPLÉMENTATION : la dernière bougie de chaque couleur est mémorisée au
+// fil de l'eau (variables var), JAMAIS relue avec high[k]/low[k] dans
+// une boucle. Une lecture d'historique à index variable empêche Pine de
+// dimensionner son buffer et fait planter tout le script.
 //=====================================================================
 var box[]   obBullBox = array.new_box()
 var label[] obBullLbl = array.new_label()
@@ -632,70 +627,87 @@ var float[] obBearTop = array.new_float()
 var float[] obBearBot = array.new_float()
 var bool[]  obBearMit = array.new_bool()
 
-bool structJustBroke = isStructHighBroken or isStructLowBroken
-bool breakWasBull    = isStructHighBroken
+// Mémoire de la dernière bougie de chaque couleur + présence d'un
+// déséquilibre (FVG) apparu depuis.
+var float lastBearH   = na
+var float lastBearL   = na
+var int   lastBearBar = na
+var bool  fvgAfterBear = false
 
-// Recherche de la bougie OB : la plus récente de couleur opposée à
-// l'impulsion, dans les 20 dernières bougies.
-// Valeurs capturées DANS la boucle (jamais high[obOffset] avec un index
-// variable ensuite) : évite tout souci de buffer d'historique Pine.
-int   obOffset = -1
-float obT      = na
-float obB      = na
-bool  hasFvg   = false
+var float lastBullH   = na
+var float lastBullL   = na
+var int   lastBullBar = na
+var bool  fvgAfterBull = false
+
+// FVG 3 bougies — index CONSTANTS uniquement, toujours sûr.
+bool fvgUpNow   = bar_index >= 2 and low > high[2]
+bool fvgDownNow = bar_index >= 2 and high < low[2]
+
+if fvgUpNow
+    fvgAfterBear := true
+if fvgDownNow
+    fvgAfterBull := true
+
+bool structJustBroke = isStructHighBroken or isStructLowBroken
+// isStructLowBroken est prioritaire dans le moteur de structure plus
+// haut (if / else if) — on reprend exactement le même ordre ici.
+bool breakWasBull = structJustBroke and not isStructLowBroken
 
 if showOB and structJustBroke and inLookback
-    for k = 0 to 20
-        // k <= bar_index : ne jamais lire au-delà des bougies existantes
-        if obOffset == -1 and k <= bar_index
-            bool oppositeCandle = breakWasBull ? (close[k] < open[k]) : (close[k] > open[k])
-            if oppositeCandle
-                obOffset := k
-                obT := high[k]
-                obB := low[k]
-                // Déséquilibre (FVG) : l'impulsion qui suit l'OB
-                // laisse-t-elle un vrai vide de prix ? Signe d'un OB de
-                // qualité institutionnelle.
-                if obShowFvg and k >= 2
-                    hasFvg := breakWasBull ? (low[k - 2] > high[k]) : (high[k - 2] < low[k])
+    float obT = breakWasBull ? lastBearH : lastBullH
+    float obB = breakWasBull ? lastBearL : lastBullL
+    int   obBarIdx = breakWasBull ? lastBearBar : lastBullBar
+    bool  hasFvg = obShowFvg and (breakWasBull ? fvgAfterBear : fvgAfterBull)
 
-if obOffset != -1 and not na(obT) and not na(obB)
-    int obBarIdx = bar_index - obOffset
+    if not na(obT) and not na(obB) and not na(obBarIdx)
+        string obTxt = (breakWasBull ? "OB ⬆" : "OB ⬇") + (hasFvg ? " ⚡FVG" : "")
+        color  obCol = breakWasBull ? obBullCol : obBearCol
 
-    string obTxt = (breakWasBull ? "OB ⬆" : "OB ⬇") + (hasFvg ? " ⚡FVG" : "")
-    color  obCol = breakWasBull ? obBullCol : obBearCol
+        box   nb = box.new(obBarIdx, obT, bar_index + obExtend, obB,
+             border_color=obCol, border_width=2,
+             bgcolor=color.new(obCol, 80))
+        label nl = label.new(bar_index + obExtend, (obT + obB) / 2, obTxt,
+             style=label.style_label_left, color=color.new(obCol, 80),
+             textcolor=obCol, size=size.tiny)
 
-    box   nb = box.new(obBarIdx, obT, bar_index + obExtend, obB,
-         border_color=obCol, border_width=2,
-         bgcolor=color.new(obCol, 80))
-    label nl = label.new(bar_index + obExtend, (obT + obB) / 2, obTxt,
-         style=label.style_label_left, color=color.new(obCol, 80),
-         textcolor=obCol, size=size.tiny)
+        if breakWasBull
+            array.push(obBullBox, nb)
+            array.push(obBullLbl, nl)
+            array.push(obBullTop, obT)
+            array.push(obBullBot, obB)
+            array.push(obBullMit, false)
+            if array.size(obBullBox) > obCount
+                box.delete(array.shift(obBullBox))
+                label.delete(array.shift(obBullLbl))
+                array.shift(obBullTop)
+                array.shift(obBullBot)
+                array.shift(obBullMit)
+        else
+            array.push(obBearBox, nb)
+            array.push(obBearLbl, nl)
+            array.push(obBearTop, obT)
+            array.push(obBearBot, obB)
+            array.push(obBearMit, false)
+            if array.size(obBearBox) > obCount
+                box.delete(array.shift(obBearBox))
+                label.delete(array.shift(obBearLbl))
+                array.shift(obBearTop)
+                array.shift(obBearBot)
+                array.shift(obBearMit)
 
-    if breakWasBull
-        array.push(obBullBox, nb)
-        array.push(obBullLbl, nl)
-        array.push(obBullTop, obT)
-        array.push(obBullBot, obB)
-        array.push(obBullMit, false)
-        if array.size(obBullBox) > obCount
-            box.delete(array.shift(obBullBox))
-            label.delete(array.shift(obBullLbl))
-            array.shift(obBullTop)
-            array.shift(obBullBot)
-            array.shift(obBullMit)
-    else
-        array.push(obBearBox, nb)
-        array.push(obBearLbl, nl)
-        array.push(obBearTop, obT)
-        array.push(obBearBot, obB)
-        array.push(obBearMit, false)
-        if array.size(obBearBox) > obCount
-            box.delete(array.shift(obBearBox))
-            label.delete(array.shift(obBearLbl))
-            array.shift(obBearTop)
-            array.shift(obBearBot)
-            array.shift(obBearMit)
+// Mise à jour de la mémoire APRÈS la détection : l'OB doit être la
+// dernière bougie opposée AVANT la bougie de cassure, pas la bougie de
+// cassure elle-même.
+if close < open
+    lastBearH := high
+    lastBearL := low
+    lastBearBar := bar_index
+    fvgAfterBear := false
+if close > open
+    lastBullH := high
+    lastBullL := low
+    lastBullBar := bar_index
+    fvgAfterBull := false
 
 // Prolongation + détection de mitigation (le prix revient dedans).
 bool obBullTouched = false
@@ -712,9 +724,9 @@ if array.size(obBullBox) > 0
                 obBullTouched := true
                 box.set_border_color(bx, obMitigatedCol)
                 box.set_bgcolor(bx, color.new(obMitigatedCol, 88))
-                label lb = array.get(obBullLbl, i)
-                label.set_color(lb, color.new(obMitigatedCol, 80))
-                label.set_textcolor(lb, obMitigatedCol)
+                label lbB = array.get(obBullLbl, i)
+                label.set_color(lbB, color.new(obMitigatedCol, 80))
+                label.set_textcolor(lbB, obMitigatedCol)
 
 if array.size(obBearBox) > 0
     for i = 0 to array.size(obBearBox) - 1
@@ -727,21 +739,21 @@ if array.size(obBearBox) > 0
                 obBearTouched := true
                 box.set_border_color(bx, obMitigatedCol)
                 box.set_bgcolor(bx, color.new(obMitigatedCol, 88))
-                label lb = array.get(obBearLbl, i)
-                label.set_color(lb, color.new(obMitigatedCol, 80))
-                label.set_textcolor(lb, obMitigatedCol)
+                label lbS = array.get(obBearLbl, i)
+                label.set_color(lbS, color.new(obMitigatedCol, 80))
+                label.set_textcolor(lbS, obMitigatedCol)
 
 
 //=====================================================================
 // ZONES SUPPLY / DEMAND (module 9) — la version LARGE.
 //
 // Contrairement à l'OB (module 8), aucune cassure de structure n'est
-// exigée : une simple base de consolidation suivie d'une impulsion
-// forte suffit. La zone englobe TOUTE la base (plusieurs bougies), là
-// où l'OB ne retient que la dernière bougie opposée.
+// exigée : une base de consolidation suivie d'une impulsion forte
+// suffit. La zone englobe TOUTE la base (plusieurs bougies), là où l'OB
+// ne retient que la dernière bougie opposée.
 //
-// Impulsion = corps de bougie > sdImpulseMult x ATR.
-// Base = les bougies de faible amplitude juste avant (max sdMaxBase).
+// La base est construite au fil de l'eau (variables var) — comme pour
+// l'OB, aucune relecture d'historique à index variable.
 //=====================================================================
 var box[]   sdBox = array.new_box()
 var label[] sdLbl = array.new_label()
@@ -750,45 +762,59 @@ var float[] sdBot = array.new_float()
 var int[]   sdDir = array.new_int()
 var bool[]  sdMit = array.new_bool()
 
-float sdBody   = math.abs(close - open)
-bool  sdIsImpulse = showSD and inLookback and not na(atrFast) and atrFast > 0 and sdBody > atrFast * sdImpulseMult
-int   sdDirNow = close > open ? 1 : -1
+var float sdBaseTop   = na
+var float sdBaseBot   = na
+var int   sdBaseCount = 0
+var int   sdBaseStart = na
+
+float sdBody      = math.abs(close - open)
+bool  atrReady    = not na(atrFast) and atrFast > 0
+bool  sdIsImpulse = showSD and inLookback and atrReady and sdBody > atrFast * sdImpulseMult
+bool  sdIsSmall   = atrReady and sdBody < atrFast * 0.8
+int   sdDirNow    = close > open ? 1 : -1
 
 if sdIsImpulse
-    // Remonte la base : bougies de faible corps juste avant l'impulsion.
-    float baseTop = na
-    float baseBot = na
-    int   baseBars = 0
-    bool  stopScan = false
-
-    for k = 1 to sdMaxBase
-        // k <= bar_index : ne jamais lire au-delà des bougies existantes
-        if not stopScan and k <= bar_index
-            if math.abs(close[k] - open[k]) < atrFast * 0.8
-                baseTop := na(baseTop) ? high[k] : math.max(baseTop, high[k])
-                baseBot := na(baseBot) ? low[k]  : math.min(baseBot, low[k])
-                baseBars += 1
-            else
-                stopScan := true
-
-    if baseBars > 0 and not na(baseTop) and not na(baseBot)
+    // La base accumulée juste avant devient la zone Supply/Demand.
+    if sdBaseCount > 0 and not na(sdBaseTop) and not na(sdBaseBot) and not na(sdBaseStart)
         color  sdCol = sdDirNow == 1 ? sdDemandCol : sdSupplyCol
         string sdTxt = sdDirNow == 1 ? "DEMAND" : "SUPPLY"
-        int    sdLeft = bar_index - baseBars
 
-        box   sb = box.new(sdLeft, baseTop, bar_index + sdExtend, baseBot,
+        box   sb = box.new(sdBaseStart, sdBaseTop, bar_index + sdExtend, sdBaseBot,
              border_color=sdCol, border_width=1,
              bgcolor=color.new(sdCol, 88))
-        label sl = label.new(sdLeft, sdDirNow == 1 ? baseBot : baseTop, sdTxt,
+        label sl = label.new(sdBaseStart, sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
              style=sdDirNow == 1 ? label.style_label_up : label.style_label_down,
              color=color.new(sdCol, 82), textcolor=sdCol, size=size.tiny)
 
         array.push(sdBox, sb)
         array.push(sdLbl, sl)
-        array.push(sdTop, baseTop)
-        array.push(sdBot, baseBot)
+        array.push(sdTop, sdBaseTop)
+        array.push(sdBot, sdBaseBot)
         array.push(sdDir, sdDirNow)
         array.push(sdMit, false)
+
+    sdBaseTop := na
+    sdBaseBot := na
+    sdBaseCount := 0
+    sdBaseStart := na
+else if sdIsSmall
+    if sdBaseCount >= sdMaxBase
+        // Base trop longue : on repart d'une base neuve sur cette bougie.
+        sdBaseTop := high
+        sdBaseBot := low
+        sdBaseCount := 1
+        sdBaseStart := bar_index
+    else
+        sdBaseTop := na(sdBaseTop) ? high : math.max(sdBaseTop, high)
+        sdBaseBot := na(sdBaseBot) ? low  : math.min(sdBaseBot, low)
+        sdBaseCount := sdBaseCount + 1
+        sdBaseStart := na(sdBaseStart) ? bar_index : sdBaseStart
+else
+    // Bougie moyenne : ni base ni impulsion, on repart de zéro.
+    sdBaseTop := na
+    sdBaseBot := na
+    sdBaseCount := 0
+    sdBaseStart := na
 
 // Purge : garde au plus sdCount zones par côté (Demand et Supply
 // comptées séparément), les plus récentes.
@@ -798,10 +824,10 @@ if array.size(sdBox) > 0
     for i = array.size(sdBox) - 1 to 0
         bool keepIt = true
         if array.get(sdDir, i) == 1
-            keepDemand += 1
+            keepDemand := keepDemand + 1
             keepIt := keepDemand <= sdCount
         else
-            keepSupply += 1
+            keepSupply := keepSupply + 1
             keepIt := keepSupply <= sdCount
         if not keepIt
             box.delete(array.get(sdBox, i))
@@ -826,13 +852,13 @@ if array.size(sdBox) > 0
                 sdTouched := true
                 box.set_border_color(bx, sdMitigatedCol)
                 box.set_bgcolor(bx, color.new(sdMitigatedCol, 92))
-                label lb = array.get(sdLbl, i)
-                label.set_color(lb, color.new(sdMitigatedCol, 85))
-                label.set_textcolor(lb, sdMitigatedCol)
+                label lbD = array.get(sdLbl, i)
+                label.set_color(lbD, color.new(sdMitigatedCol, 85))
+                label.set_textcolor(lbD, sdMitigatedCol)
 
 // État courant : le prix est-il DANS un OB ou une zone S/D en ce moment ?
 // Sert au dashboard pour la confirmation d'entrée.
-int zoneNowDir = 0
+int    zoneNowDir = 0
 string zoneNowTxt = "-"
 
 if array.size(obBullBox) > 0
@@ -847,11 +873,11 @@ if array.size(obBearBox) > 0
             zoneNowDir := -1
             zoneNowTxt := array.get(obBearMit, i) ? "Dans OB baissier (mitigé)" : "Dans OB baissier ✓"
 
-if zoneNowDir == 0 and array.size(sdBox) > 0
+if array.size(sdBox) > 0
     for i = array.size(sdBox) - 1 to 0
         if zoneNowDir == 0 and close <= array.get(sdTop, i) and close >= array.get(sdBot, i)
             zoneNowDir := array.get(sdDir, i)
-            zoneNowTxt := (zoneNowDir == 1 ? "Dans zone DEMAND" : "Dans zone SUPPLY") + (array.get(sdMit, i) ? " (mitigée)" : "")
+            zoneNowTxt := (array.get(sdDir, i) == 1 ? "Dans zone DEMAND" : "Dans zone SUPPLY") + (array.get(sdMit, i) ? " (mitigée)" : "")
 
 
 //=====================================================================
