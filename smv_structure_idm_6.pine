@@ -58,15 +58,15 @@ gZ = "0. Affichage global (anti-encombrement)"
 dispMode = input.string("Complet", "Mode d'affichage", options=["Sniper", "Trading", "Analyse", "Complet"], group=gZ,
      tooltip="Un seul menu qui reconfigure tout le graphique. SNIPER : uniquement l'IDM actif, sa Sniper Zone, la liquidité cible et le dashboard. TRADING : + Order Blocks et structure actuelle. ANALYSE : + Supply/Demand, imbalances et phases. COMPLET : tout. Le mode ne peut que MASQUER : tes coches individuelles restent maîtresses, elles peuvent toujours éteindre un module que le mode autorise.")
 
-labelMode = input.string("Aucune", "Étiquettes sur le graphique", options=["Aucune", "Symboles", "Texte"], group=gZ,
-     tooltip="Le texte est ce qui fatigue le plus l'œil. AUCUNE : zéro étiquette, uniquement les zones colorées — toute l'information reste lisible dans le dashboard. SYMBOLES : pastilles courtes (★ confluence IDM, ⚡ imbalance). TEXTE : libellés complets.")
+labelMode = input.string("Essentiel", "Étiquettes sur le graphique", options=["Complet", "Essentiel", "Aucune"], group=gZ,
+     tooltip="ESSENTIEL (recommandé) : garde uniquement les marqueurs d'IDENTITÉ indispensables — BOS, BMS, IDM et les repères Wyckoff (SC/BC/STB/SPRING/UT/UTAD). Supprime le bruit répétitif : HH/HL/LH/LL sur chaque pivot, \"Intact Sellers #3\", libellés des Order Blocks et des zones Supply/Demand. COMPLET : tout. AUCUNE : zéro texte, tout se lit dans le dashboard.")
 
 zoneExt = input.int(3, "Marge au-delà du prix (bougies)", minval=0, maxval=30, group=gZ,
      tooltip="Toutes les zones s'arrêtent au prix actuel et le suivent. Cette valeur n'ajoute qu'une petite marge à droite. 0 = la zone colle exactement à la bougie en cours.")
 
 useProxFilter = input.bool(true, "Masquer les zones éloignées du prix", group=gZ,
      tooltip="Le plus gros gain visuel : toute zone trop loin du prix disparaît d'elle-même. Elle réapparaît automatiquement dès que le prix s'en approche.")
-zoneMaxDist = input.float(6.0, "Distance max au prix (x ATR)", minval=1.0, maxval=30.0, step=0.5, group=gZ,
+zoneMaxDist = input.float(10.0, "Distance max au prix (x ATR)", minval=1.0, maxval=30.0, step=0.5, group=gZ,
      tooltip="Au-delà de cette distance, la zone n'est plus affichée. Plus petit = graphique plus épuré.")
 
 useHierarchy = input.bool(true, "Hiérarchie visuelle : net près du prix, transparent au loin", group=gZ,
@@ -79,7 +79,11 @@ hideTested = input.bool(true, "Masquer les zones déjà testées", group=gZ,
      tooltip="Une zone que le prix a déjà visitée a rempli son rôle. Elle est retirée du graphique au lieu de rester en gris et d'encombrer.")
 
 maxPivotMarks = input.int(6, "Nombre de marquages HH/HL/LH/LL conservés", minval=1, maxval=60, group=gZ,
-     tooltip="Ne garde que les X derniers marquages de structure. Sans effet si les étiquettes sont sur AUCUNE.")
+     tooltip="Ne garde que les X derniers marquages de structure. Actif uniquement en mode d'étiquettes COMPLET.")
+
+idmEmphasis = input.bool(true, "Mettre l'IDM bien en évidence", group=gZ,
+     tooltip="L'IDM est le cœur de la stratégie : il doit se repérer d'un coup d'œil. Trait épais et plein (au lieu de pointillé fin), étiquette avec le niveau exact, et flèche de direction. Prioritaire sur tout le reste du graphique.")
+idmWidthBoost = input.int(4, "Épaisseur du trait IDM", minval=1, maxval=6, group=gZ)
 
 // ---- Drapeaux dérivés du mode : le mode ne peut que MASQUER, jamais
 // forcer l'affichage. Effectif = ta coche ET l'autorisation du mode.
@@ -97,8 +101,12 @@ bool okFvg     = not modeSniper and not modeTrading
 bool okPhase   = not modeSniper and not modeTrading
 bool okRefine  = not modeSniper
 
+// Trois niveaux : lblNone = rien ; lblEss = marqueurs d'identité
+// (BOS/BMS, IDM, repères Wyckoff) ; lblAll = tout, y compris le texte
+// répétitif qui encombrait le graphique.
 bool lblNone = labelMode == "Aucune"
-bool lblSym  = labelMode == "Symboles"
+bool lblEss  = labelMode != "Aucune"
+bool lblAll  = labelMode == "Complet"
 
 //=====================================================================
 // 1. Structure
@@ -532,7 +540,7 @@ if not na(ph) and inLookback
         array.shift(intactHighLevels)
         array.shift(intactHighBars)
 
-    if showStruct and okStruct and not lblNone
+    if showStruct and okStruct and lblAll
         string txt = na(prevPH) ? "H" : ph > prevPH ? "HH" : "LH"
         color col = na(prevPH) ? rangeCol : ph > prevPH ? bullCol : bearCol
         array.push(pivotMarks, label.new(phBar, ph, txt,
@@ -554,7 +562,7 @@ if not na(pl) and inLookback
         array.shift(intactLowLevels)
         array.shift(intactLowBars)
 
-    if showStruct and okStruct and not lblNone
+    if showStruct and okStruct and lblAll
         string txt = na(prevPL) ? "L" : pl > prevPL ? "HL" : "LL"
         color col = na(prevPL) ? rangeCol : pl > prevPL ? bullCol : bearCol
         array.push(pivotMarks, label.new(plBar, pl, txt,
@@ -635,7 +643,7 @@ if isStructLowBroken
 
     line  evLnD = okBosLine ? line.new(bosLowBar, bosLow, bar_index, bosLow, xloc=xloc.bar_index, extend=extend.none,
          color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth) : na
-    label evLbD = (okBosLine and not lblNone) ? label.new(int(math.avg(bar_index, bosLowBar)), bosLow, text=evTxt, style=label.style_none, textcolor=evCol) : na
+    label evLbD = (okBosLine and lblEss) ? label.new(int(math.avg(bar_index, bosLowBar)), bosLow, text=evTxt, style=label.style_none, textcolor=evCol) : na
     array.push(structLines, evLnD)
     array.push(structLabels, evLbD)
 
@@ -670,7 +678,7 @@ else if isStructHighBroken
 
     line  evLnU = okBosLine ? line.new(bosHighBar, bosHigh, bar_index, bosHigh, xloc=xloc.bar_index, extend=extend.none,
          color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth) : na
-    label evLbU = (okBosLine and not lblNone) ? label.new(int(math.avg(bar_index, bosHighBar)), bosHigh, text=evTxt, style=label.style_none, textcolor=evCol) : na
+    label evLbU = (okBosLine and lblEss) ? label.new(int(math.avg(bar_index, bosHighBar)), bosHigh, text=evTxt, style=label.style_none, textcolor=evCol) : na
     array.push(structLines, evLnU)
     array.push(structLabels, evLbU)
 
@@ -775,7 +783,7 @@ if showIntact and okIntact
             if not f_zoneFar(lvlH, lvlH)
                 array.push(intactHighLines, line.new(barH, lvlH, bar_index + zoneExt, lvlH,
                      color=f_zoneFade(intactSellCol, lvlH, lvlH), style=line.style_dashed, width=1))
-            if not lblNone
+            if lblAll
                 array.push(intactHighLbls, label.new(bar_index + zoneExt, lvlH, txtH,
                      style=label.style_label_left, color=color.new(intactSellCol, 80),
                      textcolor=intactSellCol, size=size.small))
@@ -789,7 +797,7 @@ if showIntact and okIntact
             if not f_zoneFar(lvlL, lvlL)
                 array.push(intactLowLines, line.new(barL, lvlL, bar_index + zoneExt, lvlL,
                      color=f_zoneFade(intactBuyCol, lvlL, lvlL), style=line.style_dashed, width=1))
-            if not lblNone
+            if lblAll
                 array.push(intactLowLbls, label.new(bar_index + zoneExt, lvlL, txtL,
                      style=label.style_label_left, color=color.new(intactBuyCol, 80),
                      textcolor=intactBuyCol, size=size.small))
@@ -879,7 +887,7 @@ if showLiquidityTarget and targetValid
     if na(targetLine)
         targetLine := line.new(bar_index, targetLevel, bar_index + zoneExt, targetLevel,
              color=targetCol, style=line.style_dashed, width=2)
-        targetLbl := lblNone ? na : label.new(bar_index + zoneExt, targetLevel, targetTxt,
+        targetLbl := not lblEss ? na : label.new(bar_index + zoneExt, targetLevel, targetTxt,
              style=label.style_label_left, color=color.new(targetCol, 80), textcolor=targetCol, size=size.small)
     else
         line.set_xy1(targetLine, bar_index, targetLevel)
@@ -982,14 +990,21 @@ if newIDM
     line ln = na
     label lb = na
     if showIdmLines
-        string idmTxt0 = candidateRetracementValid ? "IDM •0.5" : "IDM"
+        // Étiquette IDM : direction + niveau exact, pour le localiser
+        // instantanément. Le "•0.5" signale un retracement déjà validé.
+        string idmArrow = moveDir == 1 ? "▲" : "▼"
+        string idmTxt0 = idmEmphasis ?
+             idmArrow + " IDM " + str.tostring(idmCandidate, format.mintick) + (candidateRetracementValid ? " •0.5" : "") :
+             (candidateRetracementValid ? "IDM •0.5" : "IDM")
         ln := line.new(idmCandidateBar, idmCandidate, bar_index + 1, idmCandidate,
-             color=idmActiveCol, style=line.style_dotted, width=3)
+             color=idmActiveCol,
+             style=idmEmphasis ? line.style_solid : line.style_dotted,
+             width=idmEmphasis ? idmWidthBoost : 3)
         lb := lblNone ? na : label.new(bar_index + 1, idmCandidate, idmTxt0,
              style=label.style_label_left,
-             color=color.new(idmActiveCol, 75),
-             textcolor=idmActiveCol,
-             size=size.small)
+             color=color.new(idmActiveCol, idmEmphasis ? 40 : 75),
+             textcolor=idmEmphasis ? color.white : idmActiveCol,
+             size=idmEmphasis ? size.normal : size.small)
     array.push(idmLine, ln)
     array.push(idmLbl, lb)
 
@@ -1019,11 +1034,13 @@ if newIDM
         line ln2 = array.get(idmLine, n - 2)
         if not na(ln2)
             line.set_color(ln2, idmWaitCol)
-            line.set_width(ln2, 2)
+            // Reste bien visible même en 2e position quand la mise en
+            // évidence est active : juste un cran en dessous du #1.
+            line.set_width(ln2, idmEmphasis ? math.max(idmWidthBoost - 1, 2) : 2)
         label lb2 = array.get(idmLbl, n - 2)
         if not na(lb2)
-            label.set_color(lb2, color.new(idmWaitCol, 75))
-            label.set_textcolor(lb2, idmWaitCol)
+            label.set_color(lb2, color.new(idmWaitCol, idmEmphasis ? 50 : 75))
+            label.set_textcolor(lb2, idmEmphasis ? color.white : idmWaitCol)
         box sz2 = array.get(sniperZoneA, n - 2)
         if not na(sz2)
             box.set_border_width(sz2, 1)
@@ -1417,13 +1434,15 @@ if barstate.islast
             // justement changé de polarité.
             bool dirOk = not obFilter8020 or kOb or confirmedTrend == 0 or confirmedTrend == dOb
             bool brkOk = obShowBreaker or not kOb
-            // Anti-encombrement : proximité au prix + masquage des zones
-            // déjà testées (un Breaker EST une zone testée, mais il a
-            // changé de polarité : il reste utile, donc jamais masqué).
+            // Anti-encombrement : uniquement la proximité au prix.
+            // "Masquer les zones testées" ne s'applique JAMAIS aux
+            // Order Blocks : un OB touché reste valide, et un OB cassé
+            // devient un Breaker (polarité inversée) qui est justement
+            // l'information la plus utile. Ce filtre ne concerne que les
+            // zones Supply/Demand.
             bool nearOk = not f_zoneFar(tOb, bOb)
-            bool testOk = not hideTested or not kOb
 
-            if quotaOk and dirOk and brkOk and nearOk and testOk
+            if quotaOk and dirOk and brkOk and nearOk
                 if dOb == 1
                     drawnBull += 1
                 else
@@ -1455,7 +1474,7 @@ if barstate.islast
                          xloc=xloc.bar_index, color=brkSol, style=line.style_dashed))
                     array.push(obDrawLn, line.new(bLoc, bOb, rightEdge, bOb,
                          xloc=xloc.bar_index, color=brkSol, style=line.style_dashed))
-                    if not lblNone
+                    if lblAll
                         array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
                              style=label.style_label_left, color=brkCol, textcolor=brkSol, size=size.tiny))
                 else
@@ -1465,7 +1484,7 @@ if barstate.islast
                          xloc=xloc.bar_index, color=solid))
                     array.push(obDrawLn, line.new(lOb, bOb, rightEdge, bOb,
                          xloc=xloc.bar_index, color=solid))
-                    if not lblNone
+                    if lblAll
                         array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
                              style=label.style_label_left, color=baseCol, textcolor=solid, size=size.tiny))
 
@@ -1509,7 +1528,7 @@ if sdIsImpulse
         box   sb = box.new(sdBaseStart, sdBaseTop, bar_index + zoneExt, sdBaseBot,
              border_color=sdCol, border_width=1,
              bgcolor=color.new(sdCol, 88))
-        label sl = lblNone ? na : label.new(sdBaseStart, sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
+        label sl = not lblAll ? na : label.new(sdBaseStart, sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
              style=sdDirNow == 1 ? label.style_label_up : label.style_label_down,
              color=color.new(sdCol, 82), textcolor=sdCol, size=size.tiny)
 
@@ -1884,12 +1903,12 @@ if accActive
         if na(accSTBBar)
             accSTBBar := bar_index
             accSTBVal := low
-            if showPhaseMarkers and okPhase and not lblNone
+            if showPhaseMarkers and okPhase and lblEss
                 label.new(accSTBBar, accSTBVal, "STB", style=label.style_label_up, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small)
         else
             accSpringBar := bar_index
             accSpringVal := low
-            if showPhaseMarkers and okPhase and not lblNone
+            if showPhaseMarkers and okPhase and lblEss
                 label.new(accSpringBar, accSpringVal, "SPRING", style=label.style_label_up, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
         accLow := low
     if newMoveDown
@@ -1904,12 +1923,12 @@ if disActive
         if na(disUTBar)
             disUTBar := bar_index
             disUTVal := high
-            if showPhaseMarkers and okPhase and not lblNone
+            if showPhaseMarkers and okPhase and lblEss
                 label.new(disUTBar, disUTVal, "UT", style=label.style_label_down, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small)
         else
             disUTADBar := bar_index
             disUTADVal := high
-            if showPhaseMarkers and okPhase and not lblNone
+            if showPhaseMarkers and okPhase and lblEss
                 label.new(disUTADBar, disUTADVal, "UTAD", style=label.style_label_down, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
         disHigh := high
     if newMoveUp
@@ -1925,7 +1944,7 @@ if accActive and newMoveUp and not na(accSCBar)
     phaseAccConfirmed := true
     if showPhaseBox and okPhase
         box.new(accSCBar, topA, bar_index, accLow, border_color=color.new(bullCol, 30), bgcolor=color.new(bullCol, 92))
-        if not lblNone
+        if lblAll
             label.new(accSCBar, topA, phTxt, style=label.style_label_down, color=color.new(bullCol, 55), textcolor=bullCol, size=size.small)
 
 if disActive and newMoveDown and not na(disBCBar)
@@ -1936,7 +1955,7 @@ if disActive and newMoveDown and not na(disBCBar)
     phaseDisConfirmed := true
     if showPhaseBox and okPhase
         box.new(disBCBar, disHigh, bar_index, botD, border_color=color.new(bearCol, 30), bgcolor=color.new(bearCol, 92))
-        if not lblNone
+        if lblAll
             label.new(disBCBar, botD, phTxt, style=label.style_label_up, color=color.new(bearCol, 55), textcolor=bearCol, size=size.small)
 
 if not accActive and not na(pl)
@@ -1951,7 +1970,7 @@ if not accActive and not na(pl)
     accSpringVal := na
     accAge := 0
     accStartBias := bias
-    if showPhaseMarkers and okPhase and not lblNone
+    if showPhaseMarkers and okPhase and lblEss
         label.new(accSCBar, accSC, "SC", style=label.style_label_up, color=color.new(bullCol, 70), textcolor=bullCol, size=size.small)
 
 if not disActive and not na(ph)
@@ -1966,7 +1985,7 @@ if not disActive and not na(ph)
     disUTADVal := na
     disAge := 0
     disStartBias := bias
-    if showPhaseMarkers and okPhase and not lblNone
+    if showPhaseMarkers and okPhase and lblEss
         label.new(disBCBar, disBC, "BC", style=label.style_label_down, color=color.new(bearCol, 70), textcolor=bearCol, size=size.small)
 
 bool stbJustFormed    = accSTBBar == bar_index
