@@ -606,381 +606,6 @@ int h1Bias = request.security(syminfo.tickerid, "60", f_h1Bias(), lookahead=barm
 
 
 //=====================================================================
-// ORDER BLOCKS + BREAKER BLOCKS (module 8)
-//
-// Logique de détection adaptée de "Order Blocks & Breaker Blocks"
-// (© LuxAlgo, CC BY-NC-SA 4.0) — usage personnel non commercial.
-//
-// ADAPTATIONS SMV (ce n'est PAS une simple copie) :
-//
-//  1. Le déclencheur n'est plus le swing interne de LuxAlgo, mais TON
-//     moteur de structure : un OB naît uniquement quand isStructHighBroken
-//     / isStructLowBroken déclenche un vrai BOS/BMS. "Un Order Block
-//     valide doit obligatoirement provoquer une vraie cassure de
-//     structure" — c'est exactement ta règle.
-//
-//  2. La recherche remonte jusqu'au niveau RÉELLEMENT cassé
-//     (brokenHighBar / brokenLowBar), pas jusqu'à un swing indépendant.
-//
-//  3. Confluence IDM (★) : un OB qui contient un IDM encore actif est
-//     signalé. C'est LA confluence SMV — le niveau où tu attends déjà le
-//     prix est aussi celui où les institutionnels ont laissé leur trace.
-//
-//  4. Déséquilibre FVG (⚡) signalé, comme tu l'as décrit.
-//
-//  5. Filtre 80/20 optionnel sur confirmedTrend.
-//
-//  6. IMPORTANT — LuxAlgo fait "for bx in box.all : bx.delete()", ce qui
-//     effacerait TES Sniper Zones, tes phases et tes zones Supply/Demand.
-//     Ici on ne supprime QUE nos propres objets, stockés dans des
-//     tableaux dédiés.
-//
-// Breaker Block : quand le prix casse vraiment à travers un OB, celui-ci
-// a échoué et change de polarité (un OB haussier cassé devient une
-// résistance). Confirmation forte pour la SMV.
-//=====================================================================
-float obMax = obUseBody ? math.max(close, open) : high
-float obMin = obUseBody ? math.min(close, open) : low
-
-var float[] obTopA    = array.new_float()
-var float[] obBtmA    = array.new_float()
-var int[]   obLocA    = array.new_int()
-var int[]   obDirA    = array.new_int()      // 1 = OB haussier, -1 = OB baissier
-var bool[]  obBrkA    = array.new_bool()     // devenu Breaker Block ?
-var int[]   obBrkLocA = array.new_int()
-var bool[]  obFvgA    = array.new_bool()
-var bool[]  obIdmA    = array.new_bool()     // confluence avec un IDM actif
-
-// Objets dessinés — on ne touche JAMAIS à box.all / line.all.
-var box[]   obDrawBox = array.new_box()
-var line[]  obDrawLn  = array.new_line()
-var label[] obDrawLbl = array.new_label()
-
-bool obStructBroke = isStructHighBroken or isStructLowBroken
-// Même priorité que le moteur de structure plus haut (if / else if).
-bool obBreakBull   = obStructBroke and not isStructLowBroken
-
-// Distance à remonter : jusqu'au niveau réellement cassé, borné à 50
-// bougies pour garder un buffer d'historique raisonnable.
-int obOriginBar = obBreakBull ? brokenHighBar : brokenLowBar
-int obScanLen   = obStructBroke and not na(obOriginBar) ? math.min(math.max(bar_index - obOriginBar, 1), 50) : 0
-
-if showOB and obStructBroke and inLookback and obScanLen > 0
-    float minima = obMin[1]
-    float maxima = obMax[1]
-    int   locOff = 1
-
-    if obBreakBull
-        // Bougie du plus bas creux avant l'impulsion haussière.
-        for i = 1 to obScanLen
-            if obMin[i] < minima
-                minima := obMin[i]
-                maxima := obMax[i]
-                locOff := i
-    else
-        // Bougie du plus haut sommet avant l'impulsion baissière.
-        for i = 1 to obScanLen
-            if obMax[i] > maxima
-                maxima := obMax[i]
-                minima := obMin[i]
-                locOff := i
-
-    if not na(minima) and not na(maxima) and maxima >= minima
-        // Déséquilibre (FVG) laissé par l'impulsion qui part de l'OB.
-        bool obHasFvg = false
-        if obShowFvg and locOff >= 2
-            obHasFvg := obBreakBull ? (low[locOff - 2] > high[locOff]) : (high[locOff - 2] < low[locOff])
-
-        // Confluence SMV : un IDM encore actif tombe-t-il dans l'OB ?
-        bool obHasIdm = false
-        if obShowIdmConfluence and array.size(idmLevel) > 0
-            for j = array.size(idmLevel) - 1 to 0
-                if not obHasIdm and not array.get(idmDone, j)
-                    float idmLv = array.get(idmLevel, j)
-                    if idmLv <= maxima and idmLv >= minima
-                        obHasIdm := true
-
-        array.unshift(obTopA, maxima)
-        array.unshift(obBtmA, minima)
-        array.unshift(obLocA, bar_index - locOff)
-        array.unshift(obDirA, obBreakBull ? 1 : -1)
-        array.unshift(obBrkA, false)
-        array.unshift(obBrkLocA, 0)
-        array.unshift(obFvgA, obHasFvg)
-        array.unshift(obIdmA, obHasIdm)
-
-        // Limite d'historique (les plus anciens tombent).
-        if array.size(obTopA) > 40
-            array.pop(obTopA)
-            array.pop(obBtmA)
-            array.pop(obLocA)
-            array.pop(obDirA)
-            array.pop(obBrkA)
-            array.pop(obBrkLocA)
-            array.pop(obFvgA)
-            array.pop(obIdmA)
-
-// Passage en Breaker Block, puis suppression définitive quand le prix
-// dépasse franchement le Breaker (logique LuxAlgo conservée).
-bool obJustBroke   = false
-bool obTouchedNow  = false
-
-if array.size(obTopA) > 0
-    for i = array.size(obTopA) - 1 to 0
-        int   dOb = array.get(obDirA, i)
-        float tOb = array.get(obTopA, i)
-        float bOb = array.get(obBtmA, i)
-        bool  kOb = array.get(obBrkA, i)
-        bool  dropIt = false
-
-        if dOb == 1
-            if not kOb
-                if math.min(close, open) < bOb
-                    array.set(obBrkA, i, true)
-                    array.set(obBrkLocA, i, bar_index)
-                    obJustBroke := true
-                else if low <= tOb and high >= bOb
-                    obTouchedNow := true
-            else
-                if close > tOb
-                    dropIt := true
-        else
-            if not kOb
-                if math.max(close, open) > tOb
-                    array.set(obBrkA, i, true)
-                    array.set(obBrkLocA, i, bar_index)
-                    obJustBroke := true
-                else if high >= bOb and low <= tOb
-                    obTouchedNow := true
-            else
-                if close < bOb
-                    dropIt := true
-
-        if dropIt
-            array.remove(obTopA, i)
-            array.remove(obBtmA, i)
-            array.remove(obLocA, i)
-            array.remove(obDirA, i)
-            array.remove(obBrkA, i)
-            array.remove(obBrkLocA, i)
-            array.remove(obFvgA, i)
-            array.remove(obIdmA, i)
-
-// État courant pour le dashboard : le prix est-il dans un OB / Breaker ?
-int    obZoneDir = 0
-string obZoneTxt = "-"
-
-if array.size(obTopA) > 0
-    for i = 0 to array.size(obTopA) - 1
-        if obZoneDir == 0
-            float tOb = array.get(obTopA, i)
-            float bOb = array.get(obBtmA, i)
-            if close <= tOb and close >= bOb
-                bool kOb = array.get(obBrkA, i)
-                int  dOb = array.get(obDirA, i)
-                // Un Breaker a changé de polarité : sens inversé.
-                obZoneDir := kOb ? -dOb : dOb
-                obZoneTxt := (kOb ? (dOb == 1 ? "Dans BREAKER (ex-OB haussier)" : "Dans BREAKER (ex-OB baissier)")
-                     : (dOb == 1 ? "Dans OB haussier" : "Dans OB baissier")) +
-                     (array.get(obIdmA, i) ? " ★IDM" : "") +
-                     (array.get(obFvgA, i) ? " ⚡" : "")
-
-// AFFICHAGE — uniquement sur la dernière bougie, et on ne supprime QUE
-// nos propres objets (jamais box.all / line.all : ça détruirait les
-// Sniper Zones, les phases et les zones Supply/Demand).
-if barstate.islast
-    while array.size(obDrawBox) > 0
-        box.delete(array.pop(obDrawBox))
-    while array.size(obDrawLn) > 0
-        line.delete(array.pop(obDrawLn))
-    while array.size(obDrawLbl) > 0
-        label.delete(array.pop(obDrawLbl))
-
-    if showOB and array.size(obTopA) > 0
-        int drawnBull = 0
-        int drawnBear = 0
-
-        for i = 0 to array.size(obTopA) - 1
-            int   dOb = array.get(obDirA, i)
-            bool  kOb = array.get(obBrkA, i)
-            float tOb = array.get(obTopA, i)
-            float bOb = array.get(obBtmA, i)
-            int   lOb = array.get(obLocA, i)
-
-            bool quotaOk = dOb == 1 ? drawnBull < obShowBull : drawnBear < obShowBear
-            // Filtre 80/20 : ne s'applique jamais aux Breakers, qui ont
-            // justement changé de polarité.
-            bool dirOk = not obFilter8020 or kOb or confirmedTrend == 0 or confirmedTrend == dOb
-            bool brkOk = obShowBreaker or not kOb
-
-            if quotaOk and dirOk and brkOk
-                if dOb == 1
-                    drawnBull += 1
-                else
-                    drawnBear += 1
-
-                color baseCol = dOb == 1 ? obBullCol : obBearCol
-                color brkCol  = dOb == 1 ? obBullBreakCol : obBearBreakCol
-                color solid   = color.rgb(color.r(baseCol), color.g(baseCol), color.b(baseCol))
-                color brkSol  = color.rgb(color.r(brkCol), color.g(brkCol), color.b(brkCol))
-
-                string tag = (kOb ? "BRK " : "OB ") + (dOb == 1 ? "⬆" : "⬇") +
-                     (array.get(obIdmA, i) ? " ★" : "") +
-                     (array.get(obFvgA, i) ? " ⚡" : "")
-
-                if kOb
-                    int bLoc = array.get(obBrkLocA, i)
-                    // Partie encore valide (avant la cassure)
-                    array.push(obDrawBox, box.new(lOb, tOb, bLoc, bOb,
-                         border_color=solid, bgcolor=baseCol))
-                    // Partie Breaker (polarité inversée), prolongée
-                    array.push(obDrawBox, box.new(bLoc, tOb, bar_index + 1, bOb,
-                         border_color=na, bgcolor=brkCol, extend=extend.right))
-                    array.push(obDrawLn, line.new(bLoc, tOb, bar_index + 1, tOb,
-                         xloc=xloc.bar_index, extend=extend.right, color=brkSol, style=line.style_dashed))
-                    array.push(obDrawLn, line.new(bLoc, bOb, bar_index + 1, bOb,
-                         xloc=xloc.bar_index, extend=extend.right, color=brkSol, style=line.style_dashed))
-                    array.push(obDrawLbl, label.new(bar_index + 1, (tOb + bOb) / 2, tag,
-                         style=label.style_label_left, color=brkCol, textcolor=brkSol, size=size.tiny))
-                else
-                    array.push(obDrawBox, box.new(lOb, tOb, bar_index + 1, bOb,
-                         border_color=na, bgcolor=baseCol, extend=extend.right))
-                    array.push(obDrawLn, line.new(lOb, tOb, bar_index + 1, tOb,
-                         xloc=xloc.bar_index, extend=extend.right, color=solid))
-                    array.push(obDrawLn, line.new(lOb, bOb, bar_index + 1, bOb,
-                         xloc=xloc.bar_index, extend=extend.right, color=solid))
-                    array.push(obDrawLbl, label.new(bar_index + 1, (tOb + bOb) / 2, tag,
-                         style=label.style_label_left, color=baseCol, textcolor=solid, size=size.tiny))
-
-
-
-//=====================================================================
-// ZONES SUPPLY / DEMAND (module 9) — la version LARGE.
-//
-// Contrairement à l'OB (module 8), aucune cassure de structure n'est
-// exigée : une base de consolidation suivie d'une impulsion forte
-// suffit. La zone englobe TOUTE la base (plusieurs bougies), là où l'OB
-// ne retient que la dernière bougie opposée.
-//
-// La base est construite au fil de l'eau (variables var) — comme pour
-// l'OB, aucune relecture d'historique à index variable.
-//=====================================================================
-var box[]   sdBox = array.new_box()
-var label[] sdLbl = array.new_label()
-var float[] sdTop = array.new_float()
-var float[] sdBot = array.new_float()
-var int[]   sdDir = array.new_int()
-var bool[]  sdMit = array.new_bool()
-
-var float sdBaseTop   = na
-var float sdBaseBot   = na
-var int   sdBaseCount = 0
-var int   sdBaseStart = na
-
-float sdBody      = math.abs(close - open)
-bool  atrReady    = not na(atrFast) and atrFast > 0
-bool  sdIsImpulse = showSD and inLookback and atrReady and sdBody > atrFast * sdImpulseMult
-bool  sdIsSmall   = atrReady and sdBody < atrFast * 0.8
-int   sdDirNow    = close > open ? 1 : -1
-
-if sdIsImpulse
-    // La base accumulée juste avant devient la zone Supply/Demand.
-    if sdBaseCount > 0 and not na(sdBaseTop) and not na(sdBaseBot) and not na(sdBaseStart)
-        color  sdCol = sdDirNow == 1 ? sdDemandCol : sdSupplyCol
-        string sdTxt = sdDirNow == 1 ? "DEMAND" : "SUPPLY"
-
-        box   sb = box.new(sdBaseStart, sdBaseTop, bar_index + sdExtend, sdBaseBot,
-             border_color=sdCol, border_width=1,
-             bgcolor=color.new(sdCol, 88))
-        label sl = label.new(sdBaseStart, sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
-             style=sdDirNow == 1 ? label.style_label_up : label.style_label_down,
-             color=color.new(sdCol, 82), textcolor=sdCol, size=size.tiny)
-
-        array.push(sdBox, sb)
-        array.push(sdLbl, sl)
-        array.push(sdTop, sdBaseTop)
-        array.push(sdBot, sdBaseBot)
-        array.push(sdDir, sdDirNow)
-        array.push(sdMit, false)
-
-    sdBaseTop := na
-    sdBaseBot := na
-    sdBaseCount := 0
-    sdBaseStart := na
-else if sdIsSmall
-    if sdBaseCount >= sdMaxBase
-        // Base trop longue : on repart d'une base neuve sur cette bougie.
-        sdBaseTop := high
-        sdBaseBot := low
-        sdBaseCount := 1
-        sdBaseStart := bar_index
-    else
-        sdBaseTop := na(sdBaseTop) ? high : math.max(sdBaseTop, high)
-        sdBaseBot := na(sdBaseBot) ? low  : math.min(sdBaseBot, low)
-        sdBaseCount := sdBaseCount + 1
-        sdBaseStart := na(sdBaseStart) ? bar_index : sdBaseStart
-else
-    // Bougie moyenne : ni base ni impulsion, on repart de zéro.
-    sdBaseTop := na
-    sdBaseBot := na
-    sdBaseCount := 0
-    sdBaseStart := na
-
-// Purge : garde au plus sdCount zones par côté (Demand et Supply
-// comptées séparément), les plus récentes.
-if array.size(sdBox) > 0
-    int keepDemand = 0
-    int keepSupply = 0
-    for i = array.size(sdBox) - 1 to 0
-        bool keepIt = true
-        if array.get(sdDir, i) == 1
-            keepDemand := keepDemand + 1
-            keepIt := keepDemand <= sdCount
-        else
-            keepSupply := keepSupply + 1
-            keepIt := keepSupply <= sdCount
-        if not keepIt
-            box.delete(array.get(sdBox, i))
-            label.delete(array.get(sdLbl, i))
-            array.remove(sdBox, i)
-            array.remove(sdLbl, i)
-            array.remove(sdTop, i)
-            array.remove(sdBot, i)
-            array.remove(sdDir, i)
-            array.remove(sdMit, i)
-
-// Prolongation + mitigation des zones Supply/Demand.
-bool sdTouched = false
-
-if array.size(sdBox) > 0
-    for i = 0 to array.size(sdBox) - 1
-        box bx = array.get(sdBox, i)
-        box.set_right(bx, bar_index + sdExtend)
-        if not array.get(sdMit, i)
-            if low <= array.get(sdTop, i) and high >= array.get(sdBot, i)
-                array.set(sdMit, i, true)
-                sdTouched := true
-                box.set_border_color(bx, sdMitigatedCol)
-                box.set_bgcolor(bx, color.new(sdMitigatedCol, 92))
-                label lbD = array.get(sdLbl, i)
-                label.set_color(lbD, color.new(sdMitigatedCol, 85))
-                label.set_textcolor(lbD, sdMitigatedCol)
-
-// État courant : le prix est-il DANS un OB / Breaker ou une zone S/D ?
-// Sert au dashboard pour la confirmation d'entrée. L'Order Block est
-// prioritaire (niveau chirurgical) ; la zone Supply/Demand ne sert de
-// repli que si le prix n'est dans aucun OB.
-int    zoneNowDir = obZoneDir
-string zoneNowTxt = obZoneTxt
-
-if zoneNowDir == 0 and array.size(sdBox) > 0
-    for i = array.size(sdBox) - 1 to 0
-        if zoneNowDir == 0 and close <= array.get(sdTop, i) and close >= array.get(sdBot, i)
-            zoneNowDir := array.get(sdDir, i)
-            zoneNowTxt := (array.get(sdDir, i) == 1 ? "Dans zone DEMAND" : "Dans zone SUPPLY") + (array.get(sdMit, i) ? " (mitigée)" : "")
-
-
-//=====================================================================
 // AFFICHAGE — Zones de Liquidité (Intact), indépendant. Jusqu'à 4
 // niveaux par côté, alimentés dans la section PIVOTS plus haut —
 // aucune influence sur bosHigh/bosLow ni sur le moteur.
@@ -1454,6 +1079,381 @@ if array.size(idmLevel) > maxHistory
     array.shift(idmDir)
     array.shift(idmDone)
     array.shift(idmKind)
+
+
+//=====================================================================
+// ORDER BLOCKS + BREAKER BLOCKS (module 8)
+//
+// Logique de détection adaptée de "Order Blocks & Breaker Blocks"
+// (© LuxAlgo, CC BY-NC-SA 4.0) — usage personnel non commercial.
+//
+// ADAPTATIONS SMV (ce n'est PAS une simple copie) :
+//
+//  1. Le déclencheur n'est plus le swing interne de LuxAlgo, mais TON
+//     moteur de structure : un OB naît uniquement quand isStructHighBroken
+//     / isStructLowBroken déclenche un vrai BOS/BMS. "Un Order Block
+//     valide doit obligatoirement provoquer une vraie cassure de
+//     structure" — c'est exactement ta règle.
+//
+//  2. La recherche remonte jusqu'au niveau RÉELLEMENT cassé
+//     (brokenHighBar / brokenLowBar), pas jusqu'à un swing indépendant.
+//
+//  3. Confluence IDM (★) : un OB qui contient un IDM encore actif est
+//     signalé. C'est LA confluence SMV — le niveau où tu attends déjà le
+//     prix est aussi celui où les institutionnels ont laissé leur trace.
+//
+//  4. Déséquilibre FVG (⚡) signalé, comme tu l'as décrit.
+//
+//  5. Filtre 80/20 optionnel sur confirmedTrend.
+//
+//  6. IMPORTANT — LuxAlgo fait "for bx in box.all : bx.delete()", ce qui
+//     effacerait TES Sniper Zones, tes phases et tes zones Supply/Demand.
+//     Ici on ne supprime QUE nos propres objets, stockés dans des
+//     tableaux dédiés.
+//
+// Breaker Block : quand le prix casse vraiment à travers un OB, celui-ci
+// a échoué et change de polarité (un OB haussier cassé devient une
+// résistance). Confirmation forte pour la SMV.
+//=====================================================================
+float obMax = obUseBody ? math.max(close, open) : high
+float obMin = obUseBody ? math.min(close, open) : low
+
+var float[] obTopA    = array.new_float()
+var float[] obBtmA    = array.new_float()
+var int[]   obLocA    = array.new_int()
+var int[]   obDirA    = array.new_int()      // 1 = OB haussier, -1 = OB baissier
+var bool[]  obBrkA    = array.new_bool()     // devenu Breaker Block ?
+var int[]   obBrkLocA = array.new_int()
+var bool[]  obFvgA    = array.new_bool()
+var bool[]  obIdmA    = array.new_bool()     // confluence avec un IDM actif
+
+// Objets dessinés — on ne touche JAMAIS à box.all / line.all.
+var box[]   obDrawBox = array.new_box()
+var line[]  obDrawLn  = array.new_line()
+var label[] obDrawLbl = array.new_label()
+
+bool obStructBroke = isStructHighBroken or isStructLowBroken
+// Même priorité que le moteur de structure plus haut (if / else if).
+bool obBreakBull   = obStructBroke and not isStructLowBroken
+
+// Distance à remonter : jusqu'au niveau réellement cassé, borné à 50
+// bougies pour garder un buffer d'historique raisonnable.
+int obOriginBar = obBreakBull ? brokenHighBar : brokenLowBar
+int obScanLen   = obStructBroke and not na(obOriginBar) ? math.min(math.max(bar_index - obOriginBar, 1), 50) : 0
+
+if showOB and obStructBroke and inLookback and obScanLen > 0
+    float minima = obMin[1]
+    float maxima = obMax[1]
+    int   locOff = 1
+
+    if obBreakBull
+        // Bougie du plus bas creux avant l'impulsion haussière.
+        for i = 1 to obScanLen
+            if obMin[i] < minima
+                minima := obMin[i]
+                maxima := obMax[i]
+                locOff := i
+    else
+        // Bougie du plus haut sommet avant l'impulsion baissière.
+        for i = 1 to obScanLen
+            if obMax[i] > maxima
+                maxima := obMax[i]
+                minima := obMin[i]
+                locOff := i
+
+    if not na(minima) and not na(maxima) and maxima >= minima
+        // Déséquilibre (FVG) laissé par l'impulsion qui part de l'OB.
+        bool obHasFvg = false
+        if obShowFvg and locOff >= 2
+            obHasFvg := obBreakBull ? (low[locOff - 2] > high[locOff]) : (high[locOff - 2] < low[locOff])
+
+        // Confluence SMV : un IDM encore actif tombe-t-il dans l'OB ?
+        bool obHasIdm = false
+        if obShowIdmConfluence and array.size(idmLevel) > 0
+            for j = array.size(idmLevel) - 1 to 0
+                if not obHasIdm and not array.get(idmDone, j)
+                    float idmLv = array.get(idmLevel, j)
+                    if idmLv <= maxima and idmLv >= minima
+                        obHasIdm := true
+
+        array.unshift(obTopA, maxima)
+        array.unshift(obBtmA, minima)
+        array.unshift(obLocA, bar_index - locOff)
+        array.unshift(obDirA, obBreakBull ? 1 : -1)
+        array.unshift(obBrkA, false)
+        array.unshift(obBrkLocA, 0)
+        array.unshift(obFvgA, obHasFvg)
+        array.unshift(obIdmA, obHasIdm)
+
+        // Limite d'historique (les plus anciens tombent).
+        if array.size(obTopA) > 40
+            array.pop(obTopA)
+            array.pop(obBtmA)
+            array.pop(obLocA)
+            array.pop(obDirA)
+            array.pop(obBrkA)
+            array.pop(obBrkLocA)
+            array.pop(obFvgA)
+            array.pop(obIdmA)
+
+// Passage en Breaker Block, puis suppression définitive quand le prix
+// dépasse franchement le Breaker (logique LuxAlgo conservée).
+bool obJustBroke   = false
+bool obTouchedNow  = false
+
+if array.size(obTopA) > 0
+    for i = array.size(obTopA) - 1 to 0
+        int   dOb = array.get(obDirA, i)
+        float tOb = array.get(obTopA, i)
+        float bOb = array.get(obBtmA, i)
+        bool  kOb = array.get(obBrkA, i)
+        bool  dropIt = false
+
+        if dOb == 1
+            if not kOb
+                if math.min(close, open) < bOb
+                    array.set(obBrkA, i, true)
+                    array.set(obBrkLocA, i, bar_index)
+                    obJustBroke := true
+                else if low <= tOb and high >= bOb
+                    obTouchedNow := true
+            else
+                if close > tOb
+                    dropIt := true
+        else
+            if not kOb
+                if math.max(close, open) > tOb
+                    array.set(obBrkA, i, true)
+                    array.set(obBrkLocA, i, bar_index)
+                    obJustBroke := true
+                else if high >= bOb and low <= tOb
+                    obTouchedNow := true
+            else
+                if close < bOb
+                    dropIt := true
+
+        if dropIt
+            array.remove(obTopA, i)
+            array.remove(obBtmA, i)
+            array.remove(obLocA, i)
+            array.remove(obDirA, i)
+            array.remove(obBrkA, i)
+            array.remove(obBrkLocA, i)
+            array.remove(obFvgA, i)
+            array.remove(obIdmA, i)
+
+// État courant pour le dashboard : le prix est-il dans un OB / Breaker ?
+int    obZoneDir = 0
+string obZoneTxt = "-"
+
+if array.size(obTopA) > 0
+    for i = 0 to array.size(obTopA) - 1
+        if obZoneDir == 0
+            float tOb = array.get(obTopA, i)
+            float bOb = array.get(obBtmA, i)
+            if close <= tOb and close >= bOb
+                bool kOb = array.get(obBrkA, i)
+                int  dOb = array.get(obDirA, i)
+                // Un Breaker a changé de polarité : sens inversé.
+                obZoneDir := kOb ? -dOb : dOb
+                obZoneTxt := (kOb ? (dOb == 1 ? "Dans BREAKER (ex-OB haussier)" : "Dans BREAKER (ex-OB baissier)")
+                     : (dOb == 1 ? "Dans OB haussier" : "Dans OB baissier")) +
+                     (array.get(obIdmA, i) ? " ★IDM" : "") +
+                     (array.get(obFvgA, i) ? " ⚡" : "")
+
+// AFFICHAGE — uniquement sur la dernière bougie, et on ne supprime QUE
+// nos propres objets (jamais box.all / line.all : ça détruirait les
+// Sniper Zones, les phases et les zones Supply/Demand).
+if barstate.islast
+    while array.size(obDrawBox) > 0
+        box.delete(array.pop(obDrawBox))
+    while array.size(obDrawLn) > 0
+        line.delete(array.pop(obDrawLn))
+    while array.size(obDrawLbl) > 0
+        label.delete(array.pop(obDrawLbl))
+
+    if showOB and array.size(obTopA) > 0
+        int drawnBull = 0
+        int drawnBear = 0
+
+        for i = 0 to array.size(obTopA) - 1
+            int   dOb = array.get(obDirA, i)
+            bool  kOb = array.get(obBrkA, i)
+            float tOb = array.get(obTopA, i)
+            float bOb = array.get(obBtmA, i)
+            int   lOb = array.get(obLocA, i)
+
+            bool quotaOk = dOb == 1 ? drawnBull < obShowBull : drawnBear < obShowBear
+            // Filtre 80/20 : ne s'applique jamais aux Breakers, qui ont
+            // justement changé de polarité.
+            bool dirOk = not obFilter8020 or kOb or confirmedTrend == 0 or confirmedTrend == dOb
+            bool brkOk = obShowBreaker or not kOb
+
+            if quotaOk and dirOk and brkOk
+                if dOb == 1
+                    drawnBull += 1
+                else
+                    drawnBear += 1
+
+                color baseCol = dOb == 1 ? obBullCol : obBearCol
+                color brkCol  = dOb == 1 ? obBullBreakCol : obBearBreakCol
+                color solid   = color.rgb(color.r(baseCol), color.g(baseCol), color.b(baseCol))
+                color brkSol  = color.rgb(color.r(brkCol), color.g(brkCol), color.b(brkCol))
+
+                string tag = (kOb ? "BRK " : "OB ") + (dOb == 1 ? "⬆" : "⬇") +
+                     (array.get(obIdmA, i) ? " ★" : "") +
+                     (array.get(obFvgA, i) ? " ⚡" : "")
+
+                if kOb
+                    int bLoc = array.get(obBrkLocA, i)
+                    // Partie encore valide (avant la cassure)
+                    array.push(obDrawBox, box.new(lOb, tOb, bLoc, bOb,
+                         border_color=solid, bgcolor=baseCol))
+                    // Partie Breaker (polarité inversée), prolongée
+                    array.push(obDrawBox, box.new(bLoc, tOb, bar_index + 1, bOb,
+                         border_color=na, bgcolor=brkCol, extend=extend.right))
+                    array.push(obDrawLn, line.new(bLoc, tOb, bar_index + 1, tOb,
+                         xloc=xloc.bar_index, extend=extend.right, color=brkSol, style=line.style_dashed))
+                    array.push(obDrawLn, line.new(bLoc, bOb, bar_index + 1, bOb,
+                         xloc=xloc.bar_index, extend=extend.right, color=brkSol, style=line.style_dashed))
+                    array.push(obDrawLbl, label.new(bar_index + 1, (tOb + bOb) / 2, tag,
+                         style=label.style_label_left, color=brkCol, textcolor=brkSol, size=size.tiny))
+                else
+                    array.push(obDrawBox, box.new(lOb, tOb, bar_index + 1, bOb,
+                         border_color=na, bgcolor=baseCol, extend=extend.right))
+                    array.push(obDrawLn, line.new(lOb, tOb, bar_index + 1, tOb,
+                         xloc=xloc.bar_index, extend=extend.right, color=solid))
+                    array.push(obDrawLn, line.new(lOb, bOb, bar_index + 1, bOb,
+                         xloc=xloc.bar_index, extend=extend.right, color=solid))
+                    array.push(obDrawLbl, label.new(bar_index + 1, (tOb + bOb) / 2, tag,
+                         style=label.style_label_left, color=baseCol, textcolor=solid, size=size.tiny))
+
+
+
+//=====================================================================
+// ZONES SUPPLY / DEMAND (module 9) — la version LARGE.
+//
+// Contrairement à l'OB (module 8), aucune cassure de structure n'est
+// exigée : une base de consolidation suivie d'une impulsion forte
+// suffit. La zone englobe TOUTE la base (plusieurs bougies), là où l'OB
+// ne retient que la dernière bougie opposée.
+//
+// La base est construite au fil de l'eau (variables var) — comme pour
+// l'OB, aucune relecture d'historique à index variable.
+//=====================================================================
+var box[]   sdBox = array.new_box()
+var label[] sdLbl = array.new_label()
+var float[] sdTop = array.new_float()
+var float[] sdBot = array.new_float()
+var int[]   sdDir = array.new_int()
+var bool[]  sdMit = array.new_bool()
+
+var float sdBaseTop   = na
+var float sdBaseBot   = na
+var int   sdBaseCount = 0
+var int   sdBaseStart = na
+
+float sdBody      = math.abs(close - open)
+bool  atrReady    = not na(atrFast) and atrFast > 0
+bool  sdIsImpulse = showSD and inLookback and atrReady and sdBody > atrFast * sdImpulseMult
+bool  sdIsSmall   = atrReady and sdBody < atrFast * 0.8
+int   sdDirNow    = close > open ? 1 : -1
+
+if sdIsImpulse
+    // La base accumulée juste avant devient la zone Supply/Demand.
+    if sdBaseCount > 0 and not na(sdBaseTop) and not na(sdBaseBot) and not na(sdBaseStart)
+        color  sdCol = sdDirNow == 1 ? sdDemandCol : sdSupplyCol
+        string sdTxt = sdDirNow == 1 ? "DEMAND" : "SUPPLY"
+
+        box   sb = box.new(sdBaseStart, sdBaseTop, bar_index + sdExtend, sdBaseBot,
+             border_color=sdCol, border_width=1,
+             bgcolor=color.new(sdCol, 88))
+        label sl = label.new(sdBaseStart, sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
+             style=sdDirNow == 1 ? label.style_label_up : label.style_label_down,
+             color=color.new(sdCol, 82), textcolor=sdCol, size=size.tiny)
+
+        array.push(sdBox, sb)
+        array.push(sdLbl, sl)
+        array.push(sdTop, sdBaseTop)
+        array.push(sdBot, sdBaseBot)
+        array.push(sdDir, sdDirNow)
+        array.push(sdMit, false)
+
+    sdBaseTop := na
+    sdBaseBot := na
+    sdBaseCount := 0
+    sdBaseStart := na
+else if sdIsSmall
+    if sdBaseCount >= sdMaxBase
+        // Base trop longue : on repart d'une base neuve sur cette bougie.
+        sdBaseTop := high
+        sdBaseBot := low
+        sdBaseCount := 1
+        sdBaseStart := bar_index
+    else
+        sdBaseTop := na(sdBaseTop) ? high : math.max(sdBaseTop, high)
+        sdBaseBot := na(sdBaseBot) ? low  : math.min(sdBaseBot, low)
+        sdBaseCount := sdBaseCount + 1
+        sdBaseStart := na(sdBaseStart) ? bar_index : sdBaseStart
+else
+    // Bougie moyenne : ni base ni impulsion, on repart de zéro.
+    sdBaseTop := na
+    sdBaseBot := na
+    sdBaseCount := 0
+    sdBaseStart := na
+
+// Purge : garde au plus sdCount zones par côté (Demand et Supply
+// comptées séparément), les plus récentes.
+if array.size(sdBox) > 0
+    int keepDemand = 0
+    int keepSupply = 0
+    for i = array.size(sdBox) - 1 to 0
+        bool keepIt = true
+        if array.get(sdDir, i) == 1
+            keepDemand := keepDemand + 1
+            keepIt := keepDemand <= sdCount
+        else
+            keepSupply := keepSupply + 1
+            keepIt := keepSupply <= sdCount
+        if not keepIt
+            box.delete(array.get(sdBox, i))
+            label.delete(array.get(sdLbl, i))
+            array.remove(sdBox, i)
+            array.remove(sdLbl, i)
+            array.remove(sdTop, i)
+            array.remove(sdBot, i)
+            array.remove(sdDir, i)
+            array.remove(sdMit, i)
+
+// Prolongation + mitigation des zones Supply/Demand.
+bool sdTouched = false
+
+if array.size(sdBox) > 0
+    for i = 0 to array.size(sdBox) - 1
+        box bx = array.get(sdBox, i)
+        box.set_right(bx, bar_index + sdExtend)
+        if not array.get(sdMit, i)
+            if low <= array.get(sdTop, i) and high >= array.get(sdBot, i)
+                array.set(sdMit, i, true)
+                sdTouched := true
+                box.set_border_color(bx, sdMitigatedCol)
+                box.set_bgcolor(bx, color.new(sdMitigatedCol, 92))
+                label lbD = array.get(sdLbl, i)
+                label.set_color(lbD, color.new(sdMitigatedCol, 85))
+                label.set_textcolor(lbD, sdMitigatedCol)
+
+// État courant : le prix est-il DANS un OB / Breaker ou une zone S/D ?
+// Sert au dashboard pour la confirmation d'entrée. L'Order Block est
+// prioritaire (niveau chirurgical) ; la zone Supply/Demand ne sert de
+// repli que si le prix n'est dans aucun OB.
+int    zoneNowDir = obZoneDir
+string zoneNowTxt = obZoneTxt
+
+if zoneNowDir == 0 and array.size(sdBox) > 0
+    for i = array.size(sdBox) - 1 to 0
+        if zoneNowDir == 0 and close <= array.get(sdTop, i) and close >= array.get(sdBot, i)
+            zoneNowDir := array.get(sdDir, i)
+            zoneNowTxt := (array.get(sdDir, i) == 1 ? "Dans zone DEMAND" : "Dans zone SUPPLY") + (array.get(sdMit, i) ? " (mitigée)" : "")
 
 
 //=====================================================================
