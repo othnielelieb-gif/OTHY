@@ -44,6 +44,20 @@ indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overla
 //=====================================================================
 
 //=====================================================================
+// 0. Affichage des zones — règle GLOBALE valable pour TOUTES les zones
+// (Order Blocks, Breakers, Supply/Demand, Imbalances, Sniper Zone,
+// liquidité Intact, liquidité cible).
+//
+// Aucune zone ne part à l'infini vers la droite : chacune s'arrête au
+// niveau du prix actuel et AVANCE avec lui, bougie après bougie. Le
+// réglage ci-dessous n'est qu'une petite marge de respiration pour que
+// les étiquettes restent lisibles, jamais une extension infinie.
+//=====================================================================
+gZ = "0. Affichage des zones"
+zoneExt = input.int(3, "Marge au-delà du prix (bougies)", minval=0, maxval=30, group=gZ,
+     tooltip="Toutes les zones s'arrêtent au prix actuel et le suivent. Cette valeur n'ajoute qu'une petite marge à droite pour la lisibilité des étiquettes. 0 = la zone colle exactement à la bougie en cours.")
+
+//=====================================================================
 // 1. Structure
 //=====================================================================
 gS = "1. Structure"
@@ -203,7 +217,6 @@ sniperCol  = input.color(#ffd54f, "Couleur Sniper Zone", group=gSn)
 showSniperRefine = input.bool(true, "Affiner sur la bougie de récupération (intrabar)", group=gSn,
      tooltip="Dès que l'IDM est récupéré, resserre la zone sur le niveau exact touché par la mèche de LA bougie qui fait la prise de liquidité, au lieu de la bande ATR large. 100% intrabar, même timeframe.")
 refineCol = input.color(#26c6da, "Couleur zone affinée", group=gSn)
-sniperZoneExt = input.int(15, "Prolongation des zones (bougies)", minval=3, maxval=60, group=gSn)
 
 //=====================================================================
 // 4. Phases — repères Wyckoff SC/STB/SPRING/BC/UT/UTAD, purement
@@ -299,7 +312,29 @@ sdMaxBase = input.int(6, "Largeur max de la base (bougies)", minval=2, maxval=20
 sdDemandCol = input.color(#00897b, "Couleur zone Demand (achat)", group=gSD)
 sdSupplyCol = input.color(#d81b60, "Couleur zone Supply (vente)", group=gSD)
 sdMitigatedCol = input.color(#90a4ae, "Couleur zone mitigée", group=gSD)
-sdExtend = input.int(30, "Prolongation des zones (bougies)", minval=5, maxval=200, group=gSD)
+
+//=====================================================================
+// 10. Imbalances (Fair Value Gap) — le vide de prix laissé par une
+// impulsion brutale : le marché est passé trop vite, il n'y a pas eu
+// d'échange équitable sur cette plage. Le prix revient très souvent
+// combler ce vide, ce qui en fait une zone de réaction de premier plan
+// — et c'est exactement le déséquilibre qui accompagne un vrai Order
+// Block.
+//
+// Comme toutes les autres zones : s'arrête au prix et le suit, jamais
+// d'extension infinie. Se réduit au fur et à mesure qu'elle est
+// comblée, et disparaît une fois entièrement remplie.
+//=====================================================================
+gFv = "10. Imbalances (FVG)"
+showFvg = input.bool(true, "Afficher les imbalances (FVG)", group=gFv,
+     tooltip="Vide de prix sur 3 bougies : le haut de la bougie 1 n'a jamais rencontré le bas de la bougie 3. Le prix revient presque toujours le combler.")
+fvgCount = input.int(4, "Nombre d'imbalances par côté", minval=1, maxval=15, group=gFv)
+fvgBullCol = input.color(color.new(#26a69a, 82), "Couleur imbalance haussière", group=gFv)
+fvgBearCol = input.color(color.new(#ef5350, 82), "Couleur imbalance baissière", group=gFv)
+fvgShrink = input.bool(true, "Réduire l'imbalance au fur et à mesure qu'elle se comble", group=gFv,
+     tooltip="Coché : la zone rétrécit à mesure que le prix la remplit, et disparaît une fois entièrement comblée. Décoché : elle garde sa taille d'origine jusqu'à comblement complet.")
+fvgMinSize = input.float(0.15, "Taille minimale (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gFv,
+     tooltip="Ignore les micro-gaps sans signification. Plus grand = seules les grosses imbalances sont retenues.")
 
 
 //=====================================================================
@@ -648,9 +683,9 @@ if showIntact
             int   barH = array.get(intactHighBars, idx)
             int   rankH = array.size(intactHighLevels) - idx
             string txtH = "Intact Sellers #" + str.tostring(rankH)
-            array.push(intactHighLines, line.new(barH, lvlH, bar_index + 8, lvlH,
+            array.push(intactHighLines, line.new(barH, lvlH, bar_index + zoneExt, lvlH,
                  color=intactSellCol, style=line.style_dashed, width=1))
-            array.push(intactHighLbls, label.new(bar_index + 8, lvlH, txtH,
+            array.push(intactHighLbls, label.new(bar_index + zoneExt, lvlH, txtH,
                  style=label.style_label_left, color=color.new(intactSellCol, 80),
                  textcolor=intactSellCol, size=size.small))
 
@@ -660,9 +695,9 @@ if showIntact
             int   barL = array.get(intactLowBars, idx)
             int   rankL = array.size(intactLowLevels) - idx
             string txtL = "Intact Buyers #" + str.tostring(rankL)
-            array.push(intactLowLines, line.new(barL, lvlL, bar_index + 8, lvlL,
+            array.push(intactLowLines, line.new(barL, lvlL, bar_index + zoneExt, lvlL,
                  color=intactBuyCol, style=line.style_dashed, width=1))
-            array.push(intactLowLbls, label.new(bar_index + 8, lvlL, txtL,
+            array.push(intactLowLbls, label.new(bar_index + zoneExt, lvlL, txtL,
                  style=label.style_label_left, color=color.new(intactBuyCol, 80),
                  textcolor=intactBuyCol, size=size.small))
 
@@ -749,14 +784,14 @@ if showLiquidityTarget and targetValid
     string targetTxt = "Cible liquidité " + str.tostring(targetLevel, format.mintick) +
          (na(targetProgressPct) ? "" : " (" + str.tostring(targetProgressPct, "#") + "% parcouru)")
     if na(targetLine)
-        targetLine := line.new(bar_index, targetLevel, bar_index + 16, targetLevel,
+        targetLine := line.new(bar_index, targetLevel, bar_index + zoneExt, targetLevel,
              color=targetCol, style=line.style_dashed, width=2)
-        targetLbl := label.new(bar_index + 16, targetLevel, targetTxt,
+        targetLbl := label.new(bar_index + zoneExt, targetLevel, targetTxt,
              style=label.style_label_left, color=color.new(targetCol, 80), textcolor=targetCol, size=size.small)
     else
         line.set_xy1(targetLine, bar_index, targetLevel)
-        line.set_xy2(targetLine, bar_index + 16, targetLevel)
-        label.set_xy(targetLbl, bar_index + 16, targetLevel)
+        line.set_xy2(targetLine, bar_index + zoneExt, targetLevel)
+        label.set_xy(targetLbl, bar_index + zoneExt, targetLevel)
         label.set_text(targetLbl, targetTxt)
 else
     if not na(targetLine)
@@ -872,7 +907,7 @@ if newIDM
 
     box sn = na
     if showSniperZone and dirAllowed
-        sn := box.new(idmCandidateBar, idmCandidate + atrSniper, bar_index + sniperZoneExt, idmCandidate - atrSniper,
+        sn := box.new(idmCandidateBar, idmCandidate + atrSniper, bar_index + zoneExt, idmCandidate - atrSniper,
              border_color=sniperCol,
              border_width=2,
              bgcolor=color.new(sniperCol, 85),
@@ -945,7 +980,7 @@ if nNow > 0
             label.set_xy(lbTop, bar_index + 1, array.get(idmLevel, topIdx))
         box szTop = array.get(sniperZoneA, topIdx)
         if not na(szTop)
-            box.set_right(szTop, bar_index + sniperZoneExt)
+            box.set_right(szTop, bar_index + zoneExt)
 
 if nNow > 1
     int secIdx = nNow - 2
@@ -958,7 +993,7 @@ if nNow > 1
             label.set_xy(lbSec, bar_index + 1, array.get(idmLevel, secIdx))
         box szSec = array.get(sniperZoneA, secIdx)
         if not na(szSec)
-            box.set_right(szSec, bar_index + sniperZoneExt)
+            box.set_right(szSec, bar_index + zoneExt)
 
 
 //=====================================================================
@@ -1024,7 +1059,7 @@ if array.size(idmLevel) > 0
                     float refineThick = atrSniper / 4
                     float refTop = lvl + refineThick
                     float refBot = lvl - refineThick
-                    array.push(sniperRefineBx, box.new(bar_index, refTop, bar_index + sniperZoneExt, refBot,
+                    array.push(sniperRefineBx, box.new(bar_index, refTop, bar_index + zoneExt, refBot,
                          border_color=refineCol, border_width=2,
                          bgcolor=color.new(refineCol, 70),
                          text="Sniper affinée", text_color=refineCol,
@@ -1304,28 +1339,33 @@ if barstate.islast
                      (array.get(obIdmA, i) ? " ★" : "") +
                      (array.get(obFvgA, i) ? " ⚡" : "")
 
+                // Bord droit = le prix actuel (+ marge de lisibilité).
+                // JAMAIS extend.right : la zone suit le prix, elle ne
+                // part pas à l'infini vers la droite.
+                int rightEdge = bar_index + zoneExt
+
                 if kOb
                     int bLoc = array.get(obBrkLocA, i)
                     // Partie encore valide (avant la cassure)
                     array.push(obDrawBox, box.new(lOb, tOb, bLoc, bOb,
                          border_color=solid, bgcolor=baseCol))
-                    // Partie Breaker (polarité inversée), prolongée
-                    array.push(obDrawBox, box.new(bLoc, tOb, bar_index + 1, bOb,
-                         border_color=na, bgcolor=brkCol, extend=extend.right))
-                    array.push(obDrawLn, line.new(bLoc, tOb, bar_index + 1, tOb,
-                         xloc=xloc.bar_index, extend=extend.right, color=brkSol, style=line.style_dashed))
-                    array.push(obDrawLn, line.new(bLoc, bOb, bar_index + 1, bOb,
-                         xloc=xloc.bar_index, extend=extend.right, color=brkSol, style=line.style_dashed))
-                    array.push(obDrawLbl, label.new(bar_index + 1, (tOb + bOb) / 2, tag,
+                    // Partie Breaker (polarité inversée), suit le prix
+                    array.push(obDrawBox, box.new(bLoc, tOb, rightEdge, bOb,
+                         border_color=na, bgcolor=brkCol))
+                    array.push(obDrawLn, line.new(bLoc, tOb, rightEdge, tOb,
+                         xloc=xloc.bar_index, color=brkSol, style=line.style_dashed))
+                    array.push(obDrawLn, line.new(bLoc, bOb, rightEdge, bOb,
+                         xloc=xloc.bar_index, color=brkSol, style=line.style_dashed))
+                    array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
                          style=label.style_label_left, color=brkCol, textcolor=brkSol, size=size.tiny))
                 else
-                    array.push(obDrawBox, box.new(lOb, tOb, bar_index + 1, bOb,
-                         border_color=na, bgcolor=baseCol, extend=extend.right))
-                    array.push(obDrawLn, line.new(lOb, tOb, bar_index + 1, tOb,
-                         xloc=xloc.bar_index, extend=extend.right, color=solid))
-                    array.push(obDrawLn, line.new(lOb, bOb, bar_index + 1, bOb,
-                         xloc=xloc.bar_index, extend=extend.right, color=solid))
-                    array.push(obDrawLbl, label.new(bar_index + 1, (tOb + bOb) / 2, tag,
+                    array.push(obDrawBox, box.new(lOb, tOb, rightEdge, bOb,
+                         border_color=na, bgcolor=baseCol))
+                    array.push(obDrawLn, line.new(lOb, tOb, rightEdge, tOb,
+                         xloc=xloc.bar_index, color=solid))
+                    array.push(obDrawLn, line.new(lOb, bOb, rightEdge, bOb,
+                         xloc=xloc.bar_index, color=solid))
+                    array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
                          style=label.style_label_left, color=baseCol, textcolor=solid, size=size.tiny))
 
 
@@ -1365,7 +1405,7 @@ if sdIsImpulse
         color  sdCol = sdDirNow == 1 ? sdDemandCol : sdSupplyCol
         string sdTxt = sdDirNow == 1 ? "DEMAND" : "SUPPLY"
 
-        box   sb = box.new(sdBaseStart, sdBaseTop, bar_index + sdExtend, sdBaseBot,
+        box   sb = box.new(sdBaseStart, sdBaseTop, bar_index + zoneExt, sdBaseBot,
              border_color=sdCol, border_width=1,
              bgcolor=color.new(sdCol, 88))
         label sl = label.new(sdBaseStart, sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
@@ -1431,7 +1471,7 @@ bool sdTouched = false
 if array.size(sdBox) > 0
     for i = 0 to array.size(sdBox) - 1
         box bx = array.get(sdBox, i)
-        box.set_right(bx, bar_index + sdExtend)
+        box.set_right(bx, bar_index + zoneExt)
         if not array.get(sdMit, i)
             if low <= array.get(sdTop, i) and high >= array.get(sdBot, i)
                 array.set(sdMit, i, true)
@@ -1442,10 +1482,114 @@ if array.size(sdBox) > 0
                 label.set_color(lbD, color.new(sdMitigatedCol, 85))
                 label.set_textcolor(lbD, sdMitigatedCol)
 
-// État courant : le prix est-il DANS un OB / Breaker ou une zone S/D ?
-// Sert au dashboard pour la confirmation d'entrée. L'Order Block est
-// prioritaire (niveau chirurgical) ; la zone Supply/Demand ne sert de
-// repli que si le prix n'est dans aucun OB.
+
+//=====================================================================
+// IMBALANCES / FAIR VALUE GAP (module 10)
+//
+// Vide de prix sur 3 bougies : le marché est monté (ou descendu) trop
+// vite pour qu'un échange équitable ait lieu sur cette plage.
+//   Haussière : le bas de la bougie actuelle est AU-DESSUS du haut de
+//               la bougie d'il y a 2 périodes -> zone [high[2], low].
+//   Baissière : le haut de la bougie actuelle est SOUS le bas de la
+//               bougie d'il y a 2 périodes -> zone [high, low[2]].
+//
+// Indices d'historique CONSTANTS ([2]) uniquement — aucun risque de
+// buffer. Comme toutes les zones : le bord droit suit le prix, jamais
+// d'extension infinie. La zone se réduit à mesure qu'elle est comblée
+// et disparaît une fois entièrement remplie.
+//=====================================================================
+var box[]   fvgBox = array.new_box()
+var float[] fvgTop = array.new_float()
+var float[] fvgBot = array.new_float()
+var int[]   fvgDir = array.new_int()
+
+bool fvgUpNew   = showFvg and inLookback and bar_index >= 2 and low > high[2]
+bool fvgDownNew = showFvg and inLookback and bar_index >= 2 and high < low[2]
+float fvgMinPx  = atrReady ? atrFast * fvgMinSize : 0.0
+
+if fvgUpNew and (low - high[2]) >= fvgMinPx
+    array.push(fvgBox, box.new(bar_index - 2, low, bar_index + zoneExt, high[2],
+         border_color=na, bgcolor=fvgBullCol))
+    array.push(fvgTop, low)
+    array.push(fvgBot, high[2])
+    array.push(fvgDir, 1)
+
+if fvgDownNew and (low[2] - high) >= fvgMinPx
+    array.push(fvgBox, box.new(bar_index - 2, low[2], bar_index + zoneExt, high,
+         border_color=na, bgcolor=fvgBearCol))
+    array.push(fvgTop, low[2])
+    array.push(fvgBot, high)
+    array.push(fvgDir, -1)
+
+// Comblement : la zone rétrécit, puis disparaît quand elle est remplie.
+bool fvgFilledNow = false
+
+if array.size(fvgBox) > 0
+    for i = array.size(fvgBox) - 1 to 0
+        float fT = array.get(fvgTop, i)
+        float fB = array.get(fvgBot, i)
+        int   fD = array.get(fvgDir, i)
+        bool  gone = false
+
+        if fD == 1
+            // Comblée par le bas : le prix remonte dans le vide.
+            if low <= fB
+                gone := true
+            else if fvgShrink and low < fT
+                fT := low
+                array.set(fvgTop, i, fT)
+                fvgFilledNow := true
+        else
+            if high >= fT
+                gone := true
+            else if fvgShrink and high > fB
+                fB := high
+                array.set(fvgBot, i, fB)
+                fvgFilledNow := true
+
+        if gone
+            box.delete(array.get(fvgBox, i))
+            array.remove(fvgBox, i)
+            array.remove(fvgTop, i)
+            array.remove(fvgBot, i)
+            array.remove(fvgDir, i)
+        else
+            box bxF = array.get(fvgBox, i)
+            box.set_top(bxF, fT)
+            box.set_bottom(bxF, fB)
+            box.set_right(bxF, bar_index + zoneExt)
+
+// Purge : au plus fvgCount imbalances par côté, les plus récentes.
+if array.size(fvgBox) > 0
+    int keepUp = 0
+    int keepDn = 0
+    for i = array.size(fvgBox) - 1 to 0
+        bool keepF = true
+        if array.get(fvgDir, i) == 1
+            keepUp := keepUp + 1
+            keepF := keepUp <= fvgCount
+        else
+            keepDn := keepDn + 1
+            keepF := keepDn <= fvgCount
+        if not keepF
+            box.delete(array.get(fvgBox, i))
+            array.remove(fvgBox, i)
+            array.remove(fvgTop, i)
+            array.remove(fvgBot, i)
+            array.remove(fvgDir, i)
+
+// Le prix est-il dans une imbalance en ce moment ?
+int fvgZoneDir = 0
+if array.size(fvgBox) > 0
+    for i = array.size(fvgBox) - 1 to 0
+        if fvgZoneDir == 0 and close <= array.get(fvgTop, i) and close >= array.get(fvgBot, i)
+            fvgZoneDir := array.get(fvgDir, i)
+
+
+// État courant : le prix est-il DANS un OB / Breaker, une zone S/D ou
+// une imbalance ? Sert au dashboard pour la confirmation d'entrée.
+// Priorité : Order Block (niveau chirurgical) > Supply/Demand (zone
+// large) > imbalance (vide de prix à combler).
 int    zoneNowDir = obZoneDir
 string zoneNowTxt = obZoneTxt
 
@@ -1454,6 +1598,15 @@ if zoneNowDir == 0 and array.size(sdBox) > 0
         if zoneNowDir == 0 and close <= array.get(sdTop, i) and close >= array.get(sdBot, i)
             zoneNowDir := array.get(sdDir, i)
             zoneNowTxt := (array.get(sdDir, i) == 1 ? "Dans zone DEMAND" : "Dans zone SUPPLY") + (array.get(sdMit, i) ? " (mitigée)" : "")
+
+if zoneNowDir == 0 and fvgZoneDir != 0
+    zoneNowDir := fvgZoneDir
+    zoneNowTxt := fvgZoneDir == 1 ? "Dans imbalance haussière" : "Dans imbalance baissière"
+
+// Une imbalance QUI COÏNCIDE avec un OB est la meilleure configuration
+// SMC : on le signale explicitement.
+if obZoneDir != 0 and fvgZoneDir != 0
+    zoneNowTxt := obZoneTxt + " + imbalance"
 
 
 //=====================================================================
@@ -1695,4 +1848,5 @@ alertcondition(utJustFormed, "Phase — UT détecté", "SMV : UT détecté en di
 alertcondition(utadJustFormed, "Phase — UTAD détecté", "SMV : UTAD détecté en distribution")
 alertcondition(obTouchedNow, "OB touché", "SMV : le prix est dans un Order Block encore valide — observe la réaction")
 alertcondition(obJustBroke, "OB cassé → Breaker Block", "SMV : un Order Block vient d'être cassé, il devient un Breaker Block (polarité inversée)")
+alertcondition(fvgFilledNow, "Imbalance en cours de comblement", "SMV : le prix est en train de combler une imbalance (FVG)")
 alertcondition(sdTouched, "Zone Supply/Demand touchée", "SMV : le prix vient d'entrer dans une zone Supply/Demand — observe la réaction")
