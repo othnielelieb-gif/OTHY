@@ -1,5 +1,11 @@
 //@version=6
-indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+// max_bars_back : OBLIGATOIRE ici. Les modules Order Block et
+// Supply/Demand lisent l'historique avec un index VARIABLE (high[k],
+// low[k], close[k] dans une boucle de recherche). Dans ce cas Pine ne
+// sait pas déduire tout seul la taille du buffer d'historique et lève
+// une erreur d'exécution qui arrête TOUT le script (plus rien ne
+// s'affiche, pas même la structure). On la fixe explicitement.
+indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=500)
 
 //=====================================================================
 // MOTEUR DE CALCUL vs AFFICHAGE
@@ -640,7 +646,8 @@ bool  hasFvg   = false
 
 if showOB and structJustBroke and inLookback
     for k = 0 to 20
-        if obOffset == -1
+        // k <= bar_index : ne jamais lire au-delà des bougies existantes
+        if obOffset == -1 and k <= bar_index
             bool oppositeCandle = breakWasBull ? (close[k] < open[k]) : (close[k] > open[k])
             if oppositeCandle
                 obOffset := k
@@ -755,7 +762,8 @@ if sdIsImpulse
     bool  stopScan = false
 
     for k = 1 to sdMaxBase
-        if not stopScan
+        // k <= bar_index : ne jamais lire au-delà des bougies existantes
+        if not stopScan and k <= bar_index
             if math.abs(close[k] - open[k]) < atrFast * 0.8
                 baseTop := na(baseTop) ? high[k] : math.max(baseTop, high[k])
                 baseBot := na(baseBot) ? low[k]  : math.min(baseBot, low[k])
