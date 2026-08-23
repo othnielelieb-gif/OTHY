@@ -249,6 +249,51 @@ showLiquidityTarget = input.bool(true, "Afficher la cible de liquidité + distan
      tooltip="Acheteur (H1) -> cible = Intact Seller (High non balayé au-dessus). Vendeur (H1) -> cible = Intact Buyer (Low non balayé en dessous). Affiche aussi le % du chemin déjà parcouru depuis l'origine du mouvement.")
 targetCol = input.color(#ba68c8, "Couleur cible de liquidité", group=gLC)
 
+//=====================================================================
+// 8. Order Blocks (OB) — la trace chirurgicale du Smart Money.
+// Définition STRICTE : la dernière bougie de couleur OPPOSÉE juste
+// avant le mouvement impulsif qui CASSE la structure (BOS ou BMS). Pas
+// de cassure = pas d'Order Block. Très étroit (une seule bougie), à
+// l'inverse de la zone Supply/Demand large (module 9).
+// Un OB s'accompagne presque toujours d'un déséquilibre (FVG) : détecté
+// et signalé par une pastille, sans être obligatoire.
+// Calculé UNIQUEMENT sur le timeframe du graphique courant — bascule de
+// TF pour voir les OB de cette TF-là.
+//=====================================================================
+gOB = "8. Order Blocks (OB)"
+showOB = input.bool(true, "Afficher les Order Blocks", group=gOB,
+     tooltip="Dernière bougie de couleur opposée avant l'impulsion qui casse la structure (BOS/BMS). Zone étroite et chirurgicale — le niveau précis laissé par les institutionnels. Calculé sur le timeframe courant uniquement.")
+obCount = input.int(5, "Nombre d'OB conservés par côté", minval=1, maxval=20, group=gOB,
+     tooltip="Les X derniers Order Blocks haussiers ET les X derniers baissiers, simultanément.")
+obBullCol = input.color(#2962ff, "Couleur OB haussier (Bullish OB)", group=gOB)
+obBearCol = input.color(#f23645, "Couleur OB baissier (Bearish OB)", group=gOB)
+obMitigatedCol = input.color(#78909c, "Couleur OB mitigé (prix revenu dedans)", group=gOB,
+     tooltip="Dès que le prix revient toucher l'OB, il change de couleur mais RESTE affiché — pour que tu observes la réaction du prix dessus.")
+obExtend = input.int(30, "Prolongation des OB (bougies)", minval=5, maxval=200, group=gOB)
+obShowFvg = input.bool(true, "Signaler le déséquilibre (FVG) sur l'OB", group=gOB,
+     tooltip="Ajoute une pastille ⚡ sur l'étiquette quand l'impulsion qui suit l'OB laisse un vrai Fair Value Gap — c'est le signe d'un OB de qualité institutionnelle.")
+
+//=====================================================================
+// 9. Zones Supply / Demand — la version LARGE : toute la base de
+// consolidation avant le départ impulsif, pas seulement la bougie
+// finale. Sert à voir la zone globale de réaction, là où l'OB (module
+// 8) donne le niveau chirurgical à l'intérieur.
+// Contrairement à l'OB, une zone S/D n'exige PAS de cassure de
+// structure — elle se forme sur toute base suivie d'une impulsion.
+//=====================================================================
+gSD = "9. Zones Supply / Demand"
+showSD = input.bool(true, "Afficher les zones Supply / Demand", group=gSD,
+     tooltip="Zone LARGE : toute la base de consolidation (plusieurs bougies) avant le mouvement impulsif. L'Order Block du module 8 est le détail précis à l'intérieur de cette zone.")
+sdCount = input.int(3, "Nombre de zones conservées par côté", minval=1, maxval=10, group=gSD)
+sdImpulseMult = input.float(1.5, "Force minimale de l'impulsion (x ATR)", minval=0.5, maxval=5.0, step=0.1, group=gSD,
+     tooltip="Une base ne devient une zone Supply/Demand que si le mouvement qui en part dépasse cette taille (en multiples d'ATR). Plus grand = moins de zones, mais plus significatives.")
+sdMaxBase = input.int(6, "Largeur max de la base (bougies)", minval=2, maxval=20, group=gSD,
+     tooltip="Nombre maximum de bougies de consolidation regroupées dans une même zone avant l'impulsion.")
+sdDemandCol = input.color(#00897b, "Couleur zone Demand (achat)", group=gSD)
+sdSupplyCol = input.color(#d81b60, "Couleur zone Supply (vente)", group=gSD)
+sdMitigatedCol = input.color(#90a4ae, "Couleur zone mitigée", group=gSD)
+sdExtend = input.int(30, "Prolongation des zones (bougies)", minval=5, maxval=200, group=gSD)
+
 
 //=====================================================================
 // FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
@@ -551,6 +596,254 @@ if showCurrentStruct
 // même bloc que les lignes BOS/BMS (line.new), ce que request.security
 // refuse ou exécute mal — d'où le dashboard qui ne s'affichait plus.
 int h1Bias = request.security(syminfo.tickerid, "60", f_h1Bias(), lookahead=barmerge.lookahead_off)
+
+
+//=====================================================================
+// ORDER BLOCKS (module 8) — définition SMC STRICTE.
+//
+// Un OB n'existe QUE si une cassure de structure (BOS ou BMS) vient de
+// se produire : c'est la dernière bougie de couleur OPPOSÉE juste avant
+// l'impulsion qui a cassé. Pas de cassure = pas d'OB.
+//   Cassure HAUSSIÈRE -> on cherche en arrière la dernière bougie
+//                        BAISSIÈRE (close < open) = Bullish OB.
+//   Cassure BAISSIÈRE -> dernière bougie HAUSSIÈRE = Bearish OB.
+//
+// Zone = le corps complet de CETTE bougie (high/low), donc très étroite
+// — c'est la différence avec la zone Supply/Demand large du module 9.
+//
+// Mitigation : dès que le prix revient toucher l'OB, il change de
+// couleur mais RESTE affiché, pour observer la réaction du prix dessus.
+//=====================================================================
+var box[]   obBullBox = array.new_box()
+var label[] obBullLbl = array.new_label()
+var float[] obBullTop = array.new_float()
+var float[] obBullBot = array.new_float()
+var bool[]  obBullMit = array.new_bool()
+
+var box[]   obBearBox = array.new_box()
+var label[] obBearLbl = array.new_label()
+var float[] obBearTop = array.new_float()
+var float[] obBearBot = array.new_float()
+var bool[]  obBearMit = array.new_bool()
+
+bool structJustBroke = isStructHighBroken or isStructLowBroken
+bool breakWasBull    = isStructHighBroken
+
+// Recherche de la bougie OB : la plus récente de couleur opposée à
+// l'impulsion, dans les 20 dernières bougies.
+// Valeurs capturées DANS la boucle (jamais high[obOffset] avec un index
+// variable ensuite) : évite tout souci de buffer d'historique Pine.
+int   obOffset = -1
+float obT      = na
+float obB      = na
+bool  hasFvg   = false
+
+if showOB and structJustBroke and inLookback
+    for k = 0 to 20
+        if obOffset == -1
+            bool oppositeCandle = breakWasBull ? (close[k] < open[k]) : (close[k] > open[k])
+            if oppositeCandle
+                obOffset := k
+                obT := high[k]
+                obB := low[k]
+                // Déséquilibre (FVG) : l'impulsion qui suit l'OB
+                // laisse-t-elle un vrai vide de prix ? Signe d'un OB de
+                // qualité institutionnelle.
+                if obShowFvg and k >= 2
+                    hasFvg := breakWasBull ? (low[k - 2] > high[k]) : (high[k - 2] < low[k])
+
+if obOffset != -1 and not na(obT) and not na(obB)
+    int obBarIdx = bar_index - obOffset
+
+    string obTxt = (breakWasBull ? "OB ⬆" : "OB ⬇") + (hasFvg ? " ⚡FVG" : "")
+    color  obCol = breakWasBull ? obBullCol : obBearCol
+
+    box   nb = box.new(obBarIdx, obT, bar_index + obExtend, obB,
+         border_color=obCol, border_width=2,
+         bgcolor=color.new(obCol, 80))
+    label nl = label.new(bar_index + obExtend, (obT + obB) / 2, obTxt,
+         style=label.style_label_left, color=color.new(obCol, 80),
+         textcolor=obCol, size=size.tiny)
+
+    if breakWasBull
+        array.push(obBullBox, nb)
+        array.push(obBullLbl, nl)
+        array.push(obBullTop, obT)
+        array.push(obBullBot, obB)
+        array.push(obBullMit, false)
+        if array.size(obBullBox) > obCount
+            box.delete(array.shift(obBullBox))
+            label.delete(array.shift(obBullLbl))
+            array.shift(obBullTop)
+            array.shift(obBullBot)
+            array.shift(obBullMit)
+    else
+        array.push(obBearBox, nb)
+        array.push(obBearLbl, nl)
+        array.push(obBearTop, obT)
+        array.push(obBearBot, obB)
+        array.push(obBearMit, false)
+        if array.size(obBearBox) > obCount
+            box.delete(array.shift(obBearBox))
+            label.delete(array.shift(obBearLbl))
+            array.shift(obBearTop)
+            array.shift(obBearBot)
+            array.shift(obBearMit)
+
+// Prolongation + détection de mitigation (le prix revient dedans).
+bool obBullTouched = false
+bool obBearTouched = false
+
+if array.size(obBullBox) > 0
+    for i = 0 to array.size(obBullBox) - 1
+        box bx = array.get(obBullBox, i)
+        box.set_right(bx, bar_index + obExtend)
+        label.set_x(array.get(obBullLbl, i), bar_index + obExtend)
+        if not array.get(obBullMit, i)
+            if low <= array.get(obBullTop, i) and high >= array.get(obBullBot, i)
+                array.set(obBullMit, i, true)
+                obBullTouched := true
+                box.set_border_color(bx, obMitigatedCol)
+                box.set_bgcolor(bx, color.new(obMitigatedCol, 88))
+                label lb = array.get(obBullLbl, i)
+                label.set_color(lb, color.new(obMitigatedCol, 80))
+                label.set_textcolor(lb, obMitigatedCol)
+
+if array.size(obBearBox) > 0
+    for i = 0 to array.size(obBearBox) - 1
+        box bx = array.get(obBearBox, i)
+        box.set_right(bx, bar_index + obExtend)
+        label.set_x(array.get(obBearLbl, i), bar_index + obExtend)
+        if not array.get(obBearMit, i)
+            if high >= array.get(obBearBot, i) and low <= array.get(obBearTop, i)
+                array.set(obBearMit, i, true)
+                obBearTouched := true
+                box.set_border_color(bx, obMitigatedCol)
+                box.set_bgcolor(bx, color.new(obMitigatedCol, 88))
+                label lb = array.get(obBearLbl, i)
+                label.set_color(lb, color.new(obMitigatedCol, 80))
+                label.set_textcolor(lb, obMitigatedCol)
+
+
+//=====================================================================
+// ZONES SUPPLY / DEMAND (module 9) — la version LARGE.
+//
+// Contrairement à l'OB (module 8), aucune cassure de structure n'est
+// exigée : une simple base de consolidation suivie d'une impulsion
+// forte suffit. La zone englobe TOUTE la base (plusieurs bougies), là
+// où l'OB ne retient que la dernière bougie opposée.
+//
+// Impulsion = corps de bougie > sdImpulseMult x ATR.
+// Base = les bougies de faible amplitude juste avant (max sdMaxBase).
+//=====================================================================
+var box[]   sdBox = array.new_box()
+var label[] sdLbl = array.new_label()
+var float[] sdTop = array.new_float()
+var float[] sdBot = array.new_float()
+var int[]   sdDir = array.new_int()
+var bool[]  sdMit = array.new_bool()
+
+float sdBody   = math.abs(close - open)
+bool  sdIsImpulse = showSD and inLookback and not na(atrFast) and atrFast > 0 and sdBody > atrFast * sdImpulseMult
+int   sdDirNow = close > open ? 1 : -1
+
+if sdIsImpulse
+    // Remonte la base : bougies de faible corps juste avant l'impulsion.
+    float baseTop = na
+    float baseBot = na
+    int   baseBars = 0
+    bool  stopScan = false
+
+    for k = 1 to sdMaxBase
+        if not stopScan
+            if math.abs(close[k] - open[k]) < atrFast * 0.8
+                baseTop := na(baseTop) ? high[k] : math.max(baseTop, high[k])
+                baseBot := na(baseBot) ? low[k]  : math.min(baseBot, low[k])
+                baseBars += 1
+            else
+                stopScan := true
+
+    if baseBars > 0 and not na(baseTop) and not na(baseBot)
+        color  sdCol = sdDirNow == 1 ? sdDemandCol : sdSupplyCol
+        string sdTxt = sdDirNow == 1 ? "DEMAND" : "SUPPLY"
+        int    sdLeft = bar_index - baseBars
+
+        box   sb = box.new(sdLeft, baseTop, bar_index + sdExtend, baseBot,
+             border_color=sdCol, border_width=1,
+             bgcolor=color.new(sdCol, 88))
+        label sl = label.new(sdLeft, sdDirNow == 1 ? baseBot : baseTop, sdTxt,
+             style=sdDirNow == 1 ? label.style_label_up : label.style_label_down,
+             color=color.new(sdCol, 82), textcolor=sdCol, size=size.tiny)
+
+        array.push(sdBox, sb)
+        array.push(sdLbl, sl)
+        array.push(sdTop, baseTop)
+        array.push(sdBot, baseBot)
+        array.push(sdDir, sdDirNow)
+        array.push(sdMit, false)
+
+// Purge : garde au plus sdCount zones par côté (Demand et Supply
+// comptées séparément), les plus récentes.
+if array.size(sdBox) > 0
+    int keepDemand = 0
+    int keepSupply = 0
+    for i = array.size(sdBox) - 1 to 0
+        bool keepIt = true
+        if array.get(sdDir, i) == 1
+            keepDemand += 1
+            keepIt := keepDemand <= sdCount
+        else
+            keepSupply += 1
+            keepIt := keepSupply <= sdCount
+        if not keepIt
+            box.delete(array.get(sdBox, i))
+            label.delete(array.get(sdLbl, i))
+            array.remove(sdBox, i)
+            array.remove(sdLbl, i)
+            array.remove(sdTop, i)
+            array.remove(sdBot, i)
+            array.remove(sdDir, i)
+            array.remove(sdMit, i)
+
+// Prolongation + mitigation des zones Supply/Demand.
+bool sdTouched = false
+
+if array.size(sdBox) > 0
+    for i = 0 to array.size(sdBox) - 1
+        box bx = array.get(sdBox, i)
+        box.set_right(bx, bar_index + sdExtend)
+        if not array.get(sdMit, i)
+            if low <= array.get(sdTop, i) and high >= array.get(sdBot, i)
+                array.set(sdMit, i, true)
+                sdTouched := true
+                box.set_border_color(bx, sdMitigatedCol)
+                box.set_bgcolor(bx, color.new(sdMitigatedCol, 92))
+                label lb = array.get(sdLbl, i)
+                label.set_color(lb, color.new(sdMitigatedCol, 85))
+                label.set_textcolor(lb, sdMitigatedCol)
+
+// État courant : le prix est-il DANS un OB ou une zone S/D en ce moment ?
+// Sert au dashboard pour la confirmation d'entrée.
+int zoneNowDir = 0
+string zoneNowTxt = "-"
+
+if array.size(obBullBox) > 0
+    for i = array.size(obBullBox) - 1 to 0
+        if zoneNowDir == 0 and close <= array.get(obBullTop, i) and close >= array.get(obBullBot, i)
+            zoneNowDir := 1
+            zoneNowTxt := array.get(obBullMit, i) ? "Dans OB haussier (mitigé)" : "Dans OB haussier ✓"
+
+if array.size(obBearBox) > 0
+    for i = array.size(obBearBox) - 1 to 0
+        if zoneNowDir == 0 and close <= array.get(obBearTop, i) and close >= array.get(obBearBot, i)
+            zoneNowDir := -1
+            zoneNowTxt := array.get(obBearMit, i) ? "Dans OB baissier (mitigé)" : "Dans OB baissier ✓"
+
+if zoneNowDir == 0 and array.size(sdBox) > 0
+    for i = array.size(sdBox) - 1 to 0
+        if zoneNowDir == 0 and close <= array.get(sdTop, i) and close >= array.get(sdBot, i)
+            zoneNowDir := array.get(sdDir, i)
+            zoneNowTxt := (zoneNowDir == 1 ? "Dans zone DEMAND" : "Dans zone SUPPLY") + (array.get(sdMit, i) ? " (mitigée)" : "")
 
 
 //=====================================================================
@@ -1033,7 +1326,7 @@ if array.size(idmLevel) > maxHistory
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si tous
 // les autres modules d'affichage sont désactivés
 //=====================================================================
-var table dash = table.new(position.top_right, 2, 6,
+var table dash = table.new(position.top_right, 2, 7,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showDash and barstate.islast
@@ -1106,8 +1399,14 @@ if showDash and barstate.islast
     table.cell(dash, 0, 4, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 4, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 5, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 5, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
+    // Confirmation par la zone : le prix est-il actuellement DANS un
+    // Order Block ou une zone Supply/Demand de ce timeframe ?
+    color zoneNowCol = zoneNowDir == 1 ? entryBuyCol : zoneNowDir == -1 ? entrySellCol : rangeCol
+    table.cell(dash, 0, 5, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 5, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 6, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 6, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
@@ -1260,3 +1559,6 @@ alertcondition(stbJustFormed, "Phase — STB détecté", "SMV : STB détecté en
 alertcondition(springJustFormed, "Phase — SPRING détecté", "SMV : SPRING détecté en accumulation")
 alertcondition(utJustFormed, "Phase — UT détecté", "SMV : UT détecté en distribution")
 alertcondition(utadJustFormed, "Phase — UTAD détecté", "SMV : UTAD détecté en distribution")
+alertcondition(obBullTouched, "OB haussier touché", "SMV : le prix vient de revenir dans un Order Block HAUSSIER — observe la réaction")
+alertcondition(obBearTouched, "OB baissier touché", "SMV : le prix vient de revenir dans un Order Block BAISSIER — observe la réaction")
+alertcondition(sdTouched, "Zone Supply/Demand touchée", "SMV : le prix vient d'entrer dans une zone Supply/Demand — observe la réaction")
