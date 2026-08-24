@@ -56,8 +56,6 @@ indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overla
 gZ = "0. Affichage des zones"
 zoneExt = input.int(3, "Marge au-delà du prix (bougies)", minval=0, maxval=30, group=gZ,
      tooltip="Toutes les zones s'arrêtent au prix actuel et le suivent. Cette valeur n'ajoute qu'une petite marge à droite pour la lisibilité des étiquettes. 0 = la zone colle exactement à la bougie en cours.")
-zoneHistBars = input.int(500, "Historique des zones OB / Supply-Demand / imbalances (bougies)", minval=50, maxval=5000, group=gZ,
-     tooltip="Sur combien de bougies en arrière l'indicateur cherche les Order Blocks, les zones Supply/Demand et les imbalances. En bougies, PAS en heures : la recherche ne s'arrête donc jamais le week-end ni marché fermé, contrairement aux IDM qui utilisent la fenêtre d'analyse. Baisse cette valeur si le graphique est trop chargé — les zones se limitent de toute façon d'elles-mêmes au nombre demandé dans chaque module.")
 
 //=====================================================================
 // 1. Structure
@@ -397,21 +395,26 @@ f_lookbackMs() =>
 
 bool inLookback = time >= (timenow - f_lookbackMs())
 
-// FENÊTRE DES ZONES — comptée en BOUGIES, pas en heures.
+// Les Order Blocks, zones Supply/Demand et imbalances n'ont PAS besoin
+// d'une fenêtre de récupération : ils ne naissent que sur une vraie
+// cassure de structure (isStructHighBroken / isStructLowBroken), qui
+// elle-même se déclenche uniquement sur l'action du prix, sans aucune
+// dépendance au temps réel ni à bar_index. Chaque module a déjà sa
+// propre limite (40 OB, N zones Supply/Demand par côté, N imbalances
+// par côté) : aucune fenêtre externe n'est nécessaire.
 //
-// Pourquoi séparée de inLookback : inLookback se base sur `timenow`
-// (l'heure réelle). En M5/M15 la fenêtre ne fait que 12 heures, et elle
-// est figée au moment où le script se charge — Pine ne recalcule jamais
-// les bougies passées ensuite. Résultat : quand tu arrivais sur un
-// graphique le week-end, un lundi matin, ou après avoir laissé l'onglet
-// ouvert, les 12 dernières heures ne contenaient plus assez de bougies
-// et AUCUN Order Block / Supply-Demand / imbalance ne pouvait naître.
-// Les IDM, eux, continuaient de s'afficher — d'où l'impression que ces
-// zones-là "ne s'actualisent pas comme les IDM".
-//
-// En bougies, c'est déterministe : la fenêtre glisse toute seule, elle
-// ne dépend ni de l'heure, ni du jour, ni du moment du chargement.
-bool zoneInRange = bar_index > last_bar_index - zoneHistBars
+// Une version précédente gatait leur création par `inLookback` (basé
+// sur `timenow`, l'heure réelle serveur) : en arrivant tard sur un
+// graphique, ou le week-end, la fenêtre glissante ne couvrait plus les
+// bougies récentes et rien ne pouvait naître. Un correctif suivant a
+// tenté un filtre par `last_bar_index` (en bougies) — mais en mode
+// Replay, `last_bar_index` reste bloqué sur la VRAIE dernière bougie du
+// graphique (aujourd'hui), pas sur le curseur du replay : dès qu'on
+// rejoue une période un peu ancienne, l'écart dépasse la fenêtre et plus
+// aucune zone ne se dessine, alors que les IDM (gérés via
+// `barstate.islast`, qui lui suit correctement le replay) continuent de
+// s'afficher normalement. D'où l'incohérence observée. La suppression
+// pure et simple de toute fenêtre externe règle les deux cas à la fois.
 
 
 //=====================================================================
@@ -1328,7 +1331,7 @@ bool obBreakBull   = obStructBroke and not isStructLowBroken
 int obOriginBar = obBreakBull ? brokenHighBar : brokenLowBar
 int obScanLen   = obStructBroke and not na(obOriginBar) ? math.min(math.max(bar_index - obOriginBar, 1), 50) : 0
 
-if showOB and obStructBroke and zoneInRange and obScanLen > 0
+if showOB and obStructBroke and obScanLen > 0
     float minima = obMin[1]
     float maxima = obMax[1]
     int   locOff = 1
@@ -1547,7 +1550,7 @@ var int   sdBaseStart = na
 
 float sdBody      = math.abs(close - open)
 bool  atrReady    = not na(atrFast) and atrFast > 0
-bool  sdIsImpulse = showSD and zoneInRange and atrReady and sdBody > atrFast * sdImpulseMult
+bool  sdIsImpulse = showSD and atrReady and sdBody > atrFast * sdImpulseMult
 bool  sdIsSmall   = atrReady and sdBody < atrFast * 0.8
 int   sdDirNow    = close > open ? 1 : -1
 
@@ -1655,8 +1658,8 @@ var float[] fvgTop = array.new_float()
 var float[] fvgBot = array.new_float()
 var int[]   fvgDir = array.new_int()
 
-bool fvgUpNew   = showFvg and zoneInRange and bar_index >= 2 and low > high[2]
-bool fvgDownNew = showFvg and zoneInRange and bar_index >= 2 and high < low[2]
+bool fvgUpNew   = showFvg and bar_index >= 2 and low > high[2]
+bool fvgDownNew = showFvg and bar_index >= 2 and high < low[2]
 float fvgMinPx  = atrReady ? atrFast * fvgMinSize : 0.0
 
 if fvgUpNew and (low - high[2]) >= fvgMinPx
