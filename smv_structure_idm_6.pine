@@ -376,20 +376,25 @@ stopAtrMult = input.float(1.2, "Distance du stop en ATR (si stop structurel déc
 rMul1 = input.float(1.0, "TP1 (en R)", minval=0.2, maxval=10.0, step=0.1, group=gTP)
 rMul2 = input.float(2.0, "TP2 (en R)", minval=0.2, maxval=20.0, step=0.1, group=gTP)
 rMul3 = input.float(3.0, "TP3 (en R)", minval=0.2, maxval=30.0, step=0.1, group=gTP)
-tpModeTarget = input.bool(true, "Caler le TP3 sur la Liquidité Cible", group=gTP,
-     tooltip="COCHÉ (recommandé) : ton indicateur sait déjà où le prix veut aller — le dernier objectif se pose dessus au lieu d'un 3R arbitraire. Si la cible est derrière le prix ou plus proche que le TP2, le 3R reprend automatiquement la main.")
+tpModeTarget = input.bool(false, "Caler le TP3 sur la Liquidité Cible", group=gTP,
+     tooltip="DÉCOCHÉ (par défaut) : le TP3 est un objectif normal en R, exactement comme le TP1 et le TP2. COCHÉ : il vise la Liquidité Cible à la place. À n'activer que si tu veux volontairement viser l'Intact.")
+tradeFilter8020 = input.bool(true, "Respecter la structure (règle 80/20)", group=gTP,
+     tooltip="COCHÉ (recommandé) : en structure HAUSSIÈRE, seuls les signaux d'ACHAT ouvrent un trade ; en structure BAISSIÈRE, seuls les signaux de VENTE. Jamais l'inverse. La structure ne bascule que sur un vrai BOS (retournement) — c'est le BOS qui donne l'autorisation de changer de sens. Les signaux à contre-sens sont ignorés et ne polluent pas le scoreboard.")
 maxOpenTr = input.int(1, "Trades simultanés maximum", minval=1, maxval=5, group=gTP,
      tooltip="À 1, un nouveau signal est ignoré tant que le trade en cours n'est pas terminé — c'est ce qui donne un scoreboard lisible. Au-delà, les trades se superposent sur le graphique.")
 maxBarsTr = input.int(60, "Abandonner après N bougies", minval=5, maxval=500, group=gTP,
      tooltip="Un trade qui n'a touché ni son stop ni son TP3 au bout de N bougies est classé « expiré ». Il ne compte ni en gain ni en perte.")
-keepTr = input.int(5, "Garder les N derniers trades à l'écran", minval=1, maxval=30, group=gTP)
-tpZoneShow = input.bool(true, "Afficher les zones risque / gain", group=gTP,
-     tooltip="Décoche pour ne garder que les lignes de stop et d'objectifs, sans les rectangles colorés. Beaucoup plus léger visuellement.")
-tpCol = input.color(#00e39a, "Couleur des objectifs", group=gTP)
-slCol = input.color(#ff3b6b, "Couleur du stop", group=gTP)
+keepTr = input.int(3, "Garder les N derniers trades à l'écran", minval=1, maxval=30, group=gTP,
+     tooltip="Volontairement bas pour ne pas encombrer. Monte-le si tu veux revoir plus d'historique de trades.")
+tpZoneShow = input.bool(false, "Afficher les zones risque / gain", group=gTP,
+     tooltip="DÉCOCHÉ (par défaut) : seulement des traits fins, aucun rectangle coloré. C'est le réglage le plus lisible. COCHÉ : ajoute les rectangles pleins autour du risque et du gain.")
+tradeShowLbl = input.bool(false, "Afficher les étiquettes des trades", group=gTP,
+     tooltip="DÉCOCHÉ (par défaut) : aucun texte sur le graphique. Le prix du stop et des objectifs se lit directement sur l'échelle à droite. COCHÉ : ajoute l'étiquette d'entrée et le résultat (stop / TP3 / expiré).")
+tpCol = input.color(#26a69a, "Couleur des objectifs", group=gTP)
+slCol = input.color(#ef5350, "Couleur du stop", group=gTP)
 fadeClosedTr = input.bool(true, "Estomper les trades terminés", group=gTP,
      tooltip="Le trade en cours reste vif, les trades finis s'effacent. Un objectif ATTEINT s'efface deux fois moins qu'un objectif manqué : tu peux lire d'un coup d'œil jusqu'où chaque trade est allé.")
-fadeStrength = input.int(55, "Force de l'estompage", minval=0, maxval=95, group=gTP)
+fadeStrength = input.int(70, "Force de l'estompage", minval=0, maxval=95, group=gTP)
 
 gSc = "14. Scoreboard — résultats réels de TA stratégie"
 showScore = input.bool(true, "Afficher le scoreboard", group=gSc,
@@ -2167,6 +2172,7 @@ type SmvTrade
     box   bRisk
     box   bRwd
     line  lEnt
+    line  lSl
     line  lT1
     line  lT2
     line  lT3
@@ -2209,6 +2215,7 @@ f_trKill(SmvTrade t) =>
     box.delete(t.bRisk)
     box.delete(t.bRwd)
     line.delete(t.lEnt)
+    line.delete(t.lSl)
     line.delete(t.lT1)
     line.delete(t.lT2)
     line.delete(t.lT3)
@@ -2228,18 +2235,25 @@ f_trDraw(SmvTrade t) =>
         t.bRwd := box.new(l, math.max(t.entry, t.t3), r, math.min(t.entry, t.t3),
              border_color=color.new(tpCol, 100), border_width=1,
              bgcolor=color.new(tpCol, 93))
-    t.lEnt := line.new(l, t.entry, r, t.entry, color=color.new(#9ba4b0, 10), width=2)
+    // Cinq traits fins, deux couleurs seulement : l'entrée en gris neutre,
+    // le stop en rouge, les trois objectifs en vert de plus en plus pâle.
+    // Le prix exact se lit sur l'échelle à droite, pas besoin de texte.
+    t.lEnt := line.new(l, t.entry, r, t.entry, color=color.new(#9ba4b0, 25), width=1)
+    t.lSl  := line.new(l, t.stop, r, t.stop, color=color.new(slCol, 10), width=1)
     t.lT1  := line.new(l, t.t1, r, t.t1, color=color.new(tpCol, 10), style=line.style_dashed)
-    t.lT2  := line.new(l, t.t2, r, t.t2, color=color.new(tpCol, 30), style=line.style_dashed)
-    t.lT3  := line.new(l, t.t3, r, t.t3, color=color.new(tpCol, 50), style=line.style_dashed)
-    // Étiquette ancrée SUR LE STOP et poussée vers l'extérieur : elle ne
-    // se pose jamais entre l'entrée et les objectifs, là où tu lis.
-    t.lTag := label.new(l, t.stop,
-         (t.dir == 1 ? "▲ ACHAT " : "▼ VENTE ") + str.tostring(t.entry, format.mintick) +
-         "   SL " + str.tostring(t.stop, format.mintick),
-         style=t.dir == 1 ? label.style_label_down : label.style_label_up,
-         color=color.new(t.dir == 1 ? entryBuyCol : entrySellCol, 20),
-         textcolor=color.white, size=size.tiny)
+    t.lT2  := line.new(l, t.t2, r, t.t2, color=color.new(tpCol, 35), style=line.style_dashed)
+    t.lT3  := line.new(l, t.t3, r, t.t3, color=color.new(tpCol, 55), style=line.style_dashed)
+    // Aucun texte par défaut : les prix se lisent sur l'échelle à droite,
+    // le graphique reste propre. L'étiquette est ancrée SUR LE STOP et
+    // poussée vers l'extérieur, pour ne jamais tomber entre l'entrée et
+    // les objectifs, là où l'œil travaille.
+    if tradeShowLbl
+        t.lTag := label.new(l, t.stop,
+             (t.dir == 1 ? "▲ ACHAT " : "▼ VENTE ") + str.tostring(t.entry, format.mintick) +
+             "   SL " + str.tostring(t.stop, format.mintick),
+             style=t.dir == 1 ? label.style_label_down : label.style_label_up,
+             color=color.new(t.dir == 1 ? entryBuyCol : entrySellCol, 20),
+             textcolor=color.white, size=size.tiny)
 
 // Un trade en cours suit le prix, comme toutes tes autres zones : bord
 // droit à bar_index + zoneExt, jamais extend.right.
@@ -2250,6 +2264,7 @@ f_trExtend(SmvTrade t) =>
     if not na(t.bRwd)
         box.set_right(t.bRwd, r)
     line.set_x2(t.lEnt, r)
+    line.set_x2(t.lSl, r)
     line.set_x2(t.lT1, r)
     line.set_x2(t.lT2, r)
     line.set_x2(t.lT3, r)
@@ -2273,10 +2288,14 @@ f_trClose(SmvTrade t, string why) =>
         box.set_right(t.bRwd, r)
         box.set_bgcolor(t.bRwd, color.new(tpCol, f_trFade(93)))
     line.set_x2(t.lEnt, r)
+    line.set_x2(t.lSl, r)
     line.set_x2(t.lT1, r)
     line.set_x2(t.lT2, r)
     line.set_x2(t.lT3, r)
-    line.set_color(t.lEnt, color.new(#9ba4b0, f_trFade(10)))
+    line.set_color(t.lEnt, color.new(#9ba4b0, f_trFade(25)))
+    // Un stop RÉELLEMENT touché reste lisible : c'est l'information la
+    // plus importante à revoir sur un trade passé.
+    line.set_color(t.lSl, color.new(slCol, why == "stop" ? f_trFadeKeep(10) : f_trFade(10)))
     line.set_color(t.lT1, color.new(tpCol, t.stage >= 1 ? f_trFadeKeep(10) : f_trFade(20)))
     line.set_width(t.lT1, t.stage >= 1 ? 2 : 1)
     line.set_color(t.lT2, color.new(tpCol, t.stage >= 2 ? f_trFadeKeep(20) : f_trFade(35)))
@@ -2286,15 +2305,17 @@ f_trClose(SmvTrade t, string why) =>
     if not na(t.lTag)
         label.set_color(t.lTag, color.new(t.dir == 1 ? entryBuyCol : entrySellCol, f_trFade(20)))
         label.set_textcolor(t.lTag, color.new(color.white, f_trFade(0)))
-    // Étiquette de résultat décalée d'un ATR et pointant vers son niveau :
-    // elle ne se pose jamais sur la bougie qui vient de clôturer le trade.
-    float lvlOut = why == "stop" ? t.stop : why == "TP3" ? t.t3 : close
-    float sgnOut = why == "stop" ? (t.dir == 1 ? -1.0 : 1.0) :
-         why == "TP3" ? (t.dir == 1 ? 1.0 : -1.0) : (t.dir == 1 ? -1.0 : 1.0)
-    color cOut = why == "TP3" ? tpCol : why == "stop" ? slCol : color.new(#9ba4b0, 0)
-    t.lOut := label.new(bar_index, lvlOut + sgnOut * atrFast * 0.6, why,
-         style=sgnOut > 0 ? label.style_label_down : label.style_label_up,
-         color=color.new(cOut, 25), textcolor=color.white, size=size.tiny)
+    // Étiquette de résultat — désactivée par défaut elle aussi. Le trait
+    // plein d'un objectif atteint et l'estompage disent déjà comment le
+    // trade s'est terminé, sans ajouter un mot sur le graphique.
+    if tradeShowLbl
+        float lvlOut = why == "stop" ? t.stop : why == "TP3" ? t.t3 : close
+        float sgnOut = why == "stop" ? (t.dir == 1 ? -1.0 : 1.0) :
+             why == "TP3" ? (t.dir == 1 ? 1.0 : -1.0) : (t.dir == 1 ? -1.0 : 1.0)
+        color cOut = why == "TP3" ? tpCol : why == "stop" ? slCol : color.new(#9ba4b0, 0)
+        t.lOut := label.new(bar_index, lvlOut + sgnOut * atrFast * 0.6, why,
+             style=sgnOut > 0 ? label.style_label_down : label.style_label_up,
+             color=color.new(cOut, 25), textcolor=color.white, size=size.tiny)
 
 f_trFire(int dir, float idmLvl) =>
     float riskPx = stopModeStruct and not na(idmLvl) ?
@@ -2372,11 +2393,28 @@ if showTradePlan and atrReady and array.size(smvTrades) > 0
                     f_trExtend(t)
 
 //---------------------------------------------------------------------
-// Ouverture — uniquement sur TON signal, jamais sur autre chose
+// Ouverture — uniquement sur TON signal, et uniquement dans le sens de
+// la structure.
+//
+// RÈGLE 80/20 (continuation) : en structure HAUSSIÈRE on ne prend que
+// des ACHATS, en structure BAISSIÈRE que des VENTES. Jamais l'inverse.
+//
+// La seule chose qui autorise à changer de sens est un vrai BOS
+// (retournement) : c'est lui, et lui seul, qui fait basculer
+// confirmedTrend. Tant que le BOS n'a pas eu lieu, un signal à
+// contre-sens est ignoré — il n'ouvre pas de trade et ne compte pas
+// dans le scoreboard, pour ne pas polluer la mesure de la stratégie.
+//
+// confirmedTrend == 0 = aucune structure encore confirmée : on laisse
+// passer, il n'y a pas encore de sens à contredire.
 //---------------------------------------------------------------------
-if showTradePlan and atrReady and (entrySignalBuy or entrySignalSell)
+int  trSigDir   = entrySignalBuy ? 1 : entrySignalSell ? -1 : 0
+bool trDirOk    = not tradeFilter8020 or confirmedTrend == 0 or confirmedTrend == trSigDir
+bool trBlocked  = trSigDir != 0 and not trDirOk
+
+if showTradePlan and atrReady and trSigDir != 0 and trDirOk
     if f_trOpenCount() < maxOpenTr
-        f_trFire(entrySignalBuy ? 1 : -1, entryIdmLvl)
+        f_trFire(trSigDir, entryIdmLvl)
 
 // Purge des plus anciens trades TERMINÉS (un trade en cours n'est jamais
 // supprimé, même s'il dépasse la limite).
@@ -2639,3 +2677,4 @@ alertcondition(idm4Hit, "IDM 4 atteint", "SMV : le prix vient d'atteindre l'IDM 
 alertcondition(trTp1Hit, "TP1 atteint", "SMV : TP1 atteint — pense à sécuriser une partie de la position")
 alertcondition(trTp3Hit, "TP3 atteint", "SMV : TP3 atteint — objectif final touché, le trade est clôturé")
 alertcondition(trStopHit, "Stop touché", "SMV : le stop vient d'être touché — le setup est invalidé")
+alertcondition(trBlocked, "Signal ignoré (contre-structure)", "SMV : un IDM a été récupéré à contre-sens de la structure — aucun trade ouvert, règle 80/20. Il faudra un BOS pour autoriser ce sens.")
