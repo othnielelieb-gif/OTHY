@@ -1,5 +1,9 @@
 //@version=6
-indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+// max_bars_back : filet de sécurité pour le module Order Block, qui
+// relit l'historique avec un index VARIABLE (obMin[i]/obMax[i] dans une
+// boucle bornée au runtime, jusqu'à 50) — Pine ne peut pas toujours
+// déduire seul la taille de buffer nécessaire dans ce cas.
+indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=500)
 
 //=====================================================================
 // MOTEUR DE CALCUL vs AFFICHAGE
@@ -341,8 +345,8 @@ obShowBull = input.int(3, "Nombre d'OB haussiers affichés", minval=0, maxval=10
 obShowBear = input.int(3, "Nombre d'OB baissiers affichés", minval=0, maxval=10, group=gOB)
 obUseBody = input.bool(false, "Utiliser le corps de bougie (au lieu des mèches)", group=gOB,
      tooltip="Décoché : la zone OB couvre toute la bougie, mèches comprises. Coché : uniquement le corps (open/close), zone plus serrée.")
-obBullCol = input.color(color.new(#2962ff, 80), "Couleur OB haussier", group=gOB)
-obBearCol = input.color(color.new(#ff5d00, 80), "Couleur OB baissier", group=gOB)
+obBullCol = input.color(color.new(#2962ff, 55), "Couleur OB haussier", group=gOB)
+obBearCol = input.color(color.new(#ff5d00, 55), "Couleur OB baissier", group=gOB)
 obShowBreaker = input.bool(true, "Activer les Breaker Blocks (OB cassés)", group=gOB,
      tooltip="Quand le prix casse VRAIMENT à travers un Order Block, celui-ci échoue et change de polarité : il devient un Breaker Block. Un ancien OB haussier cassé devient une résistance, et inversement. C'est une confirmation très forte pour la SMV.")
 obBullBreakCol = input.color(color.new(#ff1100, 80), "Couleur Breaker issu d'un OB haussier", group=gOB)
@@ -390,8 +394,8 @@ gFv = "10. Imbalances (FVG)"
 showFvg = input.bool(true, "Afficher les imbalances (FVG)", group=gFv,
      tooltip="Vide de prix sur 3 bougies : le haut de la bougie 1 n'a jamais rencontré le bas de la bougie 3. Le prix revient presque toujours le combler.")
 fvgCount = input.int(4, "Nombre d'imbalances par côté", minval=1, maxval=15, group=gFv)
-fvgBullCol = input.color(color.new(#26a69a, 82), "Couleur imbalance haussière", group=gFv)
-fvgBearCol = input.color(color.new(#ef5350, 82), "Couleur imbalance baissière", group=gFv)
+fvgBullCol = input.color(color.new(#26a69a, 60), "Couleur imbalance haussière", group=gFv)
+fvgBearCol = input.color(color.new(#ef5350, 60), "Couleur imbalance baissière", group=gFv)
 fvgShrink = input.bool(true, "Réduire l'imbalance au fur et à mesure qu'elle se comble", group=gFv,
      tooltip="Coché : la zone rétrécit à mesure que le prix la remplit, et disparaît une fois entièrement comblée. Décoché : elle garde sa taille d'origine jusqu'à comblement complet.")
 fvgMinSize = input.float(0.15, "Taille minimale (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gFv,
@@ -1725,14 +1729,16 @@ float fvgMinPx  = atrReady ? atrFast * fvgMinSize : 0.0
 
 if fvgUpNew and (low - high[2]) >= fvgMinPx
     array.push(fvgBox, box.new(bar_index - 2, low, bar_index + zoneExt, high[2],
-         border_color=na, bgcolor=fvgBullCol))
+         border_color=color.new(color.rgb(color.r(fvgBullCol), color.g(fvgBullCol), color.b(fvgBullCol)), 30),
+         border_width=1, bgcolor=fvgBullCol))
     array.push(fvgTop, low)
     array.push(fvgBot, high[2])
     array.push(fvgDir, 1)
 
 if fvgDownNew and (low[2] - high) >= fvgMinPx
     array.push(fvgBox, box.new(bar_index - 2, low[2], bar_index + zoneExt, high,
-         border_color=na, bgcolor=fvgBearCol))
+         border_color=color.new(color.rgb(color.r(fvgBearCol), color.g(fvgBearCol), color.b(fvgBearCol)), 30),
+         border_width=1, bgcolor=fvgBearCol))
     array.push(fvgTop, low[2])
     array.push(fvgBot, high)
     array.push(fvgDir, -1)
