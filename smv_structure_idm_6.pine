@@ -397,6 +397,42 @@ fvgShrink = input.bool(true, "Réduire l'imbalance au fur et à mesure qu'elle s
 fvgMinSize = input.float(0.15, "Taille minimale (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gFv,
      tooltip="Ignore les micro-gaps sans signification. Plus grand = seules les grosses imbalances sont retenues.")
 
+//=====================================================================
+// 11. IDM 3 — PROJETÉ (analyse, pas un pivot déjà formé)
+//
+// IDM 1 et IDM 2 sont des pivots RÉELS, déjà imprimés sur le graphique.
+// L'IDM 3 est différent : c'est une PROJECTION — le niveau où le prix
+// a le plus de chances de revenir se ravitailler avant de lancer le
+// vrai mouvement. Il n'existe pas encore, il est déduit.
+//
+// Comment il est placé (par ordre de qualité, dans le couloir de
+// retracement compris entre le prix actuel et l'origine du mouvement) :
+//   1. un Order Block non mitigé dans le sens de la tendance — la
+//      trace institutionnelle, le meilleur repère ;
+//   2. sinon une imbalance non comblée — le prix revient presque
+//      toujours combler un vide de prix ;
+//   3. sinon le 0.5 du mouvement — ta propre règle de retracement.
+// Une confluence OB + imbalance est signalée : c'est le cas le plus
+// fiable.
+//
+// QUAND IL DISPARAÎT (5 conditions, la première qui survient) :
+//   • le prix l'a touché      -> il a fait son travail ;
+//   • un BOS inverse survient -> la thèse est morte ;
+//   • un vrai IDM se forme au même niveau -> le réel remplace la
+//     projection ;
+//   • la liquidité cible est atteinte sans retour -> le retracement
+//     n'aura pas lieu ;
+//   • trop de bougies sans retour -> projection périmée.
+//=====================================================================
+gP3 = "11. IDM 3 — projeté (analyse)"
+showProjIdm = input.bool(true, "Afficher l'IDM 3 projeté", group=gP3,
+     tooltip="Niveau DÉDUIT (pas encore formé) où le prix a le plus de chances de revenir se ravitailler avant le vrai mouvement. Affiché en pointillés pour bien le distinguer des IDM 1 et 2, qui sont des pivots réels.")
+projIdmCol = input.color(#00e5ff, "Couleur IDM 3 projeté", group=gP3)
+projMaxBars = input.int(120, "Péremption sans retour du prix (bougies)", minval=10, maxval=500, group=gP3,
+     tooltip="Au-delà de ce nombre de bougies sans que le prix soit revenu, la projection est considérée comme périmée et disparaît.")
+projShowZone = input.bool(true, "Afficher la zone autour du niveau projeté", group=gP3,
+     tooltip="Bande fine autour du niveau, calibrée sur l'ATR — une projection n'est jamais un prix au tick près.")
+
 
 //=====================================================================
 // FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
@@ -1812,6 +1848,152 @@ if array.size(fvgBox) > 0
             array.remove(fvgBot, i)
             array.remove(fvgDir, i)
 
+
+//=====================================================================
+// IDM 3 — PROJETÉ (module 11). Analyse, pas un pivot déjà formé.
+//
+// On cherche, DANS LE COULOIR DE RETRACEMENT (entre le prix actuel et
+// l'origine du mouvement), le meilleur endroit où le prix viendrait se
+// ravitailler avant de lancer le vrai mouvement :
+//   priorité 1 : Order Block non mitigé, dans le sens du mouvement
+//   priorité 2 : imbalance non comblée
+//   priorité 3 : le 0.5 du mouvement (ta règle de retracement)
+//
+// La projection est RECALCULÉE tant que le prix n'est pas revenu ;
+// elle se fige dès qu'elle est posée sur un OB (le meilleur repère).
+//=====================================================================
+var float projLvl    = na
+var int   projDirV   = 0
+var string projBasis = ""
+var int   projAge    = 0
+var line  projLine   = na
+var label projLbl    = na
+var box   projBox    = na
+
+// Borne lointaine du couloir de retracement : l'origine du mouvement.
+float projTo = na(moveOrigin) ? na : moveOrigin
+
+float projCand  = na
+string projFrom_ = ""
+
+if showProjIdm and moveDir != 0 and not na(moveFib50) and not na(projTo) and inLookback
+    float loBound = moveDir == 1 ? math.min(projTo, close) : math.min(close, projTo)
+    float hiBound = moveDir == 1 ? math.max(projTo, close) : math.max(close, projTo)
+
+    // --- Priorité 1 : Order Block non mitigé dans le sens du mouvement,
+    // situé dans le couloir de retracement. On retient le plus PROCHE du
+    // prix : c'est celui que le prix rencontrera en premier.
+    float bestOb   = na
+    float bestObD  = na
+    if array.size(obTopA) > 0
+        for i = 0 to array.size(obTopA) - 1
+            if array.get(obDirA, i) == moveDir and not array.get(obBrkA, i)
+                float mid = (array.get(obTopA, i) + array.get(obBtmA, i)) / 2.0
+                if mid >= loBound and mid <= hiBound
+                    float d = math.abs(close - mid)
+                    if na(bestObD) or d < bestObD
+                        bestObD := d
+                        bestOb  := mid
+
+    // --- Priorité 2 : imbalance non comblée dans le même couloir.
+    float bestFvg  = na
+    float bestFvgD = na
+    if array.size(fvgTop) > 0
+        for i = 0 to array.size(fvgTop) - 1
+            if array.get(fvgDir, i) == moveDir
+                float midF = (array.get(fvgTop, i) + array.get(fvgBot, i)) / 2.0
+                if midF >= loBound and midF <= hiBound
+                    float dF = math.abs(close - midF)
+                    if na(bestFvgD) or dF < bestFvgD
+                        bestFvgD := dF
+                        bestFvg  := midF
+
+    // Confluence OB + imbalance : le cas le plus fiable.
+    bool confluent = not na(bestOb) and not na(bestFvg) and
+         math.abs(bestOb - bestFvg) <= (na(atrFast) ? 0.0 : atrFast * 0.5)
+
+    projCand  := not na(bestOb) ? bestOb : not na(bestFvg) ? bestFvg : moveFib50
+    projFrom_ := not na(bestOb) ? (confluent ? "OB + imbalance" : "Order Block") :
+         not na(bestFvg) ? "imbalance" : "0.5 du mouvement"
+
+// Pose / mise à jour de la projection tant que le prix n'est pas revenu.
+if showProjIdm and not na(projCand)
+    bool alreadyOnOb = projBasis == "Order Block" or projBasis == "OB + imbalance"
+    bool keepFrozen  = not na(projLvl) and projDirV == moveDir and alreadyOnOb
+    if not keepFrozen
+        if na(projLvl) or projDirV != moveDir
+            projAge := 0
+        projLvl   := projCand
+        projDirV  := moveDir
+        projBasis := projFrom_
+
+if not na(projLvl)
+    projAge := projAge + 1
+
+//---------------------------------------------------------------------
+// DISPARITION — 5 conditions, la première qui survient l'emporte.
+//---------------------------------------------------------------------
+bool projHit = not na(projLvl) and
+     (projDirV == 1 ? low <= projLvl : projDirV == -1 ? high >= projLvl : false)
+
+// Un BOS (retournement) dans le sens opposé tue la thèse.
+bool projFlip = not na(projLvl) and
+     ((projDirV == 1 and chochBear) or (projDirV == -1 and chochBull))
+
+// Un vrai IDM s'est formé au même endroit : le réel remplace la projection.
+bool projReplaced = false
+if not na(projLvl) and array.size(idmLevel) > 0 and not na(atrFast)
+    for i = array.size(idmLevel) - 1 to 0
+        if not projReplaced and not array.get(idmDone, i) and array.get(idmDir, i) == projDirV
+            if math.abs(array.get(idmLevel, i) - projLvl) <= atrFast * 0.5
+                projReplaced := true
+
+// La cible de liquidité est atteinte sans que le prix soit revenu :
+// le retracement anticipé n'aura pas lieu.
+bool projTargetDone = not na(projLvl) and targetValid and
+     (projDirV == 1 ? high >= targetLevel : low <= targetLevel)
+
+bool projStale = not na(projLvl) and projAge > projMaxBars
+
+bool projGone = projHit or projFlip or projReplaced or projTargetDone or projStale
+
+if projGone
+    projLvl   := na
+    projDirV  := 0
+    projBasis := ""
+    projAge   := 0
+
+//---------------------------------------------------------------------
+// AFFICHAGE — pointillés, pour bien marquer que c'est une PROJECTION et
+// non un pivot réel comme IDM 1 et IDM 2.
+//---------------------------------------------------------------------
+if not na(projLine)
+    line.delete(projLine)
+    projLine := na
+if not na(projLbl)
+    label.delete(projLbl)
+    projLbl := na
+if not na(projBox)
+    box.delete(projBox)
+    projBox := na
+
+if showProjIdm and not na(projLvl) and barstate.islast
+    float projPad = na(atrFast) ? 0.0 : atrFast * 0.12
+    if projShowZone and projPad > 0
+        projBox := box.new(bar_index - 2, projLvl + projPad, bar_index + zoneExt, projLvl - projPad,
+             border_color=color.new(projIdmCol, 40), border_width=1,
+             bgcolor=color.new(projIdmCol, 88))
+    projLine := line.new(bar_index - 2, projLvl, bar_index + zoneExt, projLvl,
+         color=projIdmCol, style=line.style_dashed, width=2)
+    if lblEss
+        string projTxt = (projDirV == 1 ? "▲" : "▼") + " IDM 3 projeté " +
+             str.tostring(projLvl, format.mintick) + " (" + projBasis + ")"
+        projLbl := label.new(bar_index + zoneExt, projLvl, projTxt,
+             style=label.style_label_left,
+             color=color.new(projIdmCol, 45),
+             textcolor=color.white,
+             size=size.small)
+
 // Le prix est-il dans une imbalance en ce moment ?
 int fvgZoneDir = 0
 if array.size(fvgBox) > 0
@@ -1847,7 +2029,7 @@ if obZoneDir != 0 and fvgZoneDir != 0
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si tous
 // les autres modules d'affichage sont désactivés
 //=====================================================================
-var table dash = table.new(position.top_right, 2, 8,
+var table dash = table.new(position.top_right, 2, 9,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showDash and barstate.islast
@@ -1927,17 +2109,24 @@ if showDash and barstate.islast
     table.cell(dash, 0, 4, "IDM 2 (le précédent)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 4, idmWaitTxt2, text_color=idmWaitColCell2, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 5, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 5, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
+    // IDM 3 : niveau PROJETÉ (déduit), pas un pivot déjà formé.
+    string proj3Txt = na(projLvl) ? "-" :
+         (projDirV == 1 ? "IDBL " : "IDBR ") + str.tostring(projLvl, format.mintick) + " (" + projBasis + ")"
+    color proj3Col = na(projLvl) ? rangeCol : projIdmCol
+    table.cell(dash, 0, 5, "IDM 3 (projeté)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 5, proj3Txt, text_color=proj3Col, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 6, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 6, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
 
     // Confirmation par la zone : le prix est-il actuellement DANS un
     // Order Block ou une zone Supply/Demand de ce timeframe ?
     color zoneNowCol = zoneNowDir == 1 ? entryBuyCol : zoneNowDir == -1 ? entrySellCol : rangeCol
-    table.cell(dash, 0, 6, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 6, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 7, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 7, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 7, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 7, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 8, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 8, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
@@ -2094,5 +2283,6 @@ alertcondition(utJustFormed, "Phase — UT détecté", "SMV : UT détecté en di
 alertcondition(utadJustFormed, "Phase — UTAD détecté", "SMV : UTAD détecté en distribution")
 alertcondition(obTouchedNow, "OB touché", "SMV : le prix est dans un Order Block encore valide — observe la réaction")
 alertcondition(obJustBroke, "OB cassé → Breaker Block", "SMV : un Order Block vient d'être cassé, il devient un Breaker Block (polarité inversée)")
+alertcondition(projHit, "IDM 3 projeté atteint", "SMV : le prix vient d'atteindre le niveau IDM 3 projeté — zone de ravitaillement anticipée")
 alertcondition(fvgFilledNow, "Imbalance en cours de comblement", "SMV : le prix est en train de combler une imbalance (FVG)")
 alertcondition(sdTouched, "Zone Supply/Demand touchée", "SMV : le prix vient d'entrer dans une zone Supply/Demand — observe la réaction")
