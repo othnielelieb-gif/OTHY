@@ -54,6 +54,10 @@ indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overla
 // les étiquettes restent lisibles, jamais une extension infinie.
 //=====================================================================
 gZ = "0. Affichage des zones"
+zoneStyle = input.string("Contour seul", "Style des zones (OB, Supply/Demand, Imbalances)",
+     options=["Contour seul", "Ligne médiane", "Rempli"], group=gZ,
+     tooltip="CONTOUR SEUL (recommandé) : la zone n'est plus un carré plein, juste un cadre fin — les bougies restent parfaitement lisibles à travers. LIGNE MÉDIANE : encore plus léger, un simple trait au milieu de la zone. REMPLI : l'ancien rendu en aplat de couleur. Le calcul et la détection ne changent pas, seul le rendu change.")
+
 zoneExt = input.int(3, "Marge au-delà du prix (bougies)", minval=0, maxval=30, group=gZ,
      tooltip="Toutes les zones s'arrêtent au prix actuel et le suivent. Cette valeur n'ajoute qu'une petite marge à droite pour la lisibilité des étiquettes. 0 = la zone colle exactement à la bougie en cours.")
 
@@ -423,6 +427,35 @@ f_lookbackMs() =>
     result
 
 bool inLookback = time >= (timenow - f_lookbackMs())
+
+
+//=====================================================================
+// RENDU DES ZONES — le style change l'APPARENCE uniquement, jamais la
+// détection ni les niveaux mémorisés. Les tests de mitigation et de
+// cassure continuent d'utiliser les vraies bornes de la zone.
+//   Contour seul  : cadre fin, fond transparent — les bougies restent
+//                   lisibles à travers la zone.
+//   Ligne médiane : la boîte est aplatie sur son milieu, ce qui donne
+//                   visuellement un simple trait.
+//   Rempli        : aplat de couleur classique.
+//=====================================================================
+bool zoneMidOnly = zoneStyle == "Ligne médiane"
+
+// Fond : transparent sauf en mode Rempli.
+f_fill(color c) =>
+    zoneStyle == "Rempli" ? c : color.new(c, 100)
+
+// Contour : bien net dès qu'on n'est plus en aplat.
+f_edge(color c) =>
+    color solidC = color.rgb(color.r(c), color.g(c), color.b(c))
+    zoneStyle == "Rempli" ? color.new(solidC, 35) : color.new(solidC, 10)
+
+// Bornes de DESSIN : aplaties sur le milieu en mode Ligne médiane.
+f_drawTop(float t, float b) =>
+    zoneMidOnly ? (t + b) / 2 + syminfo.mintick : t
+
+f_drawBot(float t, float b) =>
+    zoneMidOnly ? (t + b) / 2 - syminfo.mintick : b
 
 
 //=====================================================================
@@ -1356,27 +1389,19 @@ if array.size(idmLevel) > maxHistory
 int trendRef = confirmedTrend != 0 ? confirmedTrend : bias
 
 //---------------------------------------------------------------------
-// DEUX DERNIÈRES BOUGIES — la dernière VERTE et la dernière ROUGE.
-// C'est sur ces deux bougies seulement, MÈCHES COMPRISES, que sont
-// tracées les zones Order Block et Supply/Demand : jamais sur une base
-// large de nombreuses bougies.
-// Les traqueurs sont mis à jour APRÈS les deux modules, pour que la
-// zone porte bien sur les bougies PRÉCÉDANT l'impulsion.
+// LA BOUGIE JUSTE AVANT L'IMPULSION — une SEULE bougie, celle qui
+// précède immédiatement le départ du mouvement, quelle que soit sa
+// couleur. La bougie d'impulsion elle-même n'est JAMAIS incluse : c'est
+// elle qui rendait les zones énormes.
+// Index constant [1] : aucun risque de buffer d'historique.
 //---------------------------------------------------------------------
-var float lastGrnHi = na
-var float lastGrnLo = na
-var int   lastGrnBar = na
-var float lastRedHi = na
-var float lastRedLo = na
-var int   lastRedBar = na
-
 float obMax = obUseBody ? math.max(close, open) : high
 float obMin = obUseBody ? math.min(close, open) : low
 
-bool  twoCdlReady = not na(lastGrnHi) and not na(lastRedHi)
-float twoCdlTop = twoCdlReady ? math.max(lastGrnHi, lastRedHi) : na
-float twoCdlBot = twoCdlReady ? math.min(lastGrnLo, lastRedLo) : na
-int   twoCdlBar = twoCdlReady ? math.min(lastGrnBar, lastRedBar) : na
+bool  prevCdlReady = bar_index >= 1
+float prevCdlTop = prevCdlReady ? (obUseBody ? math.max(close[1], open[1]) : high[1]) : na
+float prevCdlBot = prevCdlReady ? (obUseBody ? math.min(close[1], open[1]) : low[1]) : na
+int   prevCdlBar = bar_index - 1
 
 var float[] obTopA    = array.new_float()
 var float[] obBtmA    = array.new_float()
@@ -1399,12 +1424,12 @@ bool obBreakBull   = obStructBroke and not isStructLowBroken
 // Règle de structure : pas d'Order Block à contre-tendance.
 bool obDirOkNew = not obFilter8020 or trendRef == 0 or trendRef == (obBreakBull ? 1 : -1)
 
-if showOB and obStructBroke and inLookback and twoCdlReady and obDirOkNew
-    // Zone tracée sur les DEUX dernières bougies (dernière verte +
-    // dernière rouge), mèches comprises — conformément à la règle.
-    float minima = twoCdlBot
-    float maxima = twoCdlTop
-    int   locBar = twoCdlBar
+if showOB and obStructBroke and inLookback and prevCdlReady and obDirOkNew
+    // Zone tracée sur la SEULE bougie précédant l'impulsion, mèches
+    // comprises. La bougie qui lance le mouvement est exclue.
+    float minima = prevCdlBot
+    float maxima = prevCdlTop
+    int   locBar = prevCdlBar
 
     if not na(minima) and not na(maxima) and maxima >= minima
         // Déséquilibre (FVG) : l'impulsion qui part de la zone laisse-t-elle
@@ -1557,14 +1582,17 @@ if barstate.islast
                 // part pas à l'infini vers la droite.
                 int rightEdge = bar_index + zoneExt
 
+                float dTop = f_drawTop(tOb, bOb)
+                float dBot = f_drawBot(tOb, bOb)
+
                 if kOb
                     int bLoc = array.get(obBrkLocA, i)
                     // Partie encore valide (avant la cassure)
-                    array.push(obDrawBox, box.new(lOb, tOb, bLoc, bOb,
-                         border_color=solid, bgcolor=baseCol))
+                    array.push(obDrawBox, box.new(lOb, dTop, bLoc, dBot,
+                         border_color=f_edge(baseCol), bgcolor=f_fill(baseCol)))
                     // Partie Breaker (polarité inversée), suit le prix
-                    array.push(obDrawBox, box.new(bLoc, tOb, rightEdge, bOb,
-                         border_color=na, bgcolor=brkCol))
+                    array.push(obDrawBox, box.new(bLoc, dTop, rightEdge, dBot,
+                         border_color=f_edge(brkCol), bgcolor=f_fill(brkCol)))
                     array.push(obDrawLn, line.new(bLoc, tOb, rightEdge, tOb,
                          xloc=xloc.bar_index, color=brkSol, style=line.style_dashed))
                     array.push(obDrawLn, line.new(bLoc, bOb, rightEdge, bOb,
@@ -1572,8 +1600,8 @@ if barstate.islast
                     array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
                          style=label.style_label_left, color=brkCol, textcolor=brkSol, size=size.tiny))
                 else
-                    array.push(obDrawBox, box.new(lOb, tOb, rightEdge, bOb,
-                         border_color=na, bgcolor=baseCol))
+                    array.push(obDrawBox, box.new(lOb, dTop, rightEdge, dBot,
+                         border_color=f_edge(baseCol), bgcolor=f_fill(baseCol)))
                     array.push(obDrawLn, line.new(lOb, tOb, rightEdge, tOb,
                          xloc=xloc.bar_index, color=solid))
                     array.push(obDrawLn, line.new(lOb, bOb, rightEdge, bOb,
@@ -1610,23 +1638,23 @@ int   sdDirNow    = close > open ? 1 : -1
 // Demand, et en tendance haussière aucune zone Supply.
 bool sdDirOk = not sdFilterTrend or trendRef == 0 or trendRef == sdDirNow
 
-if sdIsImpulse and sdDirOk and twoCdlReady
-    // La zone est tracée sur EXACTEMENT deux bougies — la dernière verte
-    // et la dernière rouge avant l'impulsion — mèches comprises.
+if sdIsImpulse and sdDirOk and prevCdlReady
+    // Zone tracée sur la SEULE bougie précédant l'impulsion, mèches
+    // comprises — la bougie d'impulsion est exclue.
     color  sdCol = sdDirNow == 1 ? sdDemandCol : sdSupplyCol
     string sdTxt = sdDirNow == 1 ? "DEMAND" : "SUPPLY"
 
-    box   sb = box.new(twoCdlBar, twoCdlTop, bar_index + zoneExt, twoCdlBot,
-         border_color=sdCol, border_width=1,
-         bgcolor=color.new(sdCol, 80))
-    label sl = label.new(twoCdlBar, sdDirNow == 1 ? twoCdlBot : twoCdlTop, sdTxt,
+    box   sb = box.new(prevCdlBar, f_drawTop(prevCdlTop, prevCdlBot), bar_index + zoneExt, f_drawBot(prevCdlTop, prevCdlBot),
+         border_color=f_edge(sdCol), border_width=1,
+         bgcolor=f_fill(sdCol))
+    label sl = label.new(prevCdlBar, sdDirNow == 1 ? prevCdlBot : prevCdlTop, sdTxt,
          style=sdDirNow == 1 ? label.style_label_up : label.style_label_down,
          color=color.new(sdCol, 82), textcolor=sdCol, size=size.tiny)
 
     array.push(sdBox, sb)
     array.push(sdLbl, sl)
-    array.push(sdTop, twoCdlTop)
-    array.push(sdBot, twoCdlBot)
+    array.push(sdTop, prevCdlTop)
+    array.push(sdBot, prevCdlBot)
     array.push(sdDir, sdDirNow)
     array.push(sdMit, false)
 
@@ -1664,27 +1692,11 @@ if array.size(sdBox) > 0
             if low <= array.get(sdTop, i) and high >= array.get(sdBot, i)
                 array.set(sdMit, i, true)
                 sdTouched := true
-                box.set_border_color(bx, sdMitigatedCol)
-                box.set_bgcolor(bx, color.new(sdMitigatedCol, 92))
+                box.set_border_color(bx, f_edge(sdMitigatedCol))
+                box.set_bgcolor(bx, f_fill(sdMitigatedCol))
                 label lbD = array.get(sdLbl, i)
                 label.set_color(lbD, color.new(sdMitigatedCol, 85))
                 label.set_textcolor(lbD, sdMitigatedCol)
-
-
-//---------------------------------------------------------------------
-// Mise à jour des deux dernières bougies (verte / rouge). Placée ICI,
-// après les modules Order Block et Supply/Demand, pour que les zones
-// soient tracées sur les bougies PRÉCÉDANT l'impulsion et non sur la
-// bougie d'impulsion elle-même.
-//---------------------------------------------------------------------
-if close > open
-    lastGrnHi := high
-    lastGrnLo := low
-    lastGrnBar := bar_index
-else if close < open
-    lastRedHi := high
-    lastRedLo := low
-    lastRedBar := bar_index
 
 
 //=====================================================================
@@ -1712,15 +1724,15 @@ bool fvgDownNew = showFvg and inLookback and bar_index >= 2 and high < low[2]
 float fvgMinPx  = atrReady ? atrFast * fvgMinSize : 0.0
 
 if fvgUpNew and (low - high[2]) >= fvgMinPx
-    array.push(fvgBox, box.new(bar_index - 2, low, bar_index + zoneExt, high[2],
-         border_color=na, bgcolor=fvgBullCol))
+    array.push(fvgBox, box.new(bar_index - 2, f_drawTop(low, high[2]), bar_index + zoneExt, f_drawBot(low, high[2]),
+         border_color=f_edge(fvgBullCol), border_width=1, bgcolor=f_fill(fvgBullCol)))
     array.push(fvgTop, low)
     array.push(fvgBot, high[2])
     array.push(fvgDir, 1)
 
 if fvgDownNew and (low[2] - high) >= fvgMinPx
-    array.push(fvgBox, box.new(bar_index - 2, low[2], bar_index + zoneExt, high,
-         border_color=na, bgcolor=fvgBearCol))
+    array.push(fvgBox, box.new(bar_index - 2, f_drawTop(low[2], high), bar_index + zoneExt, f_drawBot(low[2], high),
+         border_color=f_edge(fvgBearCol), border_width=1, bgcolor=f_fill(fvgBearCol)))
     array.push(fvgTop, low[2])
     array.push(fvgBot, high)
     array.push(fvgDir, -1)
@@ -1759,8 +1771,8 @@ if array.size(fvgBox) > 0
             array.remove(fvgDir, i)
         else
             box bxF = array.get(fvgBox, i)
-            box.set_top(bxF, fT)
-            box.set_bottom(bxF, fB)
+            box.set_top(bxF, f_drawTop(fT, fB))
+            box.set_bottom(bxF, f_drawBot(fT, fB))
             box.set_right(bxF, bar_index + zoneExt)
 
 // Purge : au plus fvgCount imbalances par côté, les plus récentes.
