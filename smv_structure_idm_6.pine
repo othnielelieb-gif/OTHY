@@ -1,9 +1,5 @@
 //@version=6
-// max_bars_back : filet de sécurité pour le module Order Block, qui
-// relit l'historique avec un index VARIABLE (obMin[i]/obMax[i] dans une
-// boucle bornée au runtime, jusqu'à 50) — Pine ne peut pas toujours
-// déduire seul la taille de buffer nécessaire dans ce cas.
-indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=500)
+indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 
 //=====================================================================
 // MOTEUR DE CALCUL vs AFFICHAGE
@@ -57,59 +53,9 @@ indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overla
 // réglage ci-dessous n'est qu'une petite marge de respiration pour que
 // les étiquettes restent lisibles, jamais une extension infinie.
 //=====================================================================
-gZ = "0. Affichage global (anti-encombrement)"
-
-dispMode = input.string("Complet", "Mode d'affichage", options=["Sniper", "Trading", "Analyse", "Complet"], group=gZ,
-     tooltip="Un seul menu qui reconfigure tout le graphique. SNIPER : uniquement l'IDM actif, sa Sniper Zone, la liquidité cible et le dashboard. TRADING : + Order Blocks et structure actuelle. ANALYSE : + Supply/Demand, imbalances et phases. COMPLET : tout. Le mode ne peut que MASQUER : tes coches individuelles restent maîtresses, elles peuvent toujours éteindre un module que le mode autorise.")
-
-labelMode = input.string("Essentiel", "Étiquettes sur le graphique", options=["Complet", "Essentiel", "Aucune"], group=gZ,
-     tooltip="ESSENTIEL (recommandé) : garde uniquement les marqueurs d'IDENTITÉ indispensables — BOS, BMS, IDM et les repères Wyckoff (SC/BC/STB/SPRING/UT/UTAD). Supprime le bruit répétitif : HH/HL/LH/LL sur chaque pivot, \"Intact Sellers #3\", libellés des Order Blocks et des zones Supply/Demand. COMPLET : tout. AUCUNE : zéro texte, tout se lit dans le dashboard.")
-
+gZ = "0. Affichage des zones"
 zoneExt = input.int(3, "Marge au-delà du prix (bougies)", minval=0, maxval=30, group=gZ,
-     tooltip="Toutes les zones s'arrêtent au prix actuel et le suivent. Cette valeur n'ajoute qu'une petite marge à droite. 0 = la zone colle exactement à la bougie en cours.")
-
-useProxFilter = input.bool(true, "Masquer les zones éloignées du prix", group=gZ,
-     tooltip="Le plus gros gain visuel : toute zone trop loin du prix disparaît d'elle-même. Elle réapparaît automatiquement dès que le prix s'en approche.")
-zoneMaxDist = input.float(10.0, "Distance max au prix (x ATR)", minval=1.0, maxval=30.0, step=0.5, group=gZ,
-     tooltip="Au-delà de cette distance, la zone n'est plus affichée. Plus petit = graphique plus épuré.")
-
-useHierarchy = input.bool(true, "Hiérarchie visuelle : net près du prix, transparent au loin", group=gZ,
-     tooltip="Les zones proches du prix restent bien visibles, les lointaines s'estompent progressivement. L'œil trouve immédiatement ce qui compte maintenant.")
-
-useAntiOverlap = input.bool(true, "Anti-superposition des zones", group=gZ,
-     tooltip="Quand un Order Block, une zone Supply/Demand et une imbalance se chevauchent, une seule reste affichée — la plus précise. Priorité : Order Block > Supply/Demand > Imbalance.")
-
-hideTested = input.bool(true, "Masquer les zones déjà testées", group=gZ,
-     tooltip="Une zone que le prix a déjà visitée a rempli son rôle. Elle est retirée du graphique au lieu de rester en gris et d'encombrer.")
-
-maxPivotMarks = input.int(6, "Nombre de marquages HH/HL/LH/LL conservés", minval=1, maxval=60, group=gZ,
-     tooltip="Ne garde que les X derniers marquages de structure. Actif uniquement en mode d'étiquettes COMPLET.")
-
-idmEmphasis = input.bool(true, "Mettre l'IDM bien en évidence", group=gZ,
-     tooltip="L'IDM est le cœur de la stratégie : il doit se repérer d'un coup d'œil. Trait épais et plein (au lieu de pointillé fin), étiquette avec le niveau exact, et flèche de direction. Prioritaire sur tout le reste du graphique.")
-idmWidthBoost = input.int(4, "Épaisseur du trait IDM", minval=1, maxval=6, group=gZ)
-
-// ---- Drapeaux dérivés du mode : le mode ne peut que MASQUER, jamais
-// forcer l'affichage. Effectif = ta coche ET l'autorisation du mode.
-bool modeSniper  = dispMode == "Sniper"
-bool modeTrading = dispMode == "Trading"
-
-bool okStruct  = not modeSniper and not modeTrading
-bool okBosLine = not modeSniper
-bool okCurStr  = not modeSniper
-bool okIntact  = not modeSniper
-bool okOB      = true
-bool okSD      = not modeSniper and not modeTrading
-bool okFvg     = not modeSniper and not modeTrading
-bool okPhase   = not modeSniper and not modeTrading
-bool okRefine  = not modeSniper
-
-// Trois niveaux : lblNone = rien ; lblEss = marqueurs d'identité
-// (BOS/BMS, IDM, repères Wyckoff) ; lblAll = tout, y compris le texte
-// répétitif qui encombrait le graphique.
-bool lblNone = labelMode == "Aucune"
-bool lblEss  = labelMode != "Aucune"
-bool lblAll  = labelMode == "Complet"
+     tooltip="Toutes les zones s'arrêtent au prix actuel et le suivent. Cette valeur n'ajoute qu'une petite marge à droite pour la lisibilité des étiquettes. 0 = la zone colle exactement à la bougie en cours.")
 
 //=====================================================================
 // 1. Structure
@@ -257,14 +203,17 @@ entrySellCol = input.color(#ff1744, "Couleur vente", group=gI)
 maxHistory   = input.int(100, "Nombre max d'IDM historiques", minval=10, maxval=200, group=gI)
 
 // L'IDM doit se DÉPLACER à chaque nouvelle cassure, même petite. La
-// sensibilité de la structure (volontairement grossière, pour ne garder
-// que les vrais BOS/BMS) est trop lâche pour ça : elle raterait les
-// petits swings intermédiaires où le prix vient pourtant se ravitailler.
-// D'où un détecteur de pivots DÉDIÉ à l'IDM, plus fin, indépendant.
+// sensibilité de la structure est volontairement grossière (pour ne
+// retenir que les vrais BOS/BMS) : elle raterait les petits swings
+// intermédiaires où le prix vient pourtant se ravitailler. D'où un
+// détecteur de pivots DÉDIÉ à l'IDM, plus fin et indépendant.
 idmFineDetect = input.bool(true, "Détection fine de l'IDM (suit aussi les petites cassures)", group=gI,
-     tooltip="Activé : l'IDM utilise son propre détecteur de pivots, plus sensible que celui de la structure. Il se déplace donc aussi sur les petits swings intermédiaires, pas seulement sur les grandes cassures. C'est le comportement attendu — l'IDM bouge tout le temps, c'est normal. Sans effet en mode de pivots Manuel, où tu règles déjà la sensibilité toi-même.")
+     tooltip="Activé : l'IDM utilise son propre détecteur de pivots, plus sensible que celui de la structure. Il se déplace donc aussi sur les petits swings, pas seulement sur les grandes cassures. Sans effet en mode de pivots Manuel, où tu règles déjà la sensibilité toi-même.")
 idmFineRatio = input.float(0.45, "Finesse de la détection IDM", minval=0.10, maxval=1.00, step=0.05, group=gI,
-     tooltip="Fraction du seuil de la structure. 0.45 = l'IDM réagit à des swings environ deux fois plus petits que ceux qui déclenchent un BOS/BMS. Plus petit = IDM plus réactif et plus mobile.")
+     tooltip="Fraction du seuil de la structure. 0.45 = l'IDM réagit à des swings environ deux fois plus petits que ceux qui déclenchent un BOS/BMS. Plus petit = IDM plus réactif.")
+idmEmphasis = input.bool(true, "Mettre l'IDM bien en évidence", group=gI,
+     tooltip="L'IDM est le cœur de la stratégie : il doit se repérer d'un coup d'œil. Trait plein et épais au lieu d'un pointillé fin, étiquette avec la direction et le niveau exact.")
+idmWidthBoost = input.int(4, "Épaisseur du trait IDM", minval=1, maxval=6, group=gI)
 
 //=====================================================================
 // 3. Sniper Zone — LE reteste précis, rattachée UNIQUEMENT à l'IDM.
@@ -344,8 +293,8 @@ obShowBull = input.int(3, "Nombre d'OB haussiers affichés", minval=0, maxval=10
 obShowBear = input.int(3, "Nombre d'OB baissiers affichés", minval=0, maxval=10, group=gOB)
 obUseBody = input.bool(false, "Utiliser le corps de bougie (au lieu des mèches)", group=gOB,
      tooltip="Décoché : la zone OB couvre toute la bougie, mèches comprises. Coché : uniquement le corps (open/close), zone plus serrée.")
-obBullCol = input.color(color.new(#2962ff, 55), "Couleur OB haussier", group=gOB)
-obBearCol = input.color(color.new(#ff5d00, 55), "Couleur OB baissier", group=gOB)
+obBullCol = input.color(color.new(#2962ff, 80), "Couleur OB haussier", group=gOB)
+obBearCol = input.color(color.new(#ff5d00, 80), "Couleur OB baissier", group=gOB)
 obShowBreaker = input.bool(true, "Activer les Breaker Blocks (OB cassés)", group=gOB,
      tooltip="Quand le prix casse VRAIMENT à travers un Order Block, celui-ci échoue et change de polarité : il devient un Breaker Block. Un ancien OB haussier cassé devient une résistance, et inversement. C'est une confirmation très forte pour la SMV.")
 obBullBreakCol = input.color(color.new(#ff1100, 80), "Couleur Breaker issu d'un OB haussier", group=gOB)
@@ -393,48 +342,12 @@ gFv = "10. Imbalances (FVG)"
 showFvg = input.bool(true, "Afficher les imbalances (FVG)", group=gFv,
      tooltip="Vide de prix sur 3 bougies : le haut de la bougie 1 n'a jamais rencontré le bas de la bougie 3. Le prix revient presque toujours le combler.")
 fvgCount = input.int(4, "Nombre d'imbalances par côté", minval=1, maxval=15, group=gFv)
-fvgBullCol = input.color(color.new(#26a69a, 60), "Couleur imbalance haussière", group=gFv)
-fvgBearCol = input.color(color.new(#ef5350, 60), "Couleur imbalance baissière", group=gFv)
+fvgBullCol = input.color(color.new(#26a69a, 82), "Couleur imbalance haussière", group=gFv)
+fvgBearCol = input.color(color.new(#ef5350, 82), "Couleur imbalance baissière", group=gFv)
 fvgShrink = input.bool(true, "Réduire l'imbalance au fur et à mesure qu'elle se comble", group=gFv,
      tooltip="Coché : la zone rétrécit à mesure que le prix la remplit, et disparaît une fois entièrement comblée. Décoché : elle garde sa taille d'origine jusqu'à comblement complet.")
 fvgMinSize = input.float(0.15, "Taille minimale (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gFv,
      tooltip="Ignore les micro-gaps sans signification. Plus grand = seules les grosses imbalances sont retenues.")
-
-//=====================================================================
-// 11. IDM 3 — PROJETÉ (analyse, pas un pivot déjà formé)
-//
-// IDM 1 et IDM 2 sont des pivots RÉELS, déjà imprimés sur le graphique.
-// L'IDM 3 est différent : c'est une PROJECTION — le niveau où le prix
-// a le plus de chances de revenir se ravitailler avant de lancer le
-// vrai mouvement. Il n'existe pas encore, il est déduit.
-//
-// Comment il est placé (par ordre de qualité, dans le couloir de
-// retracement compris entre le prix actuel et l'origine du mouvement) :
-//   1. un Order Block non mitigé dans le sens de la tendance — la
-//      trace institutionnelle, le meilleur repère ;
-//   2. sinon une imbalance non comblée — le prix revient presque
-//      toujours combler un vide de prix ;
-//   3. sinon le 0.5 du mouvement — ta propre règle de retracement.
-// Une confluence OB + imbalance est signalée : c'est le cas le plus
-// fiable.
-//
-// QUAND IL DISPARAÎT (5 conditions, la première qui survient) :
-//   • le prix l'a touché      -> il a fait son travail ;
-//   • un BOS inverse survient -> la thèse est morte ;
-//   • un vrai IDM se forme au même niveau -> le réel remplace la
-//     projection ;
-//   • la liquidité cible est atteinte sans retour -> le retracement
-//     n'aura pas lieu ;
-//   • trop de bougies sans retour -> projection périmée.
-//=====================================================================
-gP3 = "11. IDM 3 — projeté (analyse)"
-showProjIdm = input.bool(true, "Afficher l'IDM 3 projeté", group=gP3,
-     tooltip="Niveau DÉDUIT (pas encore formé) où le prix a le plus de chances de revenir se ravitailler avant le vrai mouvement. Affiché en pointillés pour bien le distinguer des IDM 1 et 2, qui sont des pivots réels.")
-projIdmCol = input.color(#00e5ff, "Couleur IDM 3 projeté", group=gP3)
-projMaxBars = input.int(120, "Péremption sans retour du prix (bougies)", minval=10, maxval=500, group=gP3,
-     tooltip="Au-delà de ce nombre de bougies sans que le prix soit revenu, la projection est considérée comme périmée et disparaît.")
-projShowZone = input.bool(true, "Afficher la zone autour du niveau projeté", group=gP3,
-     tooltip="Bande fine autour du niveau, calibrée sur l'ATR — une projection n'est jamais un prix au tick près.")
 
 
 //=====================================================================
@@ -481,76 +394,11 @@ int   sensLevel  = volRatio >= 1.25 ? 3 : volRatio <= 0.85 ? 1 : 2
 float zigzagMult = isFastTF ? (sensLevel == 1 ? 0.7 : sensLevel == 2 ? 1.0 : 1.5) : 1.5
 float zigzagThresh = ta.atr(14) * zigzagMult
 
-//=====================================================================
-// OUTILS ANTI-ENCOMBREMENT — utilisés par TOUS les modules de zones.
-//
-//  f_zoneFar()  : la zone est-elle trop loin du prix pour être utile ?
-//  f_zoneFade() : atténue la couleur en fonction de la distance au prix
-//                 (net tout près, estompé au loin) — c'est ce qui permet
-//                 à l'œil de trouver instantanément ce qui compte.
-//
-// La distance est mesurée depuis le BORD le plus proche de la zone, pas
-// depuis son centre : une zone large que le prix effleure reste nette.
-//=====================================================================
-f_zoneDist(float zTop, float zBot) =>
-    close > zTop ? close - zTop : close < zBot ? zBot - close : 0.0
-
-f_zoneFar(float zTop, float zBot) =>
-    bool res = false
-    if useProxFilter and not na(atrFast) and atrFast > 0
-        res := f_zoneDist(zTop, zBot) > atrFast * zoneMaxDist
-    res
-
-f_zoneFade(color c, float zTop, float zBot) =>
-    color outCol = c
-    if useHierarchy and not na(atrFast) and atrFast > 0
-        float span  = atrFast * zoneMaxDist
-        float ratio = math.min(f_zoneDist(zTop, zBot) / span, 1.0)
-        int   baseT = int(color.t(c))
-        outCol := color.new(c, math.min(baseT + int(ratio * (97 - baseT)), 97))
-    outCol
-
-var int   zzDir        = 1
-var float zzExtreme    = na
-var int   zzExtremeBar = na
-
-float phZig = na
-float plZig = na
-var int phZigBar = na
-var int plZigBar = na
-
-if na(zzExtreme)
-    zzExtreme := high
-    zzExtremeBar := bar_index
-
-if not na(zigzagThresh)
-    if zzDir == 1
-        if high > zzExtreme
-            zzExtreme := high
-            zzExtremeBar := bar_index
-        if low <= zzExtreme - zigzagThresh
-            phZig := zzExtreme
-            phZigBar := zzExtremeBar
-            zzDir := -1
-            zzExtreme := low
-            zzExtremeBar := bar_index
-    else
-        if low < zzExtreme
-            zzExtreme := low
-            zzExtremeBar := bar_index
-        if high >= zzExtreme + zigzagThresh
-            plZig := zzExtreme
-            plZigBar := zzExtremeBar
-            zzDir := 1
-            zzExtreme := high
-            zzExtremeBar := bar_index
-
 //---------------------------------------------------------------------
 // ZIGZAG FIN — dédié UNIQUEMENT à l'IDM. Même mécanique que le zigzag
-// structurel, mais avec un seuil réduit (idmFineRatio) : il capte donc
-// les petits swings intermédiaires que la structure ignore. C'est ce
-// qui permet à l'IDM de se déplacer à CHAQUE cassure, même petite,
-// sans pour autant polluer la détection des vrais BOS/BMS.
+// structurel mais avec un seuil réduit : il capte les petits swings que
+// la structure ignore, ce qui permet à l'IDM de se déplacer à CHAQUE
+// cassure sans polluer la détection des vrais BOS/BMS.
 //---------------------------------------------------------------------
 float zzFineThresh = zigzagThresh * idmFineRatio
 
@@ -589,6 +437,41 @@ if not na(zzFineThresh) and zzFineThresh > 0
             zzfExtreme := high
             zzfExtremeBar := bar_index
 
+var int   zzDir        = 1
+var float zzExtreme    = na
+var int   zzExtremeBar = na
+
+float phZig = na
+float plZig = na
+var int phZigBar = na
+var int plZigBar = na
+
+if na(zzExtreme)
+    zzExtreme := high
+    zzExtremeBar := bar_index
+
+if not na(zigzagThresh)
+    if zzDir == 1
+        if high > zzExtreme
+            zzExtreme := high
+            zzExtremeBar := bar_index
+        if low <= zzExtreme - zigzagThresh
+            phZig := zzExtreme
+            phZigBar := zzExtremeBar
+            zzDir := -1
+            zzExtreme := low
+            zzExtremeBar := bar_index
+    else
+        if low < zzExtreme
+            zzExtreme := low
+            zzExtremeBar := bar_index
+        if high >= zzExtreme + zigzagThresh
+            plZig := zzExtreme
+            plZigBar := zzExtremeBar
+            zzDir := 1
+            zzExtreme := high
+            zzExtremeBar := bar_index
+
 // Sensibilité MANUELLE : réglage classique par nombre de bougies,
 // directement branché sur ta.pivothigh/pivotlow — appelées
 // INCONDITIONNELLEMENT chaque bougie (obligatoire pour ces fonctions),
@@ -604,16 +487,12 @@ int plBar = pivMode == "Manuel" ? (na(plManualRaw) ? na : bar_index[pivLenManual
 
 // Pivots vus par l'IDM : les mêmes que la structure, SAUF si la
 // détection fine est active (et hors mode Manuel, où tu règles déjà la
-// sensibilité toi-même). L'IDM se déplace alors aussi sur les petits
-// swings, ce qui est le comportement voulu.
+// sensibilité toi-même).
 bool  idmUsesFine = idmFineDetect and pivMode != "Manuel"
 float idmPh    = idmUsesFine ? phFine    : ph
 float idmPl    = idmUsesFine ? plFine    : pl
 int   idmPhBar = idmUsesFine ? phFineBar : phBar
 int   idmPlBar = idmUsesFine ? plFineBar : plBar
-
-// Marquages de structure conserves (les plus anciens sont supprimes)
-var label[] pivotMarks = array.new_label()
 
 var float lastPH = na
 var float prevPH = na
@@ -643,16 +522,14 @@ if not na(ph) and inLookback
         array.shift(intactHighLevels)
         array.shift(intactHighBars)
 
-    if showStruct and okStruct and not lblNone
+    if showStruct
         string txt = na(prevPH) ? "H" : ph > prevPH ? "HH" : "LH"
         color col = na(prevPH) ? rangeCol : ph > prevPH ? bullCol : bearCol
-        array.push(pivotMarks, label.new(phBar, ph, txt,
+        label.new(phBar, ph, txt,
              style=label.style_label_down,
              color=color.new(col, 80),
              textcolor=col,
-             size=size.small))
-        if array.size(pivotMarks) > maxPivotMarks
-            label.delete(array.shift(pivotMarks))
+             size=size.small)
 
 if not na(pl) and inLookback
     prevPL := lastPL
@@ -665,16 +542,14 @@ if not na(pl) and inLookback
         array.shift(intactLowLevels)
         array.shift(intactLowBars)
 
-    if showStruct and okStruct and not lblNone
+    if showStruct
         string txt = na(prevPL) ? "L" : pl > prevPL ? "HL" : "LL"
         color col = na(prevPL) ? rangeCol : pl > prevPL ? bullCol : bearCol
-        array.push(pivotMarks, label.new(plBar, pl, txt,
+        label.new(plBar, pl, txt,
              style=label.style_label_up,
              color=color.new(col, 80),
              textcolor=col,
-             size=size.small))
-        if array.size(pivotMarks) > maxPivotMarks
-            label.delete(array.shift(pivotMarks))
+             size=size.small)
 
 
 //=====================================================================
@@ -731,12 +606,8 @@ bool chochBear = false
 
 if isStructLowBroken
     if array.size(structLines) >= structHistoryNbr
-        line  oldSL = array.get(structLines, 0)
-        label oldSB = array.get(structLabels, 0)
-        if not na(oldSL)
-            line.delete(oldSL)
-        if not na(oldSB)
-            label.delete(oldSB)
+        line.delete(array.get(structLines, 0))
+        label.delete(array.get(structLabels, 0))
         array.remove(structLines, 0)
         array.remove(structLabels, 0)
 
@@ -744,11 +615,9 @@ if isStructLowBroken
     string evTxt = isContinuation ? "BMS" : "BOS"
     color  evCol = isContinuation ? bmsBearColor : bosBearColor
 
-    line  evLnD = okBosLine ? line.new(bosLowBar, bosLow, bar_index, bosLow, xloc=xloc.bar_index, extend=extend.none,
-         color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth) : na
-    label evLbD = (okBosLine and lblEss) ? label.new(int(math.avg(bar_index, bosLowBar)), bosLow, text=evTxt, style=label.style_none, textcolor=evCol) : na
-    array.push(structLines, evLnD)
-    array.push(structLabels, evLbD)
+    array.push(structLines, line.new(bosLowBar, bosLow, bar_index, bosLow, xloc=xloc.bar_index, extend=extend.none,
+         color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth))
+    array.push(structLabels, label.new(int(math.avg(bar_index, bosLowBar)), bosLow, text=evTxt, style=label.style_none, textcolor=evCol))
 
     if isContinuation
         bosBear := true
@@ -766,12 +635,8 @@ if isStructLowBroken
 
 else if isStructHighBroken
     if array.size(structLines) >= structHistoryNbr
-        line  oldSL = array.get(structLines, 0)
-        label oldSB = array.get(structLabels, 0)
-        if not na(oldSL)
-            line.delete(oldSL)
-        if not na(oldSB)
-            label.delete(oldSB)
+        line.delete(array.get(structLines, 0))
+        label.delete(array.get(structLabels, 0))
         array.remove(structLines, 0)
         array.remove(structLabels, 0)
 
@@ -779,11 +644,9 @@ else if isStructHighBroken
     string evTxt = isContinuation ? "BMS" : "BOS"
     color  evCol = isContinuation ? bmsBullColor : bosBullColor
 
-    line  evLnU = okBosLine ? line.new(bosHighBar, bosHigh, bar_index, bosHigh, xloc=xloc.bar_index, extend=extend.none,
-         color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth) : na
-    label evLbU = (okBosLine and lblEss) ? label.new(int(math.avg(bar_index, bosHighBar)), bosHigh, text=evTxt, style=label.style_none, textcolor=evCol) : na
-    array.push(structLines, evLnU)
-    array.push(structLabels, evLbU)
+    array.push(structLines, line.new(bosHighBar, bosHigh, bar_index, bosHigh, xloc=xloc.bar_index, extend=extend.none,
+         color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth))
+    array.push(structLabels, label.new(int(math.avg(bar_index, bosHighBar)), bosHigh, text=evTxt, style=label.style_none, textcolor=evCol))
 
     if isContinuation
         bosBull := true
@@ -822,7 +685,7 @@ if chochBear
 
 // Structure actuelle en cours (optionnel) — matérialise bosHigh/bosLow,
 // les niveaux qui pilotent la Liquidité Cible et le repli du SL.
-if showCurrentStruct and okCurStr
+if showCurrentStruct
     if not na(curStructHighLine)
         line.delete(curStructHighLine)
     if not na(curStructLowLine)
@@ -864,32 +727,32 @@ var label[] intactHighLbls  = array.new_label()
 var line[]  intactLowLines  = array.new_line()
 var label[] intactLowLbls   = array.new_label()
 
-// Purge indépendante par tableau : lignes et étiquettes ne sont plus
-// forcément en nombre égal (filtre de proximité sur les lignes, mode
-// "aucune étiquette" sur les libellés), donc jamais d'index partagé.
-while array.size(intactHighLines) > 0
-    line.delete(array.pop(intactHighLines))
-while array.size(intactHighLbls) > 0
-    label.delete(array.pop(intactHighLbls))
-while array.size(intactLowLines) > 0
-    line.delete(array.pop(intactLowLines))
-while array.size(intactLowLbls) > 0
-    label.delete(array.pop(intactLowLbls))
+if array.size(intactHighLines) > 0
+    for idx = array.size(intactHighLines) - 1 to 0
+        line.delete(array.get(intactHighLines, idx))
+        label.delete(array.get(intactHighLbls, idx))
+    array.clear(intactHighLines)
+    array.clear(intactHighLbls)
 
-if showIntact and okIntact
+if array.size(intactLowLines) > 0
+    for idx = array.size(intactLowLines) - 1 to 0
+        line.delete(array.get(intactLowLines, idx))
+        label.delete(array.get(intactLowLbls, idx))
+    array.clear(intactLowLines)
+    array.clear(intactLowLbls)
+
+if showIntact
     if array.size(intactHighLevels) > 0
         for idx = 0 to array.size(intactHighLevels) - 1
             float lvlH = array.get(intactHighLevels, idx)
             int   barH = array.get(intactHighBars, idx)
             int   rankH = array.size(intactHighLevels) - idx
             string txtH = "Intact Sellers #" + str.tostring(rankH)
-            if not f_zoneFar(lvlH, lvlH)
-                array.push(intactHighLines, line.new(barH, lvlH, bar_index + zoneExt, lvlH,
-                     color=f_zoneFade(intactSellCol, lvlH, lvlH), style=line.style_dashed, width=1))
-            if lblAll
-                array.push(intactHighLbls, label.new(bar_index + zoneExt, lvlH, txtH,
-                     style=label.style_label_left, color=color.new(intactSellCol, 80),
-                     textcolor=intactSellCol, size=size.small))
+            array.push(intactHighLines, line.new(barH, lvlH, bar_index + zoneExt, lvlH,
+                 color=intactSellCol, style=line.style_dashed, width=1))
+            array.push(intactHighLbls, label.new(bar_index + zoneExt, lvlH, txtH,
+                 style=label.style_label_left, color=color.new(intactSellCol, 80),
+                 textcolor=intactSellCol, size=size.small))
 
     if array.size(intactLowLevels) > 0
         for idx = 0 to array.size(intactLowLevels) - 1
@@ -897,13 +760,11 @@ if showIntact and okIntact
             int   barL = array.get(intactLowBars, idx)
             int   rankL = array.size(intactLowLevels) - idx
             string txtL = "Intact Buyers #" + str.tostring(rankL)
-            if not f_zoneFar(lvlL, lvlL)
-                array.push(intactLowLines, line.new(barL, lvlL, bar_index + zoneExt, lvlL,
-                     color=f_zoneFade(intactBuyCol, lvlL, lvlL), style=line.style_dashed, width=1))
-            if lblAll
-                array.push(intactLowLbls, label.new(bar_index + zoneExt, lvlL, txtL,
-                     style=label.style_label_left, color=color.new(intactBuyCol, 80),
-                     textcolor=intactBuyCol, size=size.small))
+            array.push(intactLowLines, line.new(barL, lvlL, bar_index + zoneExt, lvlL,
+                 color=intactBuyCol, style=line.style_dashed, width=1))
+            array.push(intactLowLbls, label.new(bar_index + zoneExt, lvlL, txtL,
+                 style=label.style_label_left, color=color.new(intactBuyCol, 80),
+                 textcolor=intactBuyCol, size=size.small))
 
 
 //=====================================================================
@@ -990,14 +851,13 @@ if showLiquidityTarget and targetValid
     if na(targetLine)
         targetLine := line.new(bar_index, targetLevel, bar_index + zoneExt, targetLevel,
              color=targetCol, style=line.style_dashed, width=2)
-        targetLbl := not lblEss ? na : label.new(bar_index + zoneExt, targetLevel, targetTxt,
+        targetLbl := label.new(bar_index + zoneExt, targetLevel, targetTxt,
              style=label.style_label_left, color=color.new(targetCol, 80), textcolor=targetCol, size=size.small)
     else
         line.set_xy1(targetLine, bar_index, targetLevel)
         line.set_xy2(targetLine, bar_index + zoneExt, targetLevel)
-        if not na(targetLbl)
-            label.set_xy(targetLbl, bar_index + zoneExt, targetLevel)
-            label.set_text(targetLbl, targetTxt)
+        label.set_xy(targetLbl, bar_index + zoneExt, targetLevel)
+        label.set_text(targetLbl, targetTxt)
 else
     if not na(targetLine)
         line.delete(targetLine)
@@ -1093,8 +953,8 @@ if newIDM
     line ln = na
     label lb = na
     if showIdmLines
-        // Étiquette IDM : direction + niveau exact, pour le localiser
-        // instantanément. Le "•0.5" signale un retracement déjà validé.
+        // Étiquette : direction + niveau exact, pour localiser l'IDM
+        // instantanément. "•0.5" = retracement déjà validé.
         string idmArrow = moveDir == 1 ? "▲" : "▼"
         string idmTxt0 = idmEmphasis ?
              idmArrow + " IDM 1 " + str.tostring(idmCandidate, format.mintick) + (candidateRetracementValid ? " •0.5" : "") :
@@ -1103,7 +963,7 @@ if newIDM
              color=idmActiveCol,
              style=idmEmphasis ? line.style_solid : line.style_dotted,
              width=idmEmphasis ? idmWidthBoost : 3)
-        lb := lblNone ? na : label.new(bar_index + 1, idmCandidate, idmTxt0,
+        lb := label.new(bar_index + 1, idmCandidate, idmTxt0,
              style=label.style_label_left,
              color=color.new(idmActiveCol, idmEmphasis ? 40 : 75),
              textcolor=idmEmphasis ? color.white : idmActiveCol,
@@ -1137,15 +997,13 @@ if newIDM
         line ln2 = array.get(idmLine, n - 2)
         if not na(ln2)
             line.set_color(ln2, idmWaitCol)
-            // Reste bien visible même en 2e position quand la mise en
-            // évidence est active : juste un cran en dessous du #1.
             line.set_width(ln2, idmEmphasis ? math.max(idmWidthBoost - 1, 2) : 2)
         label lb2 = array.get(idmLbl, n - 2)
         if not na(lb2)
             label.set_color(lb2, color.new(idmWaitCol, idmEmphasis ? 50 : 75))
             label.set_textcolor(lb2, idmEmphasis ? color.white : idmWaitCol)
-            // Renommé explicitement en "IDM 2" pour que les deux
-            // derniers IDM restent identifiables d'un coup d'œil.
+            // Renommé en "IDM 2" pour que les deux derniers IDM restent
+            // identifiables d'un coup d'œil.
             float lv2 = array.get(idmLevel, n - 2)
             int   dr2 = array.get(idmDir, n - 2)
             label.set_text(lb2, idmEmphasis ?
@@ -1275,7 +1133,7 @@ if array.size(idmLevel) > 0
                 // existait vraiment (règle 80/20 respectée). Bande TRÈS
                 // fine centrée exactement sur le niveau IDM que la mèche
                 // de CETTE bougie vient de toucher.
-                if showSniperRefine and okRefine and isTopTwo and not blockedByChoch and not na(szr)
+                if showSniperRefine and isTopTwo and not blockedByChoch and not na(szr)
                     float refineThick = atrSniper / 4
                     float refTop = lvl + refineThick
                     float refBot = lvl - refineThick
@@ -1394,7 +1252,7 @@ bool obBreakBull   = obStructBroke and not isStructLowBroken
 int obOriginBar = obBreakBull ? brokenHighBar : brokenLowBar
 int obScanLen   = obStructBroke and not na(obOriginBar) ? math.min(math.max(bar_index - obOriginBar, 1), 50) : 0
 
-if showOB and okOB and obStructBroke and inLookback and obScanLen > 0
+if showOB and obStructBroke and inLookback and obScanLen > 0
     float minima = obMin[1]
     float maxima = obMax[1]
     int   locOff = 1
@@ -1525,7 +1383,7 @@ if barstate.islast
     while array.size(obDrawLbl) > 0
         label.delete(array.pop(obDrawLbl))
 
-    if showOB and okOB and array.size(obTopA) > 0
+    if showOB and array.size(obTopA) > 0
         int drawnBull = 0
         int drawnBear = 0
 
@@ -1541,22 +1399,15 @@ if barstate.islast
             // justement changé de polarité.
             bool dirOk = not obFilter8020 or kOb or confirmedTrend == 0 or confirmedTrend == dOb
             bool brkOk = obShowBreaker or not kOb
-            // Anti-encombrement : uniquement la proximité au prix.
-            // "Masquer les zones testées" ne s'applique JAMAIS aux
-            // Order Blocks : un OB touché reste valide, et un OB cassé
-            // devient un Breaker (polarité inversée) qui est justement
-            // l'information la plus utile. Ce filtre ne concerne que les
-            // zones Supply/Demand.
-            bool nearOk = not f_zoneFar(tOb, bOb)
 
-            if quotaOk and dirOk and brkOk and nearOk
+            if quotaOk and dirOk and brkOk
                 if dOb == 1
                     drawnBull += 1
                 else
                     drawnBear += 1
 
-                color baseCol = f_zoneFade(dOb == 1 ? obBullCol : obBearCol, tOb, bOb)
-                color brkCol  = f_zoneFade(dOb == 1 ? obBullBreakCol : obBearBreakCol, tOb, bOb)
+                color baseCol = dOb == 1 ? obBullCol : obBearCol
+                color brkCol  = dOb == 1 ? obBullBreakCol : obBearBreakCol
                 color solid   = color.rgb(color.r(baseCol), color.g(baseCol), color.b(baseCol))
                 color brkSol  = color.rgb(color.r(brkCol), color.g(brkCol), color.b(brkCol))
 
@@ -1581,9 +1432,8 @@ if barstate.islast
                          xloc=xloc.bar_index, color=brkSol, style=line.style_dashed))
                     array.push(obDrawLn, line.new(bLoc, bOb, rightEdge, bOb,
                          xloc=xloc.bar_index, color=brkSol, style=line.style_dashed))
-                    if lblAll
-                        array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
-                             style=label.style_label_left, color=brkCol, textcolor=brkSol, size=size.tiny))
+                    array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
+                         style=label.style_label_left, color=brkCol, textcolor=brkSol, size=size.tiny))
                 else
                     array.push(obDrawBox, box.new(lOb, tOb, rightEdge, bOb,
                          border_color=na, bgcolor=baseCol))
@@ -1591,9 +1441,8 @@ if barstate.islast
                          xloc=xloc.bar_index, color=solid))
                     array.push(obDrawLn, line.new(lOb, bOb, rightEdge, bOb,
                          xloc=xloc.bar_index, color=solid))
-                    if lblAll
-                        array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
-                             style=label.style_label_left, color=baseCol, textcolor=solid, size=size.tiny))
+                    array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
+                         style=label.style_label_left, color=baseCol, textcolor=solid, size=size.tiny))
 
 
 
@@ -1622,7 +1471,7 @@ var int   sdBaseStart = na
 
 float sdBody      = math.abs(close - open)
 bool  atrReady    = not na(atrFast) and atrFast > 0
-bool  sdIsImpulse = showSD and okSD and inLookback and atrReady and sdBody > atrFast * sdImpulseMult
+bool  sdIsImpulse = showSD and inLookback and atrReady and sdBody > atrFast * sdImpulseMult
 bool  sdIsSmall   = atrReady and sdBody < atrFast * 0.8
 int   sdDirNow    = close > open ? 1 : -1
 
@@ -1635,7 +1484,7 @@ if sdIsImpulse
         box   sb = box.new(sdBaseStart, sdBaseTop, bar_index + zoneExt, sdBaseBot,
              border_color=sdCol, border_width=1,
              bgcolor=color.new(sdCol, 88))
-        label sl = not lblAll ? na : label.new(sdBaseStart, sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
+        label sl = label.new(sdBaseStart, sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
              style=sdDirNow == 1 ? label.style_label_up : label.style_label_down,
              color=color.new(sdCol, 82), textcolor=sdCol, size=size.tiny)
 
@@ -1684,9 +1533,7 @@ if array.size(sdBox) > 0
             keepIt := keepSupply <= sdCount
         if not keepIt
             box.delete(array.get(sdBox, i))
-            label sdOld = array.get(sdLbl, i)
-            if not na(sdOld)
-                label.delete(sdOld)
+            label.delete(array.get(sdLbl, i))
             array.remove(sdBox, i)
             array.remove(sdLbl, i)
             array.remove(sdTop, i)
@@ -1701,29 +1548,6 @@ if array.size(sdBox) > 0
     for i = 0 to array.size(sdBox) - 1
         box bx = array.get(sdBox, i)
         box.set_right(bx, bar_index + zoneExt)
-
-        float sdT = array.get(sdTop, i)
-        float sdB = array.get(sdBot, i)
-        bool  sdWasHit = array.get(sdMit, i)
-
-        // Anti-superposition : si un Order Block (plus précis) recouvre
-        // cette zone, on masque la zone large — priorité OB > S/D.
-        bool sdUnderOB = false
-        if useAntiOverlap and array.size(obTopA) > 0
-            for k = 0 to array.size(obTopA) - 1
-                if not sdUnderOB and sdT >= array.get(obBtmA, k) and sdB <= array.get(obTopA, k)
-                    sdUnderOB := true
-
-        bool sdHide = f_zoneFar(sdT, sdB) or sdUnderOB or (hideTested and sdWasHit)
-        color sdShownCol = sdHide ? color.new(color.gray, 100) :
-             f_zoneFade(sdWasHit ? sdMitigatedCol : (array.get(sdDir, i) == 1 ? sdDemandCol : sdSupplyCol), sdT, sdB)
-        box.set_bgcolor(bx, sdShownCol)
-        box.set_border_color(bx, sdHide ? color.new(color.gray, 100) : sdShownCol)
-        label sdLb = array.get(sdLbl, i)
-        if not na(sdLb)
-            label.set_color(sdLb, sdHide ? color.new(color.gray, 100) : sdShownCol)
-            label.set_textcolor(sdLb, sdHide ? color.new(color.gray, 100) : sdShownCol)
-
         if not array.get(sdMit, i)
             if low <= array.get(sdTop, i) and high >= array.get(sdBot, i)
                 array.set(sdMit, i, true)
@@ -1731,9 +1555,8 @@ if array.size(sdBox) > 0
                 box.set_border_color(bx, sdMitigatedCol)
                 box.set_bgcolor(bx, color.new(sdMitigatedCol, 92))
                 label lbD = array.get(sdLbl, i)
-                if not na(lbD)
-                    label.set_color(lbD, color.new(sdMitigatedCol, 85))
-                    label.set_textcolor(lbD, sdMitigatedCol)
+                label.set_color(lbD, color.new(sdMitigatedCol, 85))
+                label.set_textcolor(lbD, sdMitigatedCol)
 
 
 //=====================================================================
@@ -1756,22 +1579,20 @@ var float[] fvgTop = array.new_float()
 var float[] fvgBot = array.new_float()
 var int[]   fvgDir = array.new_int()
 
-bool fvgUpNew   = showFvg and okFvg and inLookback and bar_index >= 2 and low > high[2]
-bool fvgDownNew = showFvg and okFvg and inLookback and bar_index >= 2 and high < low[2]
+bool fvgUpNew   = showFvg and inLookback and bar_index >= 2 and low > high[2]
+bool fvgDownNew = showFvg and inLookback and bar_index >= 2 and high < low[2]
 float fvgMinPx  = atrReady ? atrFast * fvgMinSize : 0.0
 
 if fvgUpNew and (low - high[2]) >= fvgMinPx
     array.push(fvgBox, box.new(bar_index - 2, low, bar_index + zoneExt, high[2],
-         border_color=color.new(color.rgb(color.r(fvgBullCol), color.g(fvgBullCol), color.b(fvgBullCol)), 30),
-         border_width=1, bgcolor=fvgBullCol))
+         border_color=na, bgcolor=fvgBullCol))
     array.push(fvgTop, low)
     array.push(fvgBot, high[2])
     array.push(fvgDir, 1)
 
 if fvgDownNew and (low[2] - high) >= fvgMinPx
     array.push(fvgBox, box.new(bar_index - 2, low[2], bar_index + zoneExt, high,
-         border_color=color.new(color.rgb(color.r(fvgBearCol), color.g(fvgBearCol), color.b(fvgBearCol)), 30),
-         border_width=1, bgcolor=fvgBearCol))
+         border_color=na, bgcolor=fvgBearCol))
     array.push(fvgTop, low[2])
     array.push(fvgBot, high)
     array.push(fvgDir, -1)
@@ -1814,24 +1635,6 @@ if array.size(fvgBox) > 0
             box.set_bottom(bxF, fB)
             box.set_right(bxF, bar_index + zoneExt)
 
-            // Anti-superposition : l'imbalance est la MOINS prioritaire.
-            // Elle s'efface si un Order Block ou une zone Supply/Demand
-            // couvre déjà la même plage de prix.
-            bool fvgCovered = false
-            if useAntiOverlap
-                if array.size(obTopA) > 0
-                    for k = 0 to array.size(obTopA) - 1
-                        if not fvgCovered and fT >= array.get(obBtmA, k) and fB <= array.get(obTopA, k)
-                            fvgCovered := true
-                if not fvgCovered and array.size(sdBox) > 0
-                    for k = 0 to array.size(sdBox) - 1
-                        if not fvgCovered and fT >= array.get(sdBot, k) and fB <= array.get(sdTop, k)
-                            fvgCovered := true
-
-            bool fvgHide = f_zoneFar(fT, fB) or fvgCovered
-            box.set_bgcolor(bxF, fvgHide ? color.new(color.gray, 100) :
-                 f_zoneFade(fD == 1 ? fvgBullCol : fvgBearCol, fT, fB))
-
 // Purge : au plus fvgCount imbalances par côté, les plus récentes.
 if array.size(fvgBox) > 0
     int keepUp = 0
@@ -1850,152 +1653,6 @@ if array.size(fvgBox) > 0
             array.remove(fvgTop, i)
             array.remove(fvgBot, i)
             array.remove(fvgDir, i)
-
-
-//=====================================================================
-// IDM 3 — PROJETÉ (module 11). Analyse, pas un pivot déjà formé.
-//
-// On cherche, DANS LE COULOIR DE RETRACEMENT (entre le prix actuel et
-// l'origine du mouvement), le meilleur endroit où le prix viendrait se
-// ravitailler avant de lancer le vrai mouvement :
-//   priorité 1 : Order Block non mitigé, dans le sens du mouvement
-//   priorité 2 : imbalance non comblée
-//   priorité 3 : le 0.5 du mouvement (ta règle de retracement)
-//
-// La projection est RECALCULÉE tant que le prix n'est pas revenu ;
-// elle se fige dès qu'elle est posée sur un OB (le meilleur repère).
-//=====================================================================
-var float projLvl    = na
-var int   projDirV   = 0
-var string projBasis = ""
-var int   projAge    = 0
-var line  projLine   = na
-var label projLbl    = na
-var box   projBox    = na
-
-// Borne lointaine du couloir de retracement : l'origine du mouvement.
-float projTo = na(moveOrigin) ? na : moveOrigin
-
-float projCand  = na
-string projFrom_ = ""
-
-if showProjIdm and moveDir != 0 and not na(moveFib50) and not na(projTo) and inLookback
-    float loBound = moveDir == 1 ? math.min(projTo, close) : math.min(close, projTo)
-    float hiBound = moveDir == 1 ? math.max(projTo, close) : math.max(close, projTo)
-
-    // --- Priorité 1 : Order Block non mitigé dans le sens du mouvement,
-    // situé dans le couloir de retracement. On retient le plus PROCHE du
-    // prix : c'est celui que le prix rencontrera en premier.
-    float bestOb   = na
-    float bestObD  = na
-    if array.size(obTopA) > 0
-        for i = 0 to array.size(obTopA) - 1
-            if array.get(obDirA, i) == moveDir and not array.get(obBrkA, i)
-                float mid = (array.get(obTopA, i) + array.get(obBtmA, i)) / 2.0
-                if mid >= loBound and mid <= hiBound
-                    float d = math.abs(close - mid)
-                    if na(bestObD) or d < bestObD
-                        bestObD := d
-                        bestOb  := mid
-
-    // --- Priorité 2 : imbalance non comblée dans le même couloir.
-    float bestFvg  = na
-    float bestFvgD = na
-    if array.size(fvgTop) > 0
-        for i = 0 to array.size(fvgTop) - 1
-            if array.get(fvgDir, i) == moveDir
-                float midF = (array.get(fvgTop, i) + array.get(fvgBot, i)) / 2.0
-                if midF >= loBound and midF <= hiBound
-                    float dF = math.abs(close - midF)
-                    if na(bestFvgD) or dF < bestFvgD
-                        bestFvgD := dF
-                        bestFvg  := midF
-
-    // Confluence OB + imbalance : le cas le plus fiable.
-    bool confluent = not na(bestOb) and not na(bestFvg) and
-         math.abs(bestOb - bestFvg) <= (na(atrFast) ? 0.0 : atrFast * 0.5)
-
-    projCand  := not na(bestOb) ? bestOb : not na(bestFvg) ? bestFvg : moveFib50
-    projFrom_ := not na(bestOb) ? (confluent ? "OB + imbalance" : "Order Block") :
-         not na(bestFvg) ? "imbalance" : "0.5 du mouvement"
-
-// Pose / mise à jour de la projection tant que le prix n'est pas revenu.
-if showProjIdm and not na(projCand)
-    bool alreadyOnOb = projBasis == "Order Block" or projBasis == "OB + imbalance"
-    bool keepFrozen  = not na(projLvl) and projDirV == moveDir and alreadyOnOb
-    if not keepFrozen
-        if na(projLvl) or projDirV != moveDir
-            projAge := 0
-        projLvl   := projCand
-        projDirV  := moveDir
-        projBasis := projFrom_
-
-if not na(projLvl)
-    projAge := projAge + 1
-
-//---------------------------------------------------------------------
-// DISPARITION — 5 conditions, la première qui survient l'emporte.
-//---------------------------------------------------------------------
-bool projHit = not na(projLvl) and
-     (projDirV == 1 ? low <= projLvl : projDirV == -1 ? high >= projLvl : false)
-
-// Un BOS (retournement) dans le sens opposé tue la thèse.
-bool projFlip = not na(projLvl) and
-     ((projDirV == 1 and chochBear) or (projDirV == -1 and chochBull))
-
-// Un vrai IDM s'est formé au même endroit : le réel remplace la projection.
-bool projReplaced = false
-if not na(projLvl) and array.size(idmLevel) > 0 and not na(atrFast)
-    for i = array.size(idmLevel) - 1 to 0
-        if not projReplaced and not array.get(idmDone, i) and array.get(idmDir, i) == projDirV
-            if math.abs(array.get(idmLevel, i) - projLvl) <= atrFast * 0.5
-                projReplaced := true
-
-// La cible de liquidité est atteinte sans que le prix soit revenu :
-// le retracement anticipé n'aura pas lieu.
-bool projTargetDone = not na(projLvl) and targetValid and
-     (projDirV == 1 ? high >= targetLevel : low <= targetLevel)
-
-bool projStale = not na(projLvl) and projAge > projMaxBars
-
-bool projGone = projHit or projFlip or projReplaced or projTargetDone or projStale
-
-if projGone
-    projLvl   := na
-    projDirV  := 0
-    projBasis := ""
-    projAge   := 0
-
-//---------------------------------------------------------------------
-// AFFICHAGE — pointillés, pour bien marquer que c'est une PROJECTION et
-// non un pivot réel comme IDM 1 et IDM 2.
-//---------------------------------------------------------------------
-if not na(projLine)
-    line.delete(projLine)
-    projLine := na
-if not na(projLbl)
-    label.delete(projLbl)
-    projLbl := na
-if not na(projBox)
-    box.delete(projBox)
-    projBox := na
-
-if showProjIdm and not na(projLvl) and barstate.islast
-    float projPad = na(atrFast) ? 0.0 : atrFast * 0.12
-    if projShowZone and projPad > 0
-        projBox := box.new(bar_index - 2, projLvl + projPad, bar_index + zoneExt, projLvl - projPad,
-             border_color=color.new(projIdmCol, 40), border_width=1,
-             bgcolor=color.new(projIdmCol, 88))
-    projLine := line.new(bar_index - 2, projLvl, bar_index + zoneExt, projLvl,
-         color=projIdmCol, style=line.style_dashed, width=2)
-    if lblEss
-        string projTxt = (projDirV == 1 ? "▲" : "▼") + " IDM 3 projeté " +
-             str.tostring(projLvl, format.mintick) + " (" + projBasis + ")"
-        projLbl := label.new(bar_index + zoneExt, projLvl, projTxt,
-             style=label.style_label_left,
-             color=color.new(projIdmCol, 45),
-             textcolor=color.white,
-             size=size.small)
 
 // Le prix est-il dans une imbalance en ce moment ?
 int fvgZoneDir = 0
@@ -2032,7 +1689,7 @@ if obZoneDir != 0 and fvgZoneDir != 0
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si tous
 // les autres modules d'affichage sont désactivés
 //=====================================================================
-var table dash = table.new(position.top_right, 2, 9,
+var table dash = table.new(position.top_right, 2, 8,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showDash and barstate.islast
@@ -2051,12 +1708,12 @@ if showDash and barstate.islast
     // (h1Bias), jamais au chart courant. H1 haussier -> acheteur, H1
     // baissier -> vendeur, rien d'autre à mélanger.
     string posTxt = h1Bias == 1 ? "ACHETEUR" : h1Bias == -1 ? "VENDEUR" : "NEUTRE"
-    color  posCol = h1Bias == 1 ? entryBuyCol : h1Bias == -1 ? entrySellCol : dashValueCol
+    color  posCol = h1Bias == 1 ? entryBuyCol : h1Bias == -1 ? entrySellCol : rangeCol
 
-    // LES 2 DERNIERS IDM en attente, du plus récent au précédent. Ils se
-    // déplacent en permanence — à chaque nouvelle cassure, même petite,
-    // un nouveau candidat prend le rang 1 et l'ancien descend au rang 2.
-    // C'est la logique même de l'IDM, pas une instabilité.
+    // IDM en attente — UN SEUL, le plus récent qui respecte la
+    // structure actuelle (règle 80/20 : direction == confirmedTrend).
+    // Se déplace automatiquement dès qu'un nouveau candidat remplace
+    // l'ancien — c'est normal, c'est la logique même de l'IDM.
     int nIdm = array.size(idmLevel)
     int idmWaitIdx  = -1
     int idmWaitIdx2 = -1
@@ -2079,10 +1736,10 @@ if showDash and barstate.islast
     string targetDashTxt = targetValid ?
          str.tostring(targetLevel, format.mintick) + (na(targetProgressPct) ? "" : " (" + str.tostring(targetProgressPct, "#") + "% parcouru)") :
          "-"
-    color targetDashCol = targetValid ? targetCol : dashValueCol
+    color targetDashCol = targetValid ? targetCol : rangeCol
 
     string actionTxt = "-"
-    color actionCol = dashValueCol
+    color actionCol = rangeCol
 
     if entrySignalBuy
         actionTxt := "ENTRER ACHAT MAINTENANT"
@@ -2095,7 +1752,7 @@ if showDash and barstate.islast
         actionCol := idmActiveCol
     else if nIdm > 0
         actionTxt := "Attendre le prochain IDM"
-        actionCol := dashValueCol
+        actionCol := rangeCol
 
     table.cell(dash, 0, 0, "SMV — MOTEUR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
     table.merge_cells(dash, 0, 0, 1, 0)
@@ -2112,24 +1769,17 @@ if showDash and barstate.islast
     table.cell(dash, 0, 4, "IDM 2 (le précédent)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 4, idmWaitTxt2, text_color=idmWaitColCell2, text_size=size.small, bgcolor=dashBgCol)
 
-    // IDM 3 : niveau PROJETÉ (déduit), pas un pivot déjà formé.
-    string proj3Txt = na(projLvl) ? "-" :
-         (projDirV == 1 ? "IDBL " : "IDBR ") + str.tostring(projLvl, format.mintick) + " (" + projBasis + ")"
-    color proj3Col = na(projLvl) ? dashValueCol : projIdmCol
-    table.cell(dash, 0, 5, "IDM 3 (projeté)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 5, proj3Txt, text_color=proj3Col, text_size=size.small, bgcolor=dashBgCol)
-
-    table.cell(dash, 0, 6, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 6, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 5, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 5, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
 
     // Confirmation par la zone : le prix est-il actuellement DANS un
     // Order Block ou une zone Supply/Demand de ce timeframe ?
     color zoneNowCol = zoneNowDir == 1 ? entryBuyCol : zoneNowDir == -1 ? entrySellCol : dashValueCol
-    table.cell(dash, 0, 7, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 7, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 6, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 6, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 8, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 8, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 7, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 7, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
@@ -2175,12 +1825,12 @@ if accActive
         if na(accSTBBar)
             accSTBBar := bar_index
             accSTBVal := low
-            if showPhaseMarkers and okPhase and lblEss
+            if showPhaseMarkers
                 label.new(accSTBBar, accSTBVal, "STB", style=label.style_label_up, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small)
         else
             accSpringBar := bar_index
             accSpringVal := low
-            if showPhaseMarkers and okPhase and lblEss
+            if showPhaseMarkers
                 label.new(accSpringBar, accSpringVal, "SPRING", style=label.style_label_up, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
         accLow := low
     if newMoveDown
@@ -2195,12 +1845,12 @@ if disActive
         if na(disUTBar)
             disUTBar := bar_index
             disUTVal := high
-            if showPhaseMarkers and okPhase and lblEss
+            if showPhaseMarkers
                 label.new(disUTBar, disUTVal, "UT", style=label.style_label_down, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small)
         else
             disUTADBar := bar_index
             disUTADVal := high
-            if showPhaseMarkers and okPhase and lblEss
+            if showPhaseMarkers
                 label.new(disUTADBar, disUTADVal, "UTAD", style=label.style_label_down, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
         disHigh := high
     if newMoveUp
@@ -2214,10 +1864,9 @@ if accActive and newMoveUp and not na(accSCBar)
     lastPhase := phTxt
     accActive := false
     phaseAccConfirmed := true
-    if showPhaseBox and okPhase
+    if showPhaseBox
         box.new(accSCBar, topA, bar_index, accLow, border_color=color.new(bullCol, 30), bgcolor=color.new(bullCol, 92))
-        if lblAll
-            label.new(accSCBar, topA, phTxt, style=label.style_label_down, color=color.new(bullCol, 55), textcolor=bullCol, size=size.small)
+        label.new(accSCBar, topA, phTxt, style=label.style_label_down, color=color.new(bullCol, 55), textcolor=bullCol, size=size.small)
 
 if disActive and newMoveDown and not na(disBCBar)
     float botD = math.min(disBottom, low)
@@ -2225,10 +1874,9 @@ if disActive and newMoveDown and not na(disBCBar)
     lastPhase := phTxt
     disActive := false
     phaseDisConfirmed := true
-    if showPhaseBox and okPhase
+    if showPhaseBox
         box.new(disBCBar, disHigh, bar_index, botD, border_color=color.new(bearCol, 30), bgcolor=color.new(bearCol, 92))
-        if lblAll
-            label.new(disBCBar, botD, phTxt, style=label.style_label_up, color=color.new(bearCol, 55), textcolor=bearCol, size=size.small)
+        label.new(disBCBar, botD, phTxt, style=label.style_label_up, color=color.new(bearCol, 55), textcolor=bearCol, size=size.small)
 
 if not accActive and not na(pl)
     accActive := true
@@ -2242,7 +1890,7 @@ if not accActive and not na(pl)
     accSpringVal := na
     accAge := 0
     accStartBias := bias
-    if showPhaseMarkers and okPhase and lblEss
+    if showPhaseMarkers
         label.new(accSCBar, accSC, "SC", style=label.style_label_up, color=color.new(bullCol, 70), textcolor=bullCol, size=size.small)
 
 if not disActive and not na(ph)
@@ -2257,7 +1905,7 @@ if not disActive and not na(ph)
     disUTADVal := na
     disAge := 0
     disStartBias := bias
-    if showPhaseMarkers and okPhase and lblEss
+    if showPhaseMarkers
         label.new(disBCBar, disBC, "BC", style=label.style_label_down, color=color.new(bearCol, 70), textcolor=bearCol, size=size.small)
 
 bool stbJustFormed    = accSTBBar == bar_index
@@ -2286,6 +1934,5 @@ alertcondition(utJustFormed, "Phase — UT détecté", "SMV : UT détecté en di
 alertcondition(utadJustFormed, "Phase — UTAD détecté", "SMV : UTAD détecté en distribution")
 alertcondition(obTouchedNow, "OB touché", "SMV : le prix est dans un Order Block encore valide — observe la réaction")
 alertcondition(obJustBroke, "OB cassé → Breaker Block", "SMV : un Order Block vient d'être cassé, il devient un Breaker Block (polarité inversée)")
-alertcondition(projHit, "IDM 3 projeté atteint", "SMV : le prix vient d'atteindre le niveau IDM 3 projeté — zone de ravitaillement anticipée")
 alertcondition(fvgFilledNow, "Imbalance en cours de comblement", "SMV : le prix est en train de combler une imbalance (FVG)")
 alertcondition(sdTouched, "Zone Supply/Demand touchée", "SMV : le prix vient d'entrer dans une zone Supply/Demand — observe la réaction")
