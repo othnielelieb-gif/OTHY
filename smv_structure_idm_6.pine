@@ -365,6 +365,41 @@ showIdm4 = input.bool(true, "Afficher l'IDM 4", group=gP4,
 idm4Col = input.color(#ffab00, "Couleur IDM 4", group=gP4)
 idm4ShowZone = input.bool(true, "Afficher la zone autour du niveau", group=gP4)
 
+gTP = "13. Plan de trade — SL / TP1 / TP2 / TP3"
+showTradePlan = input.bool(true, "Afficher le plan de trade", group=gTP,
+     tooltip="Dès qu'un IDM est récupéré (ton signal d'entrée actuel), l'indicateur pose le stop et les trois objectifs, puis suit le trade jusqu'au bout. Il ne CRÉE aucun signal : il habille uniquement ceux que ton moteur produit déjà. Ta structure, tes IDM, tes Sniper Zones et ta Liquidité Cible ne sont pas touchés.")
+stopModeStruct = input.bool(true, "Stop structurel (juste au-delà de l'IDM)", group=gTP,
+     tooltip="COCHÉ (recommandé) : le stop se place juste derrière l'IDM récupéré. C'est le vrai point d'invalidation de ta stratégie — si le prix repasse derrière l'IDM, le setup est mort. DÉCOCHÉ : distance fixe en ATR, comme un indicateur générique.")
+stopBufAtr = input.float(0.25, "Marge du stop au-delà de l'IDM (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gTP,
+     tooltip="Petit coussin derrière l'IDM pour ne pas se faire sortir par une mèche. Plus grand = stop plus large, donc objectifs plus lointains en prix pour un même R.")
+stopAtrMult = input.float(1.2, "Distance du stop en ATR (si stop structurel décoché)", minval=0.2, maxval=5.0, step=0.1, group=gTP)
+rMul1 = input.float(1.0, "TP1 (en R)", minval=0.2, maxval=10.0, step=0.1, group=gTP)
+rMul2 = input.float(2.0, "TP2 (en R)", minval=0.2, maxval=20.0, step=0.1, group=gTP)
+rMul3 = input.float(3.0, "TP3 (en R)", minval=0.2, maxval=30.0, step=0.1, group=gTP)
+tpModeTarget = input.bool(true, "Caler le TP3 sur la Liquidité Cible", group=gTP,
+     tooltip="COCHÉ (recommandé) : ton indicateur sait déjà où le prix veut aller — le dernier objectif se pose dessus au lieu d'un 3R arbitraire. Si la cible est derrière le prix ou plus proche que le TP2, le 3R reprend automatiquement la main.")
+maxOpenTr = input.int(1, "Trades simultanés maximum", minval=1, maxval=5, group=gTP,
+     tooltip="À 1, un nouveau signal est ignoré tant que le trade en cours n'est pas terminé — c'est ce qui donne un scoreboard lisible. Au-delà, les trades se superposent sur le graphique.")
+maxBarsTr = input.int(60, "Abandonner après N bougies", minval=5, maxval=500, group=gTP,
+     tooltip="Un trade qui n'a touché ni son stop ni son TP3 au bout de N bougies est classé « expiré ». Il ne compte ni en gain ni en perte.")
+keepTr = input.int(5, "Garder les N derniers trades à l'écran", minval=1, maxval=30, group=gTP)
+tpZoneShow = input.bool(true, "Afficher les zones risque / gain", group=gTP,
+     tooltip="Décoche pour ne garder que les lignes de stop et d'objectifs, sans les rectangles colorés. Beaucoup plus léger visuellement.")
+tpCol = input.color(#00e39a, "Couleur des objectifs", group=gTP)
+slCol = input.color(#ff3b6b, "Couleur du stop", group=gTP)
+fadeClosedTr = input.bool(true, "Estomper les trades terminés", group=gTP,
+     tooltip="Le trade en cours reste vif, les trades finis s'effacent. Un objectif ATTEINT s'efface deux fois moins qu'un objectif manqué : tu peux lire d'un coup d'œil jusqu'où chaque trade est allé.")
+fadeStrength = input.int(55, "Force de l'estompage", minval=0, maxval=95, group=gTP)
+
+gSc = "14. Scoreboard — résultats réels de TA stratégie"
+showScore = input.bool(true, "Afficher le scoreboard", group=gSc,
+     tooltip="Compte, sur tout l'historique visible, combien de fois ton setup est parti et jusqu'où il est allé. C'est la mesure honnête de ta stratégie : rien n'est simulé, chaque ligne vient d'un trade réellement déclenché par ton moteur.")
+scorePosStr = input.string("En bas à droite", "Position du scoreboard",
+     options=["En bas à droite", "En bas à gauche", "En haut à gauche", "Au milieu à droite"], group=gSc,
+     tooltip="Volontairement séparé du dashboard principal pour ne pas le surcharger.")
+minSampl = input.int(10, "Griser en dessous de N trades", minval=1, maxval=100, group=gSc,
+     tooltip="Un pourcentage calculé sur 3 trades ne veut rien dire. En dessous de ce seuil, les chiffres restent affichés mais grisés pour te rappeler qu'ils ne sont pas encore exploitables.")
+
 
 //=====================================================================
 // FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
@@ -1188,6 +1223,11 @@ bool entrySignalBuy   = false
 bool entrySignalSell  = false
 bool signalBlockedByChoch = false
 
+// Niveau de l'IDM qui vient d'être récupéré : c'est le point
+// d'invalidation réel du setup, donc l'ancrage naturel du stop dans le
+// module 13. Uniquement mémorisé ici, jamais utilisé par le moteur.
+var float entryIdmLvl = na
+
 if array.size(idmLevel) > 0
     for i = array.size(idmLevel) - 1 to 0
         if not array.get(idmDone, i)
@@ -1233,6 +1273,7 @@ if array.size(idmLevel) > 0
                     if not na(lbr)
                         label.delete(lbr)
 
+                    entryIdmLvl := lvl
                     if dir == 1
                         entrySignalBuy := true
                     else
@@ -2081,6 +2122,365 @@ if showDash and barstate.islast
 
 
 //=====================================================================
+// PLAN DE TRADE — SL / TP1 / TP2 / TP3 (module 13)
+//
+// Moteur de gestion repris du "Setup Scanner [GBB]" (échelle de TP,
+// suivi du trade, estompage des trades terminés, scoreboard), MAIS
+// branché uniquement sur TON signal : la récupération d'IDM
+// (entrySignalBuy / entrySignalSell).
+//
+// Aucun des 6 setups d'origine n'est repris, volontairement :
+//   - "Break and retest" = ton BOS + retest : doublon exact.
+//   - "Liquidity sweep"  = ton IDM (inducement) : doublon exact.
+//   - VWAP / EMA / ORB   = hors SMV, et tu les avais déjà retirés.
+// Ajouter les 6 aurait créé des signaux concurrents des tiens et
+// fabriqué un scoreboard qui ne mesure plus TA stratégie.
+//
+// Ce module LIT le moteur, il ne le modifie jamais : la structure, les
+// IDM, les Sniper Zones, la Liquidité Cible et le dashboard gardent
+// exactement le comportement que tu backtestes déjà.
+//
+// DEUX ADAPTATIONS SMV par rapport à l'original :
+//
+//  1. STOP STRUCTUREL (par défaut). L'original pose le stop à une
+//     distance fixe en ATR, la même partout. Ici il se place juste
+//     derrière l'IDM récupéré : c'est le vrai point d'invalidation de
+//     ta stratégie. Si le prix repasse derrière l'IDM, le setup est
+//     mort — pas besoin d'une distance arbitraire. Conséquence utile :
+//     un retest précis donne un stop serré, donc un R élevé, ce qui
+//     récompense automatiquement les Sniper Zones bien placées.
+//
+//  2. TP3 SUR LA LIQUIDITÉ CIBLE (par défaut). Ton indicateur sait déjà
+//     où le prix veut aller. Le dernier objectif se cale dessus au lieu
+//     d'un 3R inventé. TP1 et TP2 restent en R pour sécuriser en route.
+//=====================================================================
+type SmvTrade
+    int   dir
+    float entry
+    float stop
+    float t1
+    float t2
+    float t3
+    int   openBar
+    int   stage      // 0 = en cours, 1 = TP1 pris, 2 = TP2 pris
+    bool  done
+    box   bRisk
+    box   bRwd
+    line  lEnt
+    line  lT1
+    line  lT2
+    line  lT3
+    label lTag
+    label lOut
+
+var array<SmvTrade> smvTrades = array.new<SmvTrade>()
+
+// Compteurs du scoreboard — indice 0 = ACHAT, 1 = VENTE.
+var array<int> scFired = array.new_int(2, 0)
+var array<int> scT1    = array.new_int(2, 0)
+var array<int> scT2    = array.new_int(2, 0)
+var array<int> scT3    = array.new_int(2, 0)
+var array<int> scStop  = array.new_int(2, 0)
+var array<int> scExp   = array.new_int(2, 0)
+
+f_scBump(array<int> a, int i) =>
+    array.set(a, i, array.get(a, i) + 1)
+
+// Transparence d'un objet appartenant à un trade terminé.
+f_trFade(int liveT) =>
+    fadeClosedTr ? math.min(99, liveT + math.round((99 - liveT) * fadeStrength / 100.0)) : liveT
+
+// Un objectif ATTEINT s'efface deux fois moins vite : même une fois le
+// trade fini, on doit pouvoir lire jusqu'où il est allé.
+f_trFadeKeep(int liveT) =>
+    fadeClosedTr ? math.min(99, liveT + math.round((99 - liveT) * fadeStrength / 200.0)) : liveT
+
+f_trOpenCount() =>
+    int n = 0
+    if array.size(smvTrades) > 0
+        for i = 0 to array.size(smvTrades) - 1
+            SmvTrade tc = array.get(smvTrades, i)
+            if not tc.done
+                n += 1
+    n
+
+// On ne supprime QUE nos propres objets, jamais box.all / line.all.
+f_trKill(SmvTrade t) =>
+    box.delete(t.bRisk)
+    box.delete(t.bRwd)
+    line.delete(t.lEnt)
+    line.delete(t.lT1)
+    line.delete(t.lT2)
+    line.delete(t.lT3)
+    label.delete(t.lTag)
+    label.delete(t.lOut)
+
+f_trDraw(SmvTrade t) =>
+    int l = t.openBar
+    int r = bar_index + zoneExt
+    if tpZoneShow
+        t.bRisk := box.new(l, math.max(t.entry, t.stop), r, math.min(t.entry, t.stop),
+             border_color=color.new(slCol, 25), border_width=1,
+             bgcolor=color.new(slCol, 88))
+        // Zone de gain SANS bordure : ses bords tombent pile sur la ligne
+        // d'entrée et sur celle du TP3. Une bordure masquerait le TP3 en
+        // pointillés, et un objectif NON atteint se lirait comme atteint.
+        t.bRwd := box.new(l, math.max(t.entry, t.t3), r, math.min(t.entry, t.t3),
+             border_color=color.new(tpCol, 100), border_width=1,
+             bgcolor=color.new(tpCol, 93))
+    t.lEnt := line.new(l, t.entry, r, t.entry, color=color.new(#9ba4b0, 10), width=2)
+    t.lT1  := line.new(l, t.t1, r, t.t1, color=color.new(tpCol, 10), style=line.style_dashed)
+    t.lT2  := line.new(l, t.t2, r, t.t2, color=color.new(tpCol, 30), style=line.style_dashed)
+    t.lT3  := line.new(l, t.t3, r, t.t3, color=color.new(tpCol, 50), style=line.style_dashed)
+    // Étiquette ancrée SUR LE STOP et poussée vers l'extérieur : elle ne
+    // se pose jamais entre l'entrée et les objectifs, là où tu lis.
+    t.lTag := label.new(l, t.stop,
+         (t.dir == 1 ? "▲ ACHAT " : "▼ VENTE ") + str.tostring(t.entry, format.mintick) +
+         "   SL " + str.tostring(t.stop, format.mintick),
+         style=t.dir == 1 ? label.style_label_down : label.style_label_up,
+         color=color.new(t.dir == 1 ? entryBuyCol : entrySellCol, 20),
+         textcolor=color.white, size=size.tiny)
+
+// Un trade en cours suit le prix, comme toutes tes autres zones : bord
+// droit à bar_index + zoneExt, jamais extend.right.
+f_trExtend(SmvTrade t) =>
+    int r = bar_index + zoneExt
+    if not na(t.bRisk)
+        box.set_right(t.bRisk, r)
+    if not na(t.bRwd)
+        box.set_right(t.bRwd, r)
+    line.set_x2(t.lEnt, r)
+    line.set_x2(t.lT1, r)
+    line.set_x2(t.lT2, r)
+    line.set_x2(t.lT3, r)
+
+// Objectif atteint : sa ligne passe en trait plein. Pas d'étiquette en
+// plus — elle se poserait sur les bougies, exactement le fouillis dont
+// tu te plaignais.
+f_trTpHit(line ln) =>
+    line.set_style(ln, line.style_solid)
+    line.set_color(ln, tpCol)
+    line.set_width(ln, 2)
+
+f_trClose(SmvTrade t, string why) =>
+    t.done := true
+    int r = bar_index
+    if not na(t.bRisk)
+        box.set_right(t.bRisk, r)
+        box.set_bgcolor(t.bRisk, color.new(slCol, f_trFade(88)))
+        box.set_border_color(t.bRisk, color.new(slCol, f_trFade(25)))
+    if not na(t.bRwd)
+        box.set_right(t.bRwd, r)
+        box.set_bgcolor(t.bRwd, color.new(tpCol, f_trFade(93)))
+    line.set_x2(t.lEnt, r)
+    line.set_x2(t.lT1, r)
+    line.set_x2(t.lT2, r)
+    line.set_x2(t.lT3, r)
+    line.set_color(t.lEnt, color.new(#9ba4b0, f_trFade(10)))
+    line.set_color(t.lT1, color.new(tpCol, t.stage >= 1 ? f_trFadeKeep(10) : f_trFade(20)))
+    line.set_width(t.lT1, t.stage >= 1 ? 2 : 1)
+    line.set_color(t.lT2, color.new(tpCol, t.stage >= 2 ? f_trFadeKeep(20) : f_trFade(35)))
+    line.set_width(t.lT2, t.stage >= 2 ? 2 : 1)
+    line.set_color(t.lT3, color.new(tpCol, why == "TP3" ? f_trFadeKeep(30) : f_trFade(50)))
+    line.set_width(t.lT3, why == "TP3" ? 2 : 1)
+    if not na(t.lTag)
+        label.set_color(t.lTag, color.new(t.dir == 1 ? entryBuyCol : entrySellCol, f_trFade(20)))
+        label.set_textcolor(t.lTag, color.new(color.white, f_trFade(0)))
+    // Étiquette de résultat décalée d'un ATR et pointant vers son niveau :
+    // elle ne se pose jamais sur la bougie qui vient de clôturer le trade.
+    float lvlOut = why == "stop" ? t.stop : why == "TP3" ? t.t3 : close
+    float sgnOut = why == "stop" ? (t.dir == 1 ? -1.0 : 1.0) :
+         why == "TP3" ? (t.dir == 1 ? 1.0 : -1.0) : (t.dir == 1 ? -1.0 : 1.0)
+    color cOut = why == "TP3" ? tpCol : why == "stop" ? slCol : color.new(#9ba4b0, 0)
+    t.lOut := label.new(bar_index, lvlOut + sgnOut * atrFast * 0.6, why,
+         style=sgnOut > 0 ? label.style_label_down : label.style_label_up,
+         color=color.new(cOut, 25), textcolor=color.white, size=size.tiny)
+
+f_trFire(int dir, float idmLvl) =>
+    float riskPx = stopModeStruct and not na(idmLvl) ?
+         math.abs(close - idmLvl) + atrFast * stopBufAtr :
+         atrFast * stopAtrMult
+    // Garde-fou : une entrée pile sur l'IDM donnerait un risque quasi nul,
+    // donc des objectifs absurdes et un R fantaisiste dans le scoreboard.
+    riskPx := math.max(riskPx, atrFast * 0.3)
+
+    float stPx = dir == 1 ? close - riskPx : close + riskPx
+    float p1   = dir == 1 ? close + riskPx * rMul1 : close - riskPx * rMul1
+    float p2   = dir == 1 ? close + riskPx * rMul2 : close - riskPx * rMul2
+    float p3   = dir == 1 ? close + riskPx * rMul3 : close - riskPx * rMul3
+
+    // TP3 sur la Liquidité Cible — seulement si elle est DEVANT le prix
+    // et au-delà du TP2. Sinon le 3R reprend la main automatiquement.
+    if tpModeTarget and targetValid and not na(targetLevel)
+        bool okTgt = dir == 1 ? targetLevel > p2 : targetLevel < p2
+        if okTgt
+            p3 := targetLevel
+
+    SmvTrade t = SmvTrade.new(dir=dir, entry=close, stop=stPx, t1=p1, t2=p2, t3=p3,
+         openBar=bar_index, stage=0, done=false)
+    f_trDraw(t)
+    array.push(smvTrades, t)
+    f_scBump(scFired, dir == 1 ? 0 : 1)
+    t
+
+//---------------------------------------------------------------------
+// Avancement des trades ouverts
+//---------------------------------------------------------------------
+bool trTp1Hit  = false
+bool trTp3Hit  = false
+bool trStopHit = false
+
+if showTradePlan and atrReady and array.size(smvTrades) > 0
+    for i = array.size(smvTrades) - 1 to 0
+        SmvTrade t = array.get(smvTrades, i)
+        if not t.done
+            int  di    = t.dir == 1 ? 0 : 1
+            bool hitSl = t.dir == 1 ? low <= t.stop  : high >= t.stop
+            bool hit1  = t.dir == 1 ? high >= t.t1   : low <= t.t1
+            bool hit2  = t.dir == 1 ? high >= t.t2   : low <= t.t2
+            bool hit3  = t.dir == 1 ? high >= t.t3   : low <= t.t3
+
+            // Prudent : si le stop et un objectif tombent sur la MÊME
+            // bougie, c'est le stop qui gagne. On ne s'invente pas un
+            // gain qu'on n'aurait peut-être pas eu — sinon le scoreboard
+            // devient un mensonge et ne sert plus à rien.
+            if hitSl
+                if t.stage == 0
+                    f_scBump(scStop, di)
+                trStopHit := true
+                f_trClose(t, "stop")
+            else
+                if hit1 and t.stage < 1
+                    t.stage := 1
+                    f_scBump(scT1, di)
+                    f_trTpHit(t.lT1)
+                    trTp1Hit := true
+                if hit2 and t.stage < 2
+                    t.stage := 2
+                    f_scBump(scT2, di)
+                    f_trTpHit(t.lT2)
+                if hit3
+                    f_scBump(scT3, di)
+                    f_trTpHit(t.lT3)
+                    trTp3Hit := true
+                    f_trClose(t, "TP3")
+                else if bar_index - t.openBar >= maxBarsTr
+                    if t.stage == 0
+                        f_scBump(scExp, di)
+                    f_trClose(t, "expiré")
+                else
+                    f_trExtend(t)
+
+//---------------------------------------------------------------------
+// Ouverture — uniquement sur TON signal, jamais sur autre chose
+//---------------------------------------------------------------------
+if showTradePlan and atrReady and (entrySignalBuy or entrySignalSell)
+    if f_trOpenCount() < maxOpenTr
+        f_trFire(entrySignalBuy ? 1 : -1, entryIdmLvl)
+
+// Purge des plus anciens trades TERMINÉS (un trade en cours n'est jamais
+// supprimé, même s'il dépasse la limite).
+while array.size(smvTrades) > keepTr
+    SmvTrade oldT = array.get(smvTrades, 0)
+    if oldT.done
+        f_trKill(oldT)
+        array.shift(smvTrades)
+    else
+        break
+
+
+//=====================================================================
+// SCOREBOARD — les résultats réels de TA stratégie (module 14)
+//
+// Chaque ligne vient de trades RÉELLEMENT déclenchés par ton moteur sur
+// l'historique du graphique. Rien n'est simulé ni extrapolé.
+//
+// Lecture des colonnes :
+//   tirés    = nombre de fois où un IDM récupéré a ouvert un trade
+//   TP1/2/3  = % de ces trades qui ont ATTEINT ce palier
+//   stop sec = % stoppés SANS avoir touché TP1 (les vraies pertes)
+// Un trade qui touche TP1 puis redescend compte quand même dans TP1 :
+// le palier a bien été offert par le marché.
+//=====================================================================
+f_scPos() =>
+    switch scorePosStr
+        "En bas à gauche"     => position.bottom_left
+        "En haut à gauche"    => position.top_left
+        "Au milieu à droite"  => position.middle_right
+        => position.bottom_right
+
+f_scPct(int num, int den) =>
+    den > 0 ? str.tostring(math.round(100.0 * num / den)) + "%" : "—"
+
+var table scTbl = table.new(f_scPos(), 6, 5, border_width=1,
+     frame_color=color.new(color.gray, 60), frame_width=1,
+     border_color=color.new(color.gray, 80))
+
+if showScore and barstate.islast
+    color scHdrBg = color.new(#5b6472, 82)
+    color scHdrTx = #8a94a3
+    color scBody  = #c6cdd8
+    color scWeak  = color.new(#5b6472, 35)
+
+    int scNbL = array.get(scFired, 0)
+    int scNbS = array.get(scFired, 1)
+    int scTot = scNbL + scNbS
+
+    table.cell(scTbl, 0, 0, "SMV — RÉSULTATS RÉELS", bgcolor=scHdrBg, text_color=scHdrTx,
+         text_size=size.tiny, text_halign=text.align_left)
+    table.cell(scTbl, 1, 0, "tirés",    bgcolor=scHdrBg, text_color=scHdrTx, text_size=size.tiny)
+    table.cell(scTbl, 2, 0, "TP1",      bgcolor=scHdrBg, text_color=scHdrTx, text_size=size.tiny)
+    table.cell(scTbl, 3, 0, "TP2",      bgcolor=scHdrBg, text_color=scHdrTx, text_size=size.tiny)
+    table.cell(scTbl, 4, 0, "TP3",      bgcolor=scHdrBg, text_color=scHdrTx, text_size=size.tiny)
+    table.cell(scTbl, 5, 0, "stop sec", bgcolor=scHdrBg, text_color=scHdrTx, text_size=size.tiny)
+
+    // Lignes ACHAT (0) et VENTE (1) : savoir si ta stratégie marche mieux
+    // à l'achat ou à la vente est une information directement actionnable.
+    for d = 0 to 1
+        int   scNbD  = array.get(scFired, d)
+        color cel = scNbD >= minSampl ? scBody : scWeak
+        table.cell(scTbl, 0, d + 1, d == 0 ? "ACHAT" : "VENTE",
+             text_color=scNbD >= minSampl ? (d == 0 ? entryBuyCol : entrySellCol) : scWeak,
+             text_size=size.tiny, text_halign=text.align_left)
+        table.cell(scTbl, 1, d + 1, str.tostring(scNbD), text_color=cel, text_size=size.tiny)
+        table.cell(scTbl, 2, d + 1, f_scPct(array.get(scT1, d), scNbD),   text_color=cel, text_size=size.tiny)
+        table.cell(scTbl, 3, d + 1, f_scPct(array.get(scT2, d), scNbD),   text_color=cel, text_size=size.tiny)
+        table.cell(scTbl, 4, d + 1, f_scPct(array.get(scT3, d), scNbD),   text_color=cel, text_size=size.tiny)
+        table.cell(scTbl, 5, d + 1, f_scPct(array.get(scStop, d), scNbD), text_color=cel, text_size=size.tiny)
+
+    color celT = scTot >= minSampl ? color.white : scWeak
+    table.cell(scTbl, 0, 3, "TOTAL", bgcolor=scHdrBg, text_color=celT,
+         text_size=size.tiny, text_halign=text.align_left)
+    table.cell(scTbl, 1, 3, str.tostring(scTot), bgcolor=scHdrBg, text_color=celT, text_size=size.tiny)
+    table.cell(scTbl, 2, 3, f_scPct(array.get(scT1, 0) + array.get(scT1, 1), scTot),
+         bgcolor=scHdrBg, text_color=celT, text_size=size.tiny)
+    table.cell(scTbl, 3, 3, f_scPct(array.get(scT2, 0) + array.get(scT2, 1), scTot),
+         bgcolor=scHdrBg, text_color=celT, text_size=size.tiny)
+    table.cell(scTbl, 4, 3, f_scPct(array.get(scT3, 0) + array.get(scT3, 1), scTot),
+         bgcolor=scHdrBg, text_color=celT, text_size=size.tiny)
+    table.cell(scTbl, 5, 3, f_scPct(array.get(scStop, 0) + array.get(scStop, 1), scTot),
+         bgcolor=scHdrBg, text_color=celT, text_size=size.tiny)
+
+    // Espérance sous UNE hypothèse explicite, annoncée dans la cellule :
+    // on sort tout au TP1, un stop sec coûte 1R, un trade expiré vaut 0.
+    // Ce n'est pas une promesse de gain, c'est la seule façon honnête de
+    // résumer les colonnes du dessus en un seul chiffre.
+    int   nT1All  = array.get(scT1, 0) + array.get(scT1, 1)
+    int   nSlAll  = array.get(scStop, 0) + array.get(scStop, 1)
+    float espR    = scTot > 0 ? (nT1All * rMul1 - nSlAll * 1.0) / scTot : na
+    color espCol  = scTot < minSampl ? scWeak : na(espR) ? scWeak : espR > 0 ? tpCol : slCol
+    table.cell(scTbl, 0, 4, "Espérance si sortie au TP1", text_color=scHdrTx,
+         text_size=size.tiny, text_halign=text.align_left)
+    table.cell(scTbl, 1, 4, na(espR) ? "—" : str.tostring(espR, "#.##") + "R",
+         text_color=espCol, text_size=size.tiny)
+    table.cell(scTbl, 2, 4, "", text_size=size.tiny)
+    table.cell(scTbl, 3, 4, "", text_size=size.tiny)
+    table.cell(scTbl, 4, 4, "", text_size=size.tiny)
+    table.cell(scTbl, 5, 4, scTot < minSampl ? "trop peu de trades" : "",
+         text_color=scWeak, text_size=size.tiny)
+
+
+//=====================================================================
 // PHASES — Accumulation / Réaccumulation, Distribution / Redistribution
 // (moteur toujours actif ; le dessin est gated par showPhaseBox /
 // showPhaseMarkers, chacune indépendante). Purement informatif — bons
@@ -2236,3 +2636,6 @@ alertcondition(fvgFilledNow, "Imbalance en cours de comblement", "SMV : le prix 
 alertcondition(sdTouched, "Zone Supply/Demand touchée", "SMV : le prix vient d'entrer dans une zone Supply/Demand — observe la réaction")
 alertcondition(projHit, "IDM 3 (H1) atteint", "SMV : le prix vient d'atteindre l'IDM 3 — niveau H1 confirmé par le M15 et le M5")
 alertcondition(idm4Hit, "IDM 4 atteint", "SMV : le prix vient d'atteindre l'IDM 4, situé entre l'IDM 1 et l'IDM 2")
+alertcondition(trTp1Hit, "TP1 atteint", "SMV : TP1 atteint — pense à sécuriser une partie de la position")
+alertcondition(trTp3Hit, "TP3 atteint", "SMV : TP3 atteint — objectif final touché, le trade est clôturé")
+alertcondition(trStopHit, "Stop touché", "SMV : le stop vient d'être touché — le setup est invalidé")
