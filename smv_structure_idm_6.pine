@@ -2372,11 +2372,29 @@ if showTradePlan and atrReady and array.size(smvTrades) > 0
                     f_trExtend(t)
 
 //---------------------------------------------------------------------
-// Ouverture — uniquement sur TON signal, jamais sur autre chose
+// Ouverture — uniquement sur TON signal, et uniquement dans le SENS DE
+// LA STRUCTURE.
+//
+// RÈGLE 80/20 (continuation) : dans une structure HAUSSIÈRE on ne donne
+// que des signaux HAUSSIERS, dans une structure BAISSIÈRE que des
+// signaux BAISSIERS. Jamais l'inverse.
+//
+// La seule chose qui autorise à changer de sens est un vrai BOS
+// (retournement) : c'est lui, et lui seul, qui fait basculer
+// confirmedTrend (voir plus haut : chochBull -> 1, chochBear -> -1).
+// Un BMS de continuation n'y touche jamais. Tant que le BOS n'a pas eu
+// lieu, un signal à contre-sens est purement ignoré : pas de trade, et
+// rien dans le scoreboard.
+//
+// confirmedTrend == 0 = aucune structure encore confirmée : on laisse
+// passer, il n'y a pas encore de sens à contredire.
 //---------------------------------------------------------------------
-if showTradePlan and atrReady and (entrySignalBuy or entrySignalSell)
+int  trSigDir = entrySignalBuy ? 1 : entrySignalSell ? -1 : 0
+bool trDirOk  = confirmedTrend == 0 or confirmedTrend == trSigDir
+
+if showTradePlan and atrReady and trSigDir != 0 and trDirOk
     if f_trOpenCount() < maxOpenTr
-        f_trFire(entrySignalBuy ? 1 : -1, entryIdmLvl)
+        f_trFire(trSigDir, entryIdmLvl)
 
 // Purge des plus anciens trades TERMINÉS (un trade en cours n'est jamais
 // supprimé, même s'il dépasse la limite).
