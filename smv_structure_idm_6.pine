@@ -289,8 +289,8 @@ targetCol = input.color(#ba68c8, "Couleur cible de liquidité", group=gLC)
 gOB = "8. Order Blocks (OB) + Breaker Blocks"
 showOB = input.bool(true, "Afficher les Order Blocks", group=gOB,
      tooltip="La bougie extrême (le dernier creux avant une impulsion haussière / le dernier sommet avant une impulsion baissière) qui a provoqué la cassure de structure BOS/BMS de TON moteur. Zone étroite et chirurgicale — le niveau précis laissé par les institutionnels. Timeframe courant uniquement.")
-obShowBull = input.int(3, "Nombre d'OB haussiers affichés", minval=0, maxval=10, group=gOB)
-obShowBear = input.int(3, "Nombre d'OB baissiers affichés", minval=0, maxval=10, group=gOB)
+obShowBull = input.int(6, "Nombre d'OB haussiers affichés", minval=0, maxval=20, group=gOB)
+obShowBear = input.int(6, "Nombre d'OB baissiers affichés", minval=0, maxval=20, group=gOB)
 obUseBody = input.bool(false, "Utiliser le corps de bougie (au lieu des mèches)", group=gOB,
      tooltip="Décoché : la zone OB couvre toute la bougie, mèches comprises. Coché : uniquement le corps (open/close), zone plus serrée.")
 obBullCol = input.color(color.new(#2962ff, 80), "Couleur OB haussier", group=gOB)
@@ -317,11 +317,13 @@ obFilter8020 = input.bool(false, "Filtre 80/20 : masquer les OB à contre-tendan
 gSD = "9. Zones Supply / Demand"
 showSD = input.bool(true, "Afficher les zones Supply / Demand", group=gSD,
      tooltip="Zone LARGE : toute la base de consolidation (plusieurs bougies) avant le mouvement impulsif. L'Order Block du module 8 est le détail précis à l'intérieur de cette zone.")
-sdCount = input.int(3, "Nombre de zones conservées par côté", minval=1, maxval=10, group=gSD)
-sdImpulseMult = input.float(1.5, "Force minimale de l'impulsion (x ATR)", minval=0.5, maxval=5.0, step=0.1, group=gSD,
+sdCount = input.int(6, "Nombre de zones conservées par côté", minval=1, maxval=20, group=gSD)
+sdImpulseMult = input.float(0.9, "Force minimale de l'impulsion (x ATR)", minval=0.2, maxval=5.0, step=0.1, group=gSD,
      tooltip="Une base ne devient une zone Supply/Demand que si le mouvement qui en part dépasse cette taille (en multiples d'ATR). Plus grand = moins de zones, mais plus significatives.")
-sdMaxBase = input.int(6, "Largeur max de la base (bougies)", minval=2, maxval=20, group=gSD,
+sdMaxBase = input.int(8, "Largeur max de la base (bougies)", minval=2, maxval=20, group=gSD,
      tooltip="Nombre maximum de bougies de consolidation regroupées dans une même zone avant l'impulsion.")
+sdBaseTol = input.float(1.0, "Tolérance de la base (x ATR)", minval=0.2, maxval=3.0, step=0.1, group=gSD,
+     tooltip="Une bougie est considérée comme faisant partie de la base tant que son corps reste sous ce seuil. Plus grand = plus de bougies acceptées dans la base, donc PLUS de zones détectées. Était figé à 0.8 auparavant, ce qui rejetait beaucoup de bases valables.")
 sdDemandCol = input.color(#00897b, "Couleur zone Demand (achat)", group=gSD)
 sdSupplyCol = input.color(#d81b60, "Couleur zone Supply (vente)", group=gSD)
 sdMitigatedCol = input.color(#90a4ae, "Couleur zone mitigée", group=gSD)
@@ -341,13 +343,39 @@ sdMitigatedCol = input.color(#90a4ae, "Couleur zone mitigée", group=gSD)
 gFv = "10. Imbalances (FVG)"
 showFvg = input.bool(true, "Afficher les imbalances (FVG)", group=gFv,
      tooltip="Vide de prix sur 3 bougies : le haut de la bougie 1 n'a jamais rencontré le bas de la bougie 3. Le prix revient presque toujours le combler.")
-fvgCount = input.int(4, "Nombre d'imbalances par côté", minval=1, maxval=15, group=gFv)
+fvgCount = input.int(8, "Nombre d'imbalances par côté", minval=1, maxval=30, group=gFv)
 fvgBullCol = input.color(color.new(#26a69a, 82), "Couleur imbalance haussière", group=gFv)
 fvgBearCol = input.color(color.new(#ef5350, 82), "Couleur imbalance baissière", group=gFv)
 fvgShrink = input.bool(true, "Réduire l'imbalance au fur et à mesure qu'elle se comble", group=gFv,
      tooltip="Coché : la zone rétrécit à mesure que le prix la remplit, et disparaît une fois entièrement comblée. Décoché : elle garde sa taille d'origine jusqu'à comblement complet.")
-fvgMinSize = input.float(0.15, "Taille minimale (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gFv,
+fvgMinSize = input.float(0.05, "Taille minimale (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gFv,
      tooltip="Ignore les micro-gaps sans signification. Plus grand = seules les grosses imbalances sont retenues.")
+
+//=====================================================================
+// 11. IDM 3 — niveau H1 confirmé par le M5 et le M15
+//
+// IDM 1 et IDM 2 sont des pivots du timeframe courant. L'IDM 3 est
+// différent : il est ancré sur le H1 (le timeframe de décision), puis
+// CONFIRMÉ par ce que voient le M5 et le M15.
+//
+// L'idée : un niveau où les trois timeframes voient le même point de
+// ravitaillement est bien plus fiable qu'un niveau vu par un seul. La
+// confluence affichée (3/3, 2/3, 1/3) te dit exactement combien de
+// timeframes sont d'accord — pas une probabilité inventée, un décompte
+// vérifiable.
+//
+// Disparition : le prix l'a touché, ou la structure H1 s'inverse, ou
+// aucun niveau H1 n'est disponible.
+//=====================================================================
+gP3 = "11. IDM 3 — H1 confirmé par M5 + M15"
+showProjIdm = input.bool(true, "Afficher l'IDM 3 (H1 multi-timeframe)", group=gP3,
+     tooltip="Niveau de ravitaillement ancré sur le H1, puis confirmé par le M5 et le M15. Affiché en pointillés pour le distinguer des IDM 1 et 2, qui sont des pivots du timeframe courant.")
+projIdmCol = input.color(#00e5ff, "Couleur IDM 3", group=gP3)
+projTolAtr = input.float(0.6, "Tolérance de confluence (x ATR)", minval=0.1, maxval=3.0, step=0.1, group=gP3,
+     tooltip="Deux timeframes sont considérés d'accord si leurs niveaux sont distants de moins que cette valeur. Plus grand = confluence plus facile à obtenir, mais moins exigeante.")
+projMinTf = input.int(2, "Timeframes minimum d'accord pour l'afficher", minval=1, maxval=3, group=gP3,
+     tooltip="1 = affiche dès que le H1 donne un niveau. 2 (recommandé) = il faut qu'au moins un des deux petits timeframes confirme. 3 = uniquement les confluences parfaites, donc rares.")
+projShowZone = input.bool(true, "Afficher la zone autour du niveau", group=gP3)
 
 
 //=====================================================================
@@ -599,6 +627,37 @@ bool isStructHighBroken =
       bar_index[1] > bosHighBar and bar_index[2] > bosHighBar and bar_index[3] > bosHighBar) or
      (bias == -1 and highBreakPx > bosHigh)
 
+// Le trait d'une cassure ne doit JAMAIS traverser l'obstacle qui l'a
+// arrete : il s'arrete a la PREMIERE bougie (la plus ancienne apres
+// l'origine) dont la meche — ou le corps selon le reglage — atteint le
+// niveau. Sans cela, le trait file jusqu'a la bougie de confirmation et
+// depasse visuellement le vrai point d'arret.
+f_stopOffHigh(int originBar, float lvl) =>
+    int scanN = math.min(math.max(bar_index - originBar - 1, 0), 400)
+    int res = 0
+    bool got = false
+    if scanN > 0
+        for k = scanN to 1
+            if not got
+                float px = isStructBodyCandleBreak ? math.max(close[k], open[k]) : high[k]
+                if px >= lvl
+                    res := k
+                    got := true
+    res
+
+f_stopOffLow(int originBar, float lvl) =>
+    int scanN = math.min(math.max(bar_index - originBar - 1, 0), 400)
+    int res = 0
+    bool got = false
+    if scanN > 0
+        for k = scanN to 1
+            if not got
+                float px = isStructBodyCandleBreak ? math.min(close[k], open[k]) : low[k]
+                if px <= lvl
+                    res := k
+                    got := true
+    res
+
 bool bosBull   = false
 bool bosBear   = false
 bool chochBull = false
@@ -615,9 +674,10 @@ if isStructLowBroken
     string evTxt = isContinuation ? "BMS" : "BOS"
     color  evCol = isContinuation ? bmsBearColor : bosBearColor
 
-    array.push(structLines, line.new(bosLowBar, bosLow, bar_index, bosLow, xloc=xloc.bar_index, extend=extend.none,
+    int endLowBar = bar_index - f_stopOffLow(bosLowBar, bosLow)
+    array.push(structLines, line.new(bosLowBar, bosLow, endLowBar, bosLow, xloc=xloc.bar_index, extend=extend.none,
          color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth))
-    array.push(structLabels, label.new(int(math.avg(bar_index, bosLowBar)), bosLow, text=evTxt, style=label.style_none, textcolor=evCol))
+    array.push(structLabels, label.new(int(math.avg(endLowBar, bosLowBar)), bosLow, text=evTxt, style=label.style_none, textcolor=evCol))
 
     if isContinuation
         bosBear := true
@@ -644,9 +704,10 @@ else if isStructHighBroken
     string evTxt = isContinuation ? "BMS" : "BOS"
     color  evCol = isContinuation ? bmsBullColor : bosBullColor
 
-    array.push(structLines, line.new(bosHighBar, bosHigh, bar_index, bosHigh, xloc=xloc.bar_index, extend=extend.none,
+    int endHighBar = bar_index - f_stopOffHigh(bosHighBar, bosHigh)
+    array.push(structLines, line.new(bosHighBar, bosHigh, endHighBar, bosHigh, xloc=xloc.bar_index, extend=extend.none,
          color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth))
-    array.push(structLabels, label.new(int(math.avg(bar_index, bosHighBar)), bosHigh, text=evTxt, style=label.style_none, textcolor=evCol))
+    array.push(structLabels, label.new(int(math.avg(endHighBar, bosHighBar)), bosHigh, text=evTxt, style=label.style_none, textcolor=evCol))
 
     if isContinuation
         bosBull := true
@@ -703,6 +764,48 @@ if showCurrentStruct
 // même bloc que les lignes BOS/BMS (line.new), ce que request.security
 // refuse ou exécute mal — d'où le dashboard qui ne s'affichait plus.
 int h1Bias = request.security(syminfo.tickerid, "60", f_h1Bias(), lookahead=barmerge.lookahead_off)
+
+
+//=====================================================================
+// IDM 3 — LECTURE MULTI-TIMEFRAME (module 11)
+//
+// f_tfSwings() rejoue un zigzag ATR simple sur le timeframe où elle est
+// appelée et renvoie le dernier creux et le dernier sommet confirmés.
+// Aucun dessin à l'intérieur (ni line.new, ni box.new, ni array) : elle
+// est donc utilisable dans request.security, exactement comme f_h1Bias.
+//=====================================================================
+f_tfSwings() =>
+    float atrTf = ta.atr(14)
+    float thTf  = atrTf * 1.5
+    var int   dTf   = 1
+    var float extTf = na
+    var float lastLo = na
+    var float lastHi = na
+
+    if na(extTf)
+        extTf := high
+
+    if not na(thTf) and thTf > 0
+        if dTf == 1
+            if high > extTf
+                extTf := high
+            if low <= extTf - thTf
+                lastHi := extTf
+                dTf := -1
+                extTf := low
+        else
+            if low < extTf
+                extTf := low
+            if high >= extTf + thTf
+                lastLo := extTf
+                dTf := 1
+                extTf := high
+
+    [lastLo, lastHi]
+
+[m5Lo,  m5Hi]  = request.security(syminfo.tickerid, "5",  f_tfSwings(), lookahead=barmerge.lookahead_off)
+[m15Lo, m15Hi] = request.security(syminfo.tickerid, "15", f_tfSwings(), lookahead=barmerge.lookahead_off)
+[h1Lo,  h1Hi]  = request.security(syminfo.tickerid, "60", f_tfSwings(), lookahead=barmerge.lookahead_off)
 
 
 //=====================================================================
@@ -1226,6 +1329,8 @@ if array.size(idmLevel) > maxHistory
 // a échoué et change de polarité (un OB haussier cassé devient une
 // résistance). Confirmation forte pour la SMV.
 //=====================================================================
+// Un seul reference pour TOUT le module : detection de la bougie OB,
+// dessin de la zone, et test de cassure. Par defaut mèches comprises.
 float obMax = obUseBody ? math.max(close, open) : high
 float obMin = obUseBody ? math.min(close, open) : low
 
@@ -1322,7 +1427,7 @@ if array.size(obTopA) > 0
 
         if dOb == 1
             if not kOb
-                if math.min(close, open) < bOb
+                if obMin < bOb
                     array.set(obBrkA, i, true)
                     array.set(obBrkLocA, i, bar_index)
                     obJustBroke := true
@@ -1333,7 +1438,7 @@ if array.size(obTopA) > 0
                     dropIt := true
         else
             if not kOb
-                if math.max(close, open) > tOb
+                if obMax > tOb
                     array.set(obBrkA, i, true)
                     array.set(obBrkLocA, i, bar_index)
                     obJustBroke := true
@@ -1472,7 +1577,7 @@ var int   sdBaseStart = na
 float sdBody      = math.abs(close - open)
 bool  atrReady    = not na(atrFast) and atrFast > 0
 bool  sdIsImpulse = showSD and inLookback and atrReady and sdBody > atrFast * sdImpulseMult
-bool  sdIsSmall   = atrReady and sdBody < atrFast * 0.8
+bool  sdIsSmall   = atrReady and sdBody < atrFast * sdBaseTol
 int   sdDirNow    = close > open ? 1 : -1
 
 if sdIsImpulse
@@ -1686,10 +1791,103 @@ if obZoneDir != 0 and fvgZoneDir != 0
 
 
 //=====================================================================
+// IDM 3 — CONFLUENCE H1 + M15 + M5 (module 11)
+//
+// Le niveau est ANCRÉ sur le H1 (le timeframe de décision) : c'est lui
+// qui donne le prix de référence. Le M15 et le M5 servent de
+// CONFIRMATION — s'ils voient un point de ravitaillement au même
+// endroit, le niveau est bien plus solide.
+//
+// Sens : dicté par h1Bias, comme la case "Acheteur/Vendeur maintenant".
+//   H1 haussier -> on attend le prix EN DESSOUS, sur un creux.
+//   H1 baissier -> on attend le prix AU-DESSUS, sur un sommet.
+//
+// La confluence affichée (3/3, 2/3, 1/3) est un DÉCOMPTE VÉRIFIABLE du
+// nombre de timeframes d'accord, pas une probabilité inventée.
+//=====================================================================
+var float projLvl   = na
+var int   projDirV  = 0
+var int   projAgree = 0
+var line  projLine  = na
+var label projLbl   = na
+var box   projBox   = na
+
+// Niveau vu par chaque timeframe, dans le sens du H1.
+float lvH1  = h1Bias == 1 ? h1Lo  : h1Bias == -1 ? h1Hi  : na
+float lvM15 = h1Bias == 1 ? m15Lo : h1Bias == -1 ? m15Hi : na
+float lvM5  = h1Bias == 1 ? m5Lo  : h1Bias == -1 ? m5Hi  : na
+
+float projTol = atrReady ? atrFast * projTolAtr : na
+
+int   agreeCnt = 0
+float agreeSum = 0.0
+
+if not na(lvH1) and not na(projTol)
+    // Le H1 est l'ancre : il compte toujours pour 1.
+    agreeCnt := 1
+    agreeSum := lvH1
+    if not na(lvM15) and math.abs(lvM15 - lvH1) <= projTol
+        agreeCnt := agreeCnt + 1
+        agreeSum := agreeSum + lvM15
+    if not na(lvM5) and math.abs(lvM5 - lvH1) <= projTol
+        agreeCnt := agreeCnt + 1
+        agreeSum := agreeSum + lvM5
+
+// Le niveau retenu est la moyenne des timeframes d'accord : il se cale
+// naturellement là où les trois lectures se rejoignent.
+float projCand = agreeCnt > 0 ? agreeSum / agreeCnt : na
+
+if showProjIdm and not na(projCand) and agreeCnt >= projMinTf and h1Bias != 0
+    projLvl   := projCand
+    projDirV  := h1Bias
+    projAgree := agreeCnt
+
+// Disparition : le prix l'a touché (il a fait son travail), ou la
+// structure H1 s'est inversée (la thèse est morte), ou le H1 ne donne
+// plus de niveau exploitable.
+bool projHit = not na(projLvl) and
+     (projDirV == 1 ? low <= projLvl : projDirV == -1 ? high >= projLvl : false)
+bool projFlip = not na(projLvl) and projDirV != 0 and h1Bias != 0 and h1Bias != projDirV
+
+if projHit or projFlip or na(lvH1)
+    projLvl   := na
+    projDirV  := 0
+    projAgree := 0
+
+// Affichage — pointillés, pour bien marquer que c'est un niveau H1
+// multi-timeframe et non un pivot du graphique courant.
+if not na(projLine)
+    line.delete(projLine)
+    projLine := na
+if not na(projLbl)
+    label.delete(projLbl)
+    projLbl := na
+if not na(projBox)
+    box.delete(projBox)
+    projBox := na
+
+if showProjIdm and not na(projLvl) and barstate.islast
+    float projPad = atrReady ? atrFast * 0.12 : 0.0
+    if projShowZone and projPad > 0
+        projBox := box.new(bar_index - 3, projLvl + projPad, bar_index + zoneExt, projLvl - projPad,
+             border_color=color.new(projIdmCol, 40), border_width=1,
+             bgcolor=color.new(projIdmCol, 85))
+    projLine := line.new(bar_index - 3, projLvl, bar_index + zoneExt, projLvl,
+         color=projIdmCol, style=line.style_dashed, width=2)
+    string projTxt = (projDirV == 1 ? "▲" : "▼") + " IDM 3 (H1) " +
+         str.tostring(projLvl, format.mintick) + "  confluence " + str.tostring(projAgree) + "/3"
+    projLbl := label.new(bar_index + zoneExt, projLvl, projTxt,
+         style=label.style_label_left,
+         color=color.new(projIdmCol, 40),
+         textcolor=color.white,
+         size=size.small)
+
+
+//=====================================================================
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si tous
 // les autres modules d'affichage sont désactivés
 //=====================================================================
-var table dash = table.new(position.top_right, 2, 8,
+var table dash = table.new(position.top_right, 2, 9,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showDash and barstate.islast
@@ -1769,17 +1967,25 @@ if showDash and barstate.islast
     table.cell(dash, 0, 4, "IDM 2 (le précédent)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 4, idmWaitTxt2, text_color=idmWaitColCell2, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 5, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 5, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
+    // IDM 3 : niveau H1, confirmé par le M15 et le M5.
+    string proj3Txt = na(projLvl) ? "-" :
+         (projDirV == 1 ? "IDBL " : "IDBR ") + str.tostring(projLvl, format.mintick) +
+         "  (" + str.tostring(projAgree) + "/3 TF)"
+    color proj3Col = na(projLvl) ? dashValueCol : projIdmCol
+    table.cell(dash, 0, 5, "IDM 3 (H1 + M15 + M5)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 5, proj3Txt, text_color=proj3Col, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 6, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 6, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
 
     // Confirmation par la zone : le prix est-il actuellement DANS un
     // Order Block ou une zone Supply/Demand de ce timeframe ?
     color zoneNowCol = zoneNowDir == 1 ? entryBuyCol : zoneNowDir == -1 ? entrySellCol : dashValueCol
-    table.cell(dash, 0, 6, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 6, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 7, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 7, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 7, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 7, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 8, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 8, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
@@ -1935,4 +2141,5 @@ alertcondition(utadJustFormed, "Phase — UTAD détecté", "SMV : UTAD détecté
 alertcondition(obTouchedNow, "OB touché", "SMV : le prix est dans un Order Block encore valide — observe la réaction")
 alertcondition(obJustBroke, "OB cassé → Breaker Block", "SMV : un Order Block vient d'être cassé, il devient un Breaker Block (polarité inversée)")
 alertcondition(fvgFilledNow, "Imbalance en cours de comblement", "SMV : le prix est en train de combler une imbalance (FVG)")
+alertcondition(projHit, "IDM 3 (H1) atteint", "SMV : le prix vient d'atteindre l'IDM 3 — niveau H1 confirmé en multi-timeframe")
 alertcondition(sdTouched, "Zone Supply/Demand touchée", "SMV : le prix vient d'entrer dans une zone Supply/Demand — observe la réaction")
