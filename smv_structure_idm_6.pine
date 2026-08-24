@@ -93,7 +93,6 @@ idmWidthBoost = input.int(4, "Épaisseur du trait IDM", minval=1, maxval=6, grou
 // forcer l'affichage. Effectif = ta coche ET l'autorisation du mode.
 bool modeSniper  = dispMode == "Sniper"
 bool modeTrading = dispMode == "Trading"
-bool modeAnalyse = dispMode == "Analyse"
 
 bool okStruct  = not modeSniper and not modeTrading
 bool okBosLine = not modeSniper
@@ -644,7 +643,7 @@ if not na(ph) and inLookback
         array.shift(intactHighLevels)
         array.shift(intactHighBars)
 
-    if showStruct and okStruct and lblAll
+    if showStruct and okStruct and not lblNone
         string txt = na(prevPH) ? "H" : ph > prevPH ? "HH" : "LH"
         color col = na(prevPH) ? rangeCol : ph > prevPH ? bullCol : bearCol
         array.push(pivotMarks, label.new(phBar, ph, txt,
@@ -666,7 +665,7 @@ if not na(pl) and inLookback
         array.shift(intactLowLevels)
         array.shift(intactLowBars)
 
-    if showStruct and okStruct and lblAll
+    if showStruct and okStruct and not lblNone
         string txt = na(prevPL) ? "L" : pl > prevPL ? "HL" : "LL"
         color col = na(prevPL) ? rangeCol : pl > prevPL ? bullCol : bearCol
         array.push(pivotMarks, label.new(plBar, pl, txt,
@@ -1292,8 +1291,6 @@ if array.size(idmLevel) > 0
                 label lbr = array.get(idmLbl, i)
 
                 if isTopTwo and not blockedByChoch
-                    color entryCol = dir == 1 ? entryBuyCol : entrySellCol
-
                     if not na(lnr)
                         line.delete(lnr)
                     if not na(lbr)
@@ -2054,7 +2051,7 @@ if showDash and barstate.islast
     // (h1Bias), jamais au chart courant. H1 haussier -> acheteur, H1
     // baissier -> vendeur, rien d'autre à mélanger.
     string posTxt = h1Bias == 1 ? "ACHETEUR" : h1Bias == -1 ? "VENDEUR" : "NEUTRE"
-    color  posCol = h1Bias == 1 ? entryBuyCol : h1Bias == -1 ? entrySellCol : rangeCol
+    color  posCol = h1Bias == 1 ? entryBuyCol : h1Bias == -1 ? entrySellCol : dashValueCol
 
     // LES 2 DERNIERS IDM en attente, du plus récent au précédent. Ils se
     // déplacent en permanence — à chaque nouvelle cassure, même petite,
@@ -2073,19 +2070,19 @@ if showDash and barstate.islast
 
     string idmWaitTxt = idmWaitIdx == -1 ? "-" :
          (array.get(idmDir, idmWaitIdx) == 1 ? "IDBL " : "IDBR ") + str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
-    color idmWaitColCell = idmWaitIdx == -1 ? rangeCol : idmActiveCol
+    color idmWaitColCell = idmWaitIdx == -1 ? dashValueCol : idmActiveCol
 
     string idmWaitTxt2 = idmWaitIdx2 == -1 ? "-" :
          (array.get(idmDir, idmWaitIdx2) == 1 ? "IDBL " : "IDBR ") + str.tostring(array.get(idmLevel, idmWaitIdx2), format.mintick)
-    color idmWaitColCell2 = idmWaitIdx2 == -1 ? rangeCol : idmWaitCol
+    color idmWaitColCell2 = idmWaitIdx2 == -1 ? dashValueCol : idmWaitCol
 
     string targetDashTxt = targetValid ?
          str.tostring(targetLevel, format.mintick) + (na(targetProgressPct) ? "" : " (" + str.tostring(targetProgressPct, "#") + "% parcouru)") :
          "-"
-    color targetDashCol = targetValid ? targetCol : rangeCol
+    color targetDashCol = targetValid ? targetCol : dashValueCol
 
     string actionTxt = "-"
-    color actionCol = rangeCol
+    color actionCol = dashValueCol
 
     if entrySignalBuy
         actionTxt := "ENTRER ACHAT MAINTENANT"
@@ -2098,7 +2095,7 @@ if showDash and barstate.islast
         actionCol := idmActiveCol
     else if nIdm > 0
         actionTxt := "Attendre le prochain IDM"
-        actionCol := rangeCol
+        actionCol := dashValueCol
 
     table.cell(dash, 0, 0, "SMV — MOTEUR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
     table.merge_cells(dash, 0, 0, 1, 0)
@@ -2118,7 +2115,7 @@ if showDash and barstate.islast
     // IDM 3 : niveau PROJETÉ (déduit), pas un pivot déjà formé.
     string proj3Txt = na(projLvl) ? "-" :
          (projDirV == 1 ? "IDBL " : "IDBR ") + str.tostring(projLvl, format.mintick) + " (" + projBasis + ")"
-    color proj3Col = na(projLvl) ? rangeCol : projIdmCol
+    color proj3Col = na(projLvl) ? dashValueCol : projIdmCol
     table.cell(dash, 0, 5, "IDM 3 (projeté)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 5, proj3Txt, text_color=proj3Col, text_size=size.small, bgcolor=dashBgCol)
 
@@ -2127,7 +2124,7 @@ if showDash and barstate.islast
 
     // Confirmation par la zone : le prix est-il actuellement DANS un
     // Order Block ou une zone Supply/Demand de ce timeframe ?
-    color zoneNowCol = zoneNowDir == 1 ? entryBuyCol : zoneNowDir == -1 ? entrySellCol : rangeCol
+    color zoneNowCol = zoneNowDir == 1 ? entryBuyCol : zoneNowDir == -1 ? entrySellCol : dashValueCol
     table.cell(dash, 0, 7, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 7, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
 
