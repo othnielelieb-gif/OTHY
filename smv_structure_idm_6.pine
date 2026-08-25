@@ -2164,6 +2164,12 @@ type SmvTrade
     int   openBar
     int   stage      // 0 = en cours, 1 = TP1 pris, 2 = TP2 pris
     bool  done
+    // Le prix a-t-il VRAIMENT quitté le TP2 après l'avoir atteint ?
+    // Vrai dès qu'une bougie CLÔTURE au-delà du TP2. Tant que c'est faux,
+    // le retour sur le TP2 ne peut pas clôturer le trade — sinon la bougie
+    // qui vient de toucher le TP2 le fermerait elle-même, puisque son
+    // extrême opposé est forcément encore en deçà.
+    bool  leftT2 = false
     box   bRisk
     box   bRwd
     line  lEnt
@@ -2325,6 +2331,7 @@ f_trFire(int dir, float idmLvl) =>
 bool trTp1Hit  = false
 bool trTp3Hit  = false
 bool trStopHit = false
+bool trBackT2  = false
 
 if showTradePlan and atrReady and array.size(smvTrades) > 0
     for i = array.size(smvTrades) - 1 to 0
@@ -2355,17 +2362,41 @@ if showTradePlan and atrReady and array.size(smvTrades) > 0
                     t.stage := 2
                     f_scBump(scT2, di)
                     f_trTpHit(t.lT2)
+
+                // RETOUR SUR LE TP2 — le trade est déjà gagnant, on ne le
+                // laisse pas se faire reprendre. Une fois le TP2 atteint ET
+                // vraiment quitté, la première bougie qui revient le toucher
+                // clôture le trade sur-le-champ, et la place se libère pour
+                // la prochaine opportunité.
+                //
+                // leftT2 est lu ICI dans son état de la bougie PRÉCÉDENTE
+                // (il n'est mis à jour qu'en fin de bloc) : la bougie qui
+                // atteint le TP2 ne peut donc jamais se clôturer elle-même.
+                bool backT2 = t.stage >= 2 and t.leftT2 and
+                     (t.dir == 1 ? low <= t.t2 : high >= t.t2)
+
                 if hit3
                     f_scBump(scT3, di)
                     f_trTpHit(t.lT3)
                     trTp3Hit := true
                     f_trClose(t, "TP3")
+                else if backT2
+                    trBackT2 := true
+                    f_trClose(t, "retour TP2")
                 else if bar_index - t.openBar >= maxBarsTr
                     if t.stage == 0
                         f_scBump(scExp, di)
                     f_trClose(t, "expiré")
                 else
                     f_trExtend(t)
+
+                // Mise à jour du drapeau EN DERNIER, et uniquement si le
+                // trade est encore ouvert : "parti" = une bougie a CLÔTURÉ
+                // au-delà du TP2. À partir de la bougie suivante, tout
+                // retour sur le TP2 ferme le trade.
+                if not t.done and t.stage >= 2 and not t.leftT2
+                    if t.dir == 1 ? close > t.t2 : close < t.t2
+                        t.leftT2 := true
 
 //---------------------------------------------------------------------
 // Ouverture — uniquement sur TON signal, et uniquement dans le SENS DE
@@ -3133,6 +3164,9 @@ type Trade
     int   openBar
     int   stage      // 0 open, 1 TP1 hit, 2 TP2 hit
     bool  done
+    // Même règle que le module 13 : le prix a-t-il vraiment quitté le TP2
+    // (une bougie qui CLÔTURE au-delà) avant de pouvoir y revenir ?
+    bool  leftT2 = false
     box   bRisk
     box   bRwd
     line  lEnt
@@ -3371,16 +3405,33 @@ if ready and array.size(trades) > 0
                     t.stage := 2
                     bump(cT2, t.sid)
                     t.lTp2 := tpMark(t.lT2, t.t2, "TP2")
+
+                // RETOUR SUR LE TP2 — même règle que le module 13. Le trade
+                // a déjà atteint le TP2 et l'a vraiment quitté : la première
+                // bougie qui revient le toucher clôture, on ne rend pas un
+                // gain acquis. leftT2 est lu dans son état de la bougie
+                // précédente (mis à jour en fin de bloc).
+                bool backT2 = t.stage >= 2 and t.leftT2 and
+                     (t.dir == 1 ? low <= t.t2 : high >= t.t2)
+
                 if hit3
                     bump(cT3, t.sid)
                     // v0.2 fix: the TP3 tag is now tracked so killDrawings can
                     // delete it — it can no longer become an orphan label.
                     t.lTp3 := tpMark(t.lT3, t.t3, "TP3")
                     closeTrade(t, "TP3")
+                else if backT2
+                    closeTrade(t, "retour TP2")
                 else if bar_index - t.openBar >= maxBars
                     if t.stage == 0
                         bump(cExp, t.sid)
                     closeTrade(t, "expired")
+
+                // "Parti" = une bougie a CLÔTURÉ au-delà du TP2. Mis à jour
+                // en dernier et seulement si le trade est encore ouvert.
+                if not t.done and t.stage >= 2 and not t.leftT2
+                    if t.dir == 1 ? close > t.t2 : close < t.t2
+                        t.leftT2 := true
 
             if t.done
                 closedNow := true
@@ -3495,3 +3546,4 @@ alertcondition(idm4Hit, "IDM 4 atteint", "SMV : le prix vient d'atteindre l'IDM 
 alertcondition(trTp1Hit, "TP1 atteint", "SMV : TP1 atteint — pense à sécuriser une partie de la position")
 alertcondition(trTp3Hit, "TP3 atteint", "SMV : TP3 atteint — objectif final touché, le trade est clôturé")
 alertcondition(trStopHit, "Stop touché", "SMV : le stop vient d'être touché — le setup est invalidé")
+alertcondition(trBackT2, "Retour sur le TP2 — trade clôturé", "SMV : le prix était parti au-delà du TP2 puis y est revenu — le trade est clôturé, place à la prochaine opportunité")
