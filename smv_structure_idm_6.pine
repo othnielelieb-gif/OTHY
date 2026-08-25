@@ -2758,7 +2758,8 @@ int   divGap    = input.int(60,   "Divergence max pivot gap",minval = 5, group =
 // colours — tuned for dark charts. Drop the brightness if you trade on white.
 color cLong  = input.color(#00E39A, "Long",    group = GD, inline = "col")
 color cShort = input.color(#FF3B6B, "Short",   group = GD, inline = "col")
-color cForm  = input.color(#FFB020, "Forming", group = GD, inline = "col")
+// (le réglage de couleur "Forming" a été retiré : il ne pilotait plus que
+// les bornes de l'Opening Range, elles-mêmes supprimées)
 color cEntry = input.color(#9BA4B0, "Entry",   group = GD, inline = "col")
 
 // Réglages du GBB d'origine, valeurs par défaut d'origine. L'étiquette de
@@ -3102,8 +3103,14 @@ if sOrbL or sOrbS
 
 bool sOrbForm = useOrb and inSess and orDone and not orFired
 
-plot(useOrb and inSess and orDone ? orH : na, "OR high", color.new(cForm, 30), 1, plot.style_linebr)
-plot(useOrb and inSess and orDone ? orL : na, "OR low",  color.new(cForm, 30), 1, plot.style_linebr)
+// Les deux plot() qui traçaient les bornes de l'Opening Range (orH / orL)
+// ont été RETIRÉS. Ils n'apparaissaient que pendant la session, et
+// plot.style_linebr coupe le trait dès qu'on en sort : sur un marché qui
+// tourne 24h/24, ça semait un petit segment jaune détaché par journée,
+// sans rien apporter.
+//
+// Le setup Opening range lui-même n'est pas touché : orH et orL continuent
+// d'être calculés et sOrbL / sOrbS tirent toujours normalement.
 
 // ═════════════════════════════════════════════════════════════════════
 //  SIGNAL COLLECTION
