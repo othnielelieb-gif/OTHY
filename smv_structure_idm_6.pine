@@ -2261,11 +2261,16 @@ if not na(protLow) and close < protLow and smvTrend != -1
     protHigh := na(lastPH) ? protHigh : lastPH
 
 //=====================================================================
-// 2) CONFLUENCE SMV — le « bon signal » regroupe plusieurs leçons
+// 2) CONFLUENCE SMV — ce qui rend le signal CONCRET
 //
-// Un point d'entrée ne vaut que par ce qui s'y superpose. On compte, à
-// l'endroit exact où le prix se trouve, combien d'éléments de TA
-// méthode sont d'accord. Chacun vaut 1 point, et chacun vient d'un
+// Une entrée doit avoir une raison identifiable à l'endroit où elle se
+// fait. UN SEUL élément suffit à la justifier : un Order Block, ou une
+// imbalance, ou un SPRING — l'un OU l'autre, pas forcément plusieurs.
+// Quand plusieurs se retrouvent au même endroit, le signal est
+// simplement plus solide, mais ce n'est pas une obligation.
+//
+// On compte donc, là où le prix se trouve, combien d'éléments de TA
+// méthode sont présents. Chacun vaut 1 point, et chacun vient d'un
 // module que tu as déjà — rien n'est inventé, tout est vérifiable :
 //
 //   1. Order Block non cassé, du bon sens, qui contient le prix
@@ -2282,8 +2287,8 @@ if not na(protLow) and close < protLow and smvTrend != -1
 gCf = "15. Filtre de signal — structure + confluence"
 smvUseFilter = input.bool(true, "Filtrer les entrées (structure + confluence)", group=gCf,
      tooltip="Décoché, les deux moteurs d'entrée redeviennent exactement ce qu'ils étaient. Coché (recommandé), une entrée doit respecter la structure ET réunir assez de confluence.")
-smvMinConf = input.int(2, "Confluence minimale exigée", minval=0, maxval=6, group=gCf,
-     tooltip="Nombre minimum d'éléments SMV qui doivent se superposer à l'endroit de l'entrée : Order Block, imbalance, zone Supply/Demand, phase Wyckoff (SPRING/STB à l'achat, UTAD/UT à la vente), 0.5 du mouvement validé, IDM 3. 0 = aucune exigence de confluence, seule la structure filtre. 2 = équilibré. 4 et plus = très rare, mais chaque signal est massif.")
+smvMinConf = input.int(1, "Éléments SMV minimum sur le point d'entrée", minval=0, maxval=6, group=gCf,
+     tooltip="Combien d'éléments de la méthode doivent être présents là où le prix entre : Order Block, imbalance, zone Supply/Demand, phase Wyckoff (SPRING/STB à l'achat, UTAD/UT à la vente), 0.5 du mouvement validé, IDM 3. 1 (défaut) = l'entrée doit avoir AU MOINS UNE raison concrète — un seul élément suffit. 2 ou 3 = tu attends que plusieurs se retrouvent au même endroit, plus rare mais plus solide. 0 = aucune exigence, seule la structure filtre.")
 smvPhaseBars = input.int(20, "Fraîcheur d'une phase Wyckoff (bougies)", minval=1, maxval=200, group=gCf,
      tooltip="Un SPRING, STB, UTAD ou UT ne compte comme confluence que s'il s'est formé il y a moins de N bougies.")
 
