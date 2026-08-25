@@ -583,6 +583,28 @@ var int[]   intactHighBars   = array.new_int()
 var float[] intactLowLevels  = array.new_float()
 var int[]   intactLowBars    = array.new_int()
 
+//---------------------------------------------------------------------
+// PLAFOND DES ÉTIQUETTES DE PIVOT (HH / HL / LH / LL)
+//
+// Ces étiquettes étaient créées à chaque pivot et JAMAIS supprimées. Sur
+// un historique un peu long, ça fait des centaines d'étiquettes.
+//
+// Or TradingView plafonne à 500 étiquettes par script (max_labels_count,
+// ligne 2) et, au-delà, supprime SILENCIEUSEMENT les plus anciennes. Les
+// étiquettes "BOS" et "BMS" se faisaient donc évincer par TradingView
+// avant même que le code ne les efface : d'où des cassures affichées
+// sans leur nom, ou pas affichées du tout.
+//
+// On garde les 40 plus récentes, largement de quoi lire la structure à
+// l'écran, et on rend les slots aux BOS/BMS.
+//---------------------------------------------------------------------
+var label[] pivotLbls = array.new_label()
+
+f_capPivotLbl(label lb) =>
+    array.push(pivotLbls, lb)
+    if array.size(pivotLbls) > 40
+        label.delete(array.shift(pivotLbls))
+
 if not na(ph) and inLookback
     prevPH := lastPH
     lastPH := ph
@@ -597,11 +619,11 @@ if not na(ph) and inLookback
     if showStruct
         string txt = na(prevPH) ? "H" : ph > prevPH ? "HH" : "LH"
         color col = na(prevPH) ? rangeCol : ph > prevPH ? bullCol : bearCol
-        label.new(phBar, ph, txt,
+        f_capPivotLbl(label.new(phBar, ph, txt,
              style=label.style_label_down,
              color=color.new(col, 80),
              textcolor=col,
-             size=size.small)
+             size=size.small))
 
 if not na(pl) and inLookback
     prevPL := lastPL
@@ -617,11 +639,11 @@ if not na(pl) and inLookback
     if showStruct
         string txt = na(prevPL) ? "L" : pl > prevPL ? "HL" : "LL"
         color col = na(prevPL) ? rangeCol : pl > prevPL ? bullCol : bearCol
-        label.new(plBar, pl, txt,
+        f_capPivotLbl(label.new(plBar, pl, txt,
              style=label.style_label_up,
              color=color.new(col, 80),
              textcolor=col,
-             size=size.small)
+             size=size.small))
 
 
 //=====================================================================
@@ -2532,6 +2554,30 @@ if showScore and barstate.islast
 // endroits pour préparer un trade, mais l'IDM et la Sniper Zone restent
 // les seules zones d'action de l'indicateur.
 //=====================================================================
+//---------------------------------------------------------------------
+// PLAFOND DES OBJETS DU MODULE PHASES
+//
+// Même problème que les étiquettes de pivot : les marqueurs SC / BC /
+// STB / SPRING / UT / UTAD et les rectangles Accumulation / Distribution
+// étaient créés sans jamais être supprimés. Ils saturaient le quota de
+// 500 étiquettes et de 500 boîtes de TradingView, qui évinçait alors les
+// plus anciens objets du script — dont les BOS et les BMS.
+//
+// On garde les 30 derniers marqueurs et les 8 derniers rectangles.
+//---------------------------------------------------------------------
+var label[] phaseLbls = array.new_label()
+var box[]   phaseBoxes = array.new_box()
+
+f_capPhaseLbl(label lb) =>
+    array.push(phaseLbls, lb)
+    if array.size(phaseLbls) > 30
+        label.delete(array.shift(phaseLbls))
+
+f_capPhaseBox(box bx) =>
+    array.push(phaseBoxes, bx)
+    if array.size(phaseBoxes) > 8
+        box.delete(array.shift(phaseBoxes))
+
 var string lastPhase = "-"
 
 var bool  accActive = false
@@ -2569,12 +2615,12 @@ if accActive
             accSTBBar := bar_index
             accSTBVal := low
             if showPhaseMarkers
-                label.new(accSTBBar, accSTBVal, "STB", style=label.style_label_up, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small)
+                f_capPhaseLbl(label.new(accSTBBar, accSTBVal, "STB", style=label.style_label_up, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small))
         else
             accSpringBar := bar_index
             accSpringVal := low
             if showPhaseMarkers
-                label.new(accSpringBar, accSpringVal, "SPRING", style=label.style_label_up, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
+                f_capPhaseLbl(label.new(accSpringBar, accSpringVal, "SPRING", style=label.style_label_up, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small))
         accLow := low
     if newMoveDown
         accActive := false
@@ -2589,12 +2635,12 @@ if disActive
             disUTBar := bar_index
             disUTVal := high
             if showPhaseMarkers
-                label.new(disUTBar, disUTVal, "UT", style=label.style_label_down, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small)
+                f_capPhaseLbl(label.new(disUTBar, disUTVal, "UT", style=label.style_label_down, color=color.new(phaseCol, 70), textcolor=phaseCol, size=size.small))
         else
             disUTADBar := bar_index
             disUTADVal := high
             if showPhaseMarkers
-                label.new(disUTADBar, disUTADVal, "UTAD", style=label.style_label_down, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small)
+                f_capPhaseLbl(label.new(disUTADBar, disUTADVal, "UTAD", style=label.style_label_down, color=color.new(phaseCol, 55), textcolor=phaseCol, size=size.small))
         disHigh := high
     if newMoveUp
         disActive := false
@@ -2608,8 +2654,8 @@ if accActive and newMoveUp and not na(accSCBar)
     accActive := false
     phaseAccConfirmed := true
     if showPhaseBox
-        box.new(accSCBar, topA, bar_index, accLow, border_color=color.new(bullCol, 30), bgcolor=color.new(bullCol, 92))
-        label.new(accSCBar, topA, phTxt, style=label.style_label_down, color=color.new(bullCol, 55), textcolor=bullCol, size=size.small)
+        f_capPhaseBox(box.new(accSCBar, topA, bar_index, accLow, border_color=color.new(bullCol, 30), bgcolor=color.new(bullCol, 92)))
+        f_capPhaseLbl(label.new(accSCBar, topA, phTxt, style=label.style_label_down, color=color.new(bullCol, 55), textcolor=bullCol, size=size.small))
 
 if disActive and newMoveDown and not na(disBCBar)
     float botD = math.min(disBottom, low)
@@ -2618,8 +2664,8 @@ if disActive and newMoveDown and not na(disBCBar)
     disActive := false
     phaseDisConfirmed := true
     if showPhaseBox
-        box.new(disBCBar, disHigh, bar_index, botD, border_color=color.new(bearCol, 30), bgcolor=color.new(bearCol, 92))
-        label.new(disBCBar, botD, phTxt, style=label.style_label_up, color=color.new(bearCol, 55), textcolor=bearCol, size=size.small)
+        f_capPhaseBox(box.new(disBCBar, disHigh, bar_index, botD, border_color=color.new(bearCol, 30), bgcolor=color.new(bearCol, 92)))
+        f_capPhaseLbl(label.new(disBCBar, botD, phTxt, style=label.style_label_up, color=color.new(bearCol, 55), textcolor=bearCol, size=size.small))
 
 if not accActive and not na(pl)
     accActive := true
@@ -2634,7 +2680,7 @@ if not accActive and not na(pl)
     accAge := 0
     accStartBias := bias
     if showPhaseMarkers
-        label.new(accSCBar, accSC, "SC", style=label.style_label_up, color=color.new(bullCol, 70), textcolor=bullCol, size=size.small)
+        f_capPhaseLbl(label.new(accSCBar, accSC, "SC", style=label.style_label_up, color=color.new(bullCol, 70), textcolor=bullCol, size=size.small))
 
 if not disActive and not na(ph)
     disActive := true
@@ -2649,7 +2695,7 @@ if not disActive and not na(ph)
     disAge := 0
     disStartBias := bias
     if showPhaseMarkers
-        label.new(disBCBar, disBC, "BC", style=label.style_label_down, color=color.new(bearCol, 70), textcolor=bearCol, size=size.small)
+        f_capPhaseLbl(label.new(disBCBar, disBC, "BC", style=label.style_label_down, color=color.new(bearCol, 70), textcolor=bearCol, size=size.small))
 
 bool stbJustFormed    = accSTBBar == bar_index
 bool springJustFormed = accSpringBar == bar_index
