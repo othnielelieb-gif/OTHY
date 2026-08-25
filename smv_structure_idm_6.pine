@@ -2232,14 +2232,13 @@ f_trDraw(SmvTrade t) =>
     t.lT1  := line.new(l, t.t1, r, t.t1, color=color.new(tpCol, 10), style=line.style_dashed)
     t.lT2  := line.new(l, t.t2, r, t.t2, color=color.new(tpCol, 30), style=line.style_dashed)
     t.lT3  := line.new(l, t.t3, r, t.t3, color=color.new(tpCol, 50), style=line.style_dashed)
-    // Étiquette ancrée SUR LE STOP et poussée vers l'extérieur : elle ne
-    // se pose jamais entre l'entrée et les objectifs, là où tu lis.
-    t.lTag := label.new(l, t.stop,
-         (t.dir == 1 ? "▲ ACHAT " : "▼ VENTE ") + str.tostring(t.entry, format.mintick) +
-         "   SL " + str.tostring(t.stop, format.mintick),
-         style=t.dir == 1 ? label.style_label_down : label.style_label_up,
-         color=color.new(t.dir == 1 ? entryBuyCol : entrySellCol, 20),
-         textcolor=color.white, size=size.tiny)
+    // AUCUNE ÉTIQUETTE. L'étiquette "▲ ACHAT / ▼ VENTE + SL" qui se posait
+    // ici a été supprimée : elle encombrait les bougies pour rien. Les prix
+    // d'entrée, de stop et des objectifs se lisent directement sur l'échelle
+    // à droite, en face de chaque trait.
+    // t.lTag reste dans le type SmvTrade uniquement pour que f_trClose et
+    // f_trKill compilent — il vaut toujours na, et label.delete(na) ne fait
+    // rien.
 
 // Un trade en cours suit le prix, comme toutes tes autres zones : bord
 // droit à bar_index + zoneExt, jamais extend.right.
@@ -2286,15 +2285,12 @@ f_trClose(SmvTrade t, string why) =>
     if not na(t.lTag)
         label.set_color(t.lTag, color.new(t.dir == 1 ? entryBuyCol : entrySellCol, f_trFade(20)))
         label.set_textcolor(t.lTag, color.new(color.white, f_trFade(0)))
-    // Étiquette de résultat décalée d'un ATR et pointant vers son niveau :
-    // elle ne se pose jamais sur la bougie qui vient de clôturer le trade.
-    float lvlOut = why == "stop" ? t.stop : why == "TP3" ? t.t3 : close
-    float sgnOut = why == "stop" ? (t.dir == 1 ? -1.0 : 1.0) :
-         why == "TP3" ? (t.dir == 1 ? 1.0 : -1.0) : (t.dir == 1 ? -1.0 : 1.0)
-    color cOut = why == "TP3" ? tpCol : why == "stop" ? slCol : color.new(#9ba4b0, 0)
-    t.lOut := label.new(bar_index, lvlOut + sgnOut * atrFast * 0.6, why,
-         style=sgnOut > 0 ? label.style_label_down : label.style_label_up,
-         color=color.new(cOut, 25), textcolor=color.white, size=size.tiny)
+    // AUCUNE ÉTIQUETTE DE RÉSULTAT. Les pastilles "stop" / "TP3" / "expiré"
+    // qui se posaient sur la bougie de clôture ont été supprimées. Le trait
+    // plein d'un objectif atteint et l'estompage du trade terminé disent
+    // déjà comment il s'est fini, sans écrire un mot sur le graphique.
+    // Le paramètre `why` continue de piloter tout ça (largeur et opacité des
+    // traits juste au-dessus) — seule l'étiquette disparaît.
 
 f_trFire(int dir, float idmLvl) =>
     float riskPx = stopModeStruct and not na(idmLvl) ?
@@ -2741,9 +2737,13 @@ color cShort = input.color(#FF3B6B, "Short",   group = GD, inline = "col")
 color cForm  = input.color(#FFB020, "Forming", group = GD, inline = "col")
 color cEntry = input.color(#9BA4B0, "Entry",   group = GD, inline = "col")
 
-string labelMode = input.string("Short", "Signal labels",
+// Ces deux réglages existent tels quels dans le GBB d'origine ; seules leurs
+// VALEURS PAR DÉFAUT changent ici : "Off" au lieu de "Short", et false au lieu
+// de true. Aucune mécanique touchée — plus aucun texte ne se pose sur les
+// bougies. Remets "Short" et coche la case si tu veux les revoir un jour.
+string labelMode = input.string("Off", "Signal labels",
      options = ["Full","Short","Arrow only","Off"], group = GD)
-bool showOutcomes = input.bool(true, "Show outcome tags (stop / TP3 / expired)", group = GD)
+bool showOutcomes = input.bool(false, "Show outcome tags (stop / TP3 / expired)", group = GD)
 bool showTpLabels = input.bool(false, "Also label TP1 / TP2 on the bar", group = GD,
      tooltip = "Off: a filled target promotes its ladder line to solid instead. " +
                "On: adds a text tag at the hit bar, which will overlap candles on a dense chart.")
