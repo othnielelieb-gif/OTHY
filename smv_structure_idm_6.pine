@@ -2709,13 +2709,6 @@ int   zoneLen   = input.int(6,      "Project zone N bars ahead", minval = 1, gro
      tooltip = "An open trade's zone extends from entry to the current bar, plus this much " +
                "projection. It stops growing when the trade resolves.")
 int   keepTrades= input.int(8,      "Keep last N drawings",minval = 1, maxval = 40, group = GD)
-string tblPos   = input.string("Top right", "Panel position",
-     options = ["Top right","Top left","Bottom right","Bottom left","Middle right"], group = GD)
-int   tblSize   = input.int(1, "Panel text size (0 tiny – 3 large)", minval = 0, maxval = 3, group = GD)
-
-var string GC = "19. GBB — Scoreboard"
-bool  showBoard = input.bool(true, "Show scoreboard columns", group = GC)
-int   minSamp   = input.int(10,    "Grey out below N samples", minval = 1, group = GC)
 
 var string GO = "20. GBB — Opening range"
 string orSess   = input.session("0930-1600", "Session",     group = GO)
@@ -2737,13 +2730,14 @@ color cShort = input.color(#FF3B6B, "Short",   group = GD, inline = "col")
 color cForm  = input.color(#FFB020, "Forming", group = GD, inline = "col")
 color cEntry = input.color(#9BA4B0, "Entry",   group = GD, inline = "col")
 
-// Ces deux réglages existent tels quels dans le GBB d'origine ; seules leurs
-// VALEURS PAR DÉFAUT changent ici : "Off" au lieu de "Short", et false au lieu
-// de true. Aucune mécanique touchée — plus aucun texte ne se pose sur les
-// bougies. Remets "Short" et coche la case si tu veux les revoir un jour.
-string labelMode = input.string("Off", "Signal labels",
+// Réglages du GBB d'origine, valeurs par défaut d'origine. L'étiquette de
+// signal nomme le setup qui a tiré (VWAP, EMA, B&R, SWEEP, DIV, ORB) : c'est
+// l'information la plus utile du module, elle reste active. Comme les signaux
+// ne se déclenchent plus que dans une zone d'IDM (voir le filtre plus bas),
+// il y en a beaucoup moins qu'avant et elles n'encombrent plus le graphique.
+string labelMode = input.string("Short", "Signal labels",
      options = ["Full","Short","Arrow only","Off"], group = GD)
-bool showOutcomes = input.bool(false, "Show outcome tags (stop / TP3 / expired)", group = GD)
+bool showOutcomes = input.bool(true, "Show outcome tags (stop / TP3 / expired)", group = GD)
 bool showTpLabels = input.bool(false, "Also label TP1 / TP2 on the bar", group = GD,
      tooltip = "Off: a filled target promotes its ladder line to solid instead. " +
                "On: adds a text tag at the hit bar, which will overlap candles on a dense chart.")
@@ -2791,6 +2785,38 @@ float  outOff     = input.float(0.6, "Outcome tag offset (ATR)", minval = 0, ste
 //---------------------------------------------------------------------
 bool gbbBullOk = confirmedTrend == 0 or confirmedTrend == 1
 bool gbbBearOk = confirmedTrend == 0 or confirmedTrend == -1
+
+//---------------------------------------------------------------------
+// FILTRE ZONE IDM — le deuxième verrou, et le plus important.
+//
+// Un setup GBB ne vaut rien s'il se déclenche n'importe où. Ici il ne
+// peut tirer QUE si le prix de la bougie touche la zone d'un IDM encore
+// actif, et seulement dans le SENS de cet IDM :
+//   IDM haussier (IDBL) touché -> les setups ACHAT sont autorisés
+//   IDM baissier (IDBR) touché -> les setups VENTE sont autorisés
+//
+// La largeur de la zone n'est pas inventée : c'est atrSniper, exactement
+// la même demi-épaisseur que ta Sniper Zone (réglage "Épaisseur avant
+// liquidation" du module 3). La zone GBB est donc littéralement la zone
+// que ton indicateur dessine déjà autour de chaque IDM.
+//
+// On LIT idmLevel / idmDir / idmDone, on n'écrit rien dedans : le moteur
+// IDM et le module 13 ne sont pas touchés, les deux systèmes restent
+// séparés. Le GBB se contente d'attendre le prix au bon endroit.
+//---------------------------------------------------------------------
+bool gbbIdmZoneBull = false
+bool gbbIdmZoneBear = false
+
+if array.size(idmLevel) > 0 and not na(atrSniper)
+    for gi = array.size(idmLevel) - 1 to 0
+        if not array.get(idmDone, gi)
+            float gLvl = array.get(idmLevel, gi)
+            // La bougie touche-t-elle la bande [niveau - atrSniper ; niveau + atrSniper] ?
+            if low <= gLvl + atrSniper and high >= gLvl - atrSniper
+                if array.get(idmDir, gi) == 1
+                    gbbIdmZoneBull := true
+                else
+                    gbbIdmZoneBear := true
 
 // Fade helpers. closedFade slides a live transparency toward invisible; the default
 // of 55 reproduces the previous hardcoded look almost exactly.
@@ -3380,8 +3406,8 @@ if ready
             // n'entre pas dans le scoreboard. L'état "forming" est filtré
             // de la même façon, pour que le panneau n'annonce jamais un
             // setup qui ne pourra pas se déclencher.
-            bool L = longSig(sid)  and gbbBullOk
-            bool S = shortSig(sid) and gbbBearOk
+            bool L = longSig(sid)  and gbbBullOk and gbbIdmZoneBull
+            bool S = shortSig(sid) and gbbBearOk and gbbIdmZoneBear
             bool F = formSig(sid) and ((gbbBullOk and confirmedTrend == 1) or (gbbBearOk and confirmedTrend == -1) or confirmedTrend == 0)
             array.set(state, sid, L ? ST_LONG : S ? ST_SHORT : F ? ST_FORMING : ST_DORMANT)
 
@@ -3409,100 +3435,16 @@ if barstate.isconfirmed
             array.unshift(trades, old)
             break
 
-textSize() =>
-    switch tblSize
-        0 => size.tiny
-        2 => size.normal
-        3 => size.large
-        => size.small
-
-// ═════════════════════════════════════════════════════════════════════
-//  PANEL
-// ═════════════════════════════════════════════════════════════════════
-
-tablePos() =>
-    switch tblPos
-        "Top left"      => position.top_left
-        "Bottom right"  => position.bottom_right
-        "Bottom left"   => position.bottom_left
-        "Middle right"  => position.middle_right
-        => position.top_right
-
-var table pnl = table.new(tablePos(), 4, N_SETUPS + 2, border_width = 1,
-     frame_color = color.new(color.gray, 60), frame_width = 1,
-     border_color = color.new(color.gray, 80))
-
-if barstate.islast
-    color hdrBg  = color.new(#5B6472, 82)
-    color hdrTxt = #8A94A3
-    color bodyTx = #C6CDD8
-
-    table.cell(pnl, 0, 0, syminfo.ticker + " · " + timeframe.period, bgcolor = hdrBg,
-         text_color = hdrTxt, text_size = textSize(), text_halign = text.align_left)
-    table.cell(pnl, 1, 0, "state", bgcolor = hdrBg, text_color = hdrTxt, text_size = textSize())
-    table.cell(pnl, 2, 0, showBoard ? "fired" : "", bgcolor = hdrBg, text_color = hdrTxt, text_size = textSize())
-    table.cell(pnl, 3, 0, showBoard ? "→TP1"  : "", bgcolor = hdrBg, text_color = hdrTxt, text_size = textSize())
-
-    for sid = 0 to N_SETUPS - 1
-        int  st  = array.get(state, sid)
-        int  f   = array.get(cFired, sid)
-        int  w   = array.get(cT1, sid)
-        bool off = st == ST_OFF
-        bool live = st == ST_LONG or st == ST_SHORT
-
-        string stTxt = switch st
-            ST_LONG    => "LONG"
-            ST_SHORT   => "SHORT"
-            ST_FORMING => "forming"
-            ST_OFF     => "off"
-            => "·"
-
-        // live states get a solid fill with dark text so they read as a state change,
-        // not just another row of grey
-        color stCol = switch st
-            ST_LONG    => #0B0F14
-            ST_SHORT   => #0B0F14
-            ST_FORMING => cForm
-            ST_OFF     => color.new(#5B6472, 40)
-            => color.new(#5B6472, 25)
-
-        color stBg = switch st
-            ST_LONG    => cLong
-            ST_SHORT   => cShort
-            ST_FORMING => color.new(cForm, 78)
-            => color.new(#5B6472, 100)
-
-        color nameCol = off ? color.new(#5B6472, 35) : live ? color.white : bodyTx
-
-        table.cell(pnl, 0, sid + 1, setupName(sid), text_color = nameCol,
-             text_size = textSize(), text_halign = text.align_left)
-        table.cell(pnl, 1, sid + 1, stTxt, text_color = stCol, bgcolor = stBg,
-             text_size = textSize())
-
-        if showBoard
-            // Note: "→TP1" is trades that REACHED TP1 over trades fired. A trade
-            // that hits TP1 and later stops or expires still counts as reached.
-            // cT2/cT3/cStop/cExp are collected for a fuller panel in a later
-            // version and are not displayed yet.
-            bool   enough = f >= minSamp
-            color  scCol  = not enough ? color.new(#5B6472, 35) : bodyTx
-            string rate   = f > 0 ? str.tostring(math.round(100.0 * w / f)) + "%" : "—"
-            table.cell(pnl, 2, sid + 1, str.tostring(f), text_color = scCol, text_size = textSize())
-            table.cell(pnl, 3, sid + 1, rate, text_color = scCol, text_size = textSize())
-        else
-            table.cell(pnl, 2, sid + 1, "")
-            table.cell(pnl, 3, sid + 1, "")
-
-    int oc = openCount()
-    int odr = openDir()
-    table.cell(pnl, 0, N_SETUPS + 1, oc > 0 ? "trade open" : "flat",
-         text_color = oc > 0 ? color.white : color.new(#5B6472, 35),
-         text_size = textSize(), text_halign = text.align_left, bgcolor = hdrBg)
-    table.cell(pnl, 1, N_SETUPS + 1, oc > 0 ? (odr == 1 ? "long" : "short") : "",
-         text_color = oc > 0 ? (odr == 1 ? cLong : cShort) : hdrTxt,
-         text_size = textSize(), bgcolor = hdrBg)
-    table.cell(pnl, 2, N_SETUPS + 1, "", bgcolor = hdrBg)
-    table.cell(pnl, 3, N_SETUPS + 1, "", bgcolor = hdrBg)
+// Le panneau GBB (le tableau qui affichait l'état des 6 setups et se
+// terminait par la ligne "flat") a été RETIRÉ. Il se posait au même
+// endroit que ton dashboard SMV et le poussait vers le bas. Retirés avec
+// lui, parce qu'ils ne servaient qu'à lui : les fonctions tablePos() et
+// textSize(), et les réglages "Panel position", "Panel text size",
+// "Show scoreboard columns" et "Grey out below N samples".
+//
+// Les compteurs (cFired, cT1, cT2, cT3, cStop, cExp) et le tableau state
+// continuent d'être alimentés : la mécanique du GBB n'est pas touchée, et
+// tout est prêt si tu veux réafficher un panneau plus tard.
 
 // ═════════════════════════════════════════════════════════════════════
 //  ALERTS
@@ -3512,8 +3454,8 @@ if barstate.islast
 // graphique et les alertes suivent exactement la même règle que les
 // entrées. Un signal contraire à la structure ne s'affiche pas et ne
 // déclenche aucune alerte.
-bool anyLong  = (sVwapL or sEmaL or sBrtL or sSweepL or sDivL or sOrbL) and gbbBullOk
-bool anyShort = (sVwapS or sEmaS or sBrtS or sSweepS or sDivS or sOrbS) and gbbBearOk
+bool anyLong  = (sVwapL or sEmaL or sBrtL or sSweepL or sDivL or sOrbL) and gbbBullOk and gbbIdmZoneBull
+bool anyShort = (sVwapS or sEmaS or sBrtS or sSweepS or sDivS or sOrbS) and gbbBearOk and gbbIdmZoneBear
 
 // Les marqueurs triangulaires du GBB d'origine (plotshape sous / sur la
 // bougie d'entrée) ont été RETIRÉS à ta demande. Le réglage "Mark blocked
