@@ -1,5 +1,16 @@
 //@version=6
-indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+// max_bars_back : filet de sécurité INDISPENSABLE. Plusieurs modules
+// relisent l'historique avec un index VARIABLE, que Pine ne sait pas
+// toujours dimensionner tout seul :
+//   • Order Blocks   : obMin[i] / obMax[i] dans une boucle bornée au
+//                      runtime (jusqu'à 50), et low[locOff] / high[locOff]
+//   • Structure      : high[bar_index - bosHighBar], low[bar_index - bosLowBar]
+//   • Pivots manuels : bar_index[pivLenManual]
+//   • GBB divergence : rsiV[pvLen]
+// Sans cette valeur, Pine lève une erreur d'exécution dès que le buffer
+// manque — et TradingView efface alors TOUT le graphique d'un coup. C'est
+// exactement le symptôme "plus rien ne s'affiche, le graphe est vide".
+indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=500)
 
 //=====================================================================
 // MOTEUR DE CALCUL vs AFFICHAGE
@@ -2237,8 +2248,6 @@ if not na(pl)
     else if smvTrend >= 0 and pl > protLow
         // Creux plus haut : la structure haussière se renforce, le point
         // protégé remonte avec elle.
-        protLow := pl
-    else if smvTrend == -1 and na(protLow)
         protLow := pl
 
 if not na(ph)
