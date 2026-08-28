@@ -1241,6 +1241,43 @@ bool enteredSniperZone = inSniperNow and not inSniperNow[1]
 
 
 //=====================================================================
+// ZONE IDM POUR LE GBB — calculé ICI, et surtout PAS plus bas.
+//
+// Un setup GBB ne peut tirer que si le prix touche la zone d'un IDM
+// encore actif, dans le sens de cet IDM :
+//   IDM haussier (IDBL) touché -> les setups ACHAT sont autorisés
+//   IDM baissier (IDBR) touché -> les setups VENTE sont autorisés
+//
+// POURQUOI ICI ET PAS DANS LE BLOC GBB : la section juste en dessous
+// marque `idmDone = true` DÈS que le prix touche l'IDM. Si ce test était
+// placé dans le bloc GBB (bien plus bas dans le script), l'IDM que le
+// prix est en train de toucher serait déjà classé "récupéré", donc exclu
+// par la condition `not idmDone` — et la zone ne serait JAMAIS vraie au
+// moment qui compte. Les setups GBB ne tiraient donc pratiquement jamais.
+//
+// Calculé ici, idmDone est encore dans son état d'AVANT la récupération :
+// l'IDM touché est bien reconnu comme actif.
+//
+// La largeur de la bande est atrSniper, exactement la demi-épaisseur de
+// ta Sniper Zone (module 3). On LIT idmLevel / idmDir / idmDone sans
+// jamais y écrire : les deux moteurs restent séparés.
+//=====================================================================
+bool gbbIdmZoneBull = false
+bool gbbIdmZoneBear = false
+
+if array.size(idmLevel) > 0 and not na(atrSniper)
+    for gi = array.size(idmLevel) - 1 to 0
+        if not array.get(idmDone, gi)
+            float gLvl = array.get(idmLevel, gi)
+            // La bougie touche-t-elle la bande [niveau - atrSniper ; niveau + atrSniper] ?
+            if low <= gLvl + atrSniper and high >= gLvl - atrSniper
+                if array.get(idmDir, gi) == 1
+                    gbbIdmZoneBull := true
+                else
+                    gbbIdmZoneBear := true
+
+
+//=====================================================================
 // RÉCUPÉRATION DE L'IDM (moteur — toujours actif)
 //
 // Vérifiée pour TOUS les IDM encore actifs, même les anciens FS. Les
@@ -2946,7 +2983,7 @@ setupName(int sid) =>
 //  INPUTS
 // ═════════════════════════════════════════════════════════════════════
 
-var string GS = "15. GBB — Setups"
+var string GS = "16. GBB — Setups"
 bool useVwap  = input.bool(true,  "VWAP reclaim",         group = GS)
 bool useEma   = input.bool(true,  "EMA pullback (9/21)",  group = GS)
 bool useBrt   = input.bool(true,  "Break and retest",     group = GS)
@@ -2954,7 +2991,7 @@ bool useSweep = input.bool(true,  "Liquidity sweep",      group = GS)
 bool useDiv   = input.bool(true,  "RSI divergence",       group = GS)
 bool useOrb   = input.bool(true,  "Opening range break",  group = GS)
 
-var string GT = "16. GBB — Trade plan"
+var string GT = "17. GBB — Trade plan"
 float stopAtr  = input.float(1.2, "Stop distance (ATR)",  minval = 0.2, step = 0.1, group = GT)
 float r1       = input.float(1.0, "TP1 (R)",              minval = 0.2, step = 0.1, group = GT)
 float r2       = input.float(2.0, "TP2 (R)",              minval = 0.2, step = 0.1, group = GT)
@@ -2968,12 +3005,12 @@ int   reentry  = input.int(0,     "Re-entry cooldown (bars)", minval = 0, group 
 bool  oneWay   = input.bool(true, "Block opposite-direction entries", group = GT,
      tooltip = "While a long is open, ignore short signals and vice versa.")
 
-var string GF = "17. GBB — Filters"
+var string GF = "18. GBB — Filters"
 int   atrLen   = input.int(14,   "ATR length",             minval = 2,  group = GF)
 float volMult  = input.float(1.0,"Volume must exceed x SMA20", minval = 0, step = 0.1, group = GF)
 int   pvLen    = input.int(5,    "Swing pivot length",     minval = 2,  group = GF)
 
-var string GD = "18. GBB — Display"
+var string GD = "19. GBB — Display"
 bool  showZones = input.bool(true,  "Draw trade zones",    group = GD)
 int   zoneLen   = input.int(6,      "Project zone N bars ahead", minval = 1, group = GD,
      tooltip = "An open trade's zone extends from entry to the current bar, plus this much " +
@@ -3077,19 +3114,10 @@ float  outOff     = input.float(0.6, "Outcome tag offset (ATR)", minval = 0, ste
 // IDM et le module 13 ne sont pas touchés, les deux systèmes restent
 // séparés. Le GBB se contente d'attendre le prix au bon endroit.
 //---------------------------------------------------------------------
-bool gbbIdmZoneBull = false
-bool gbbIdmZoneBear = false
-
-if array.size(idmLevel) > 0 and not na(atrSniper)
-    for gi = array.size(idmLevel) - 1 to 0
-        if not array.get(idmDone, gi)
-            float gLvl = array.get(idmLevel, gi)
-            // La bougie touche-t-elle la bande [niveau - atrSniper ; niveau + atrSniper] ?
-            if low <= gLvl + atrSniper and high >= gLvl - atrSniper
-                if array.get(idmDir, gi) == 1
-                    gbbIdmZoneBull := true
-                else
-                    gbbIdmZoneBear := true
+// Le calcul lui-même se trouve PLUS HAUT, juste avant la récupération de
+// l'IDM : voir gbbIdmZoneBull / gbbIdmZoneBear. Il ne peut pas être ici,
+// car à ce stade du script l'IDM que le prix vient de toucher est DÉJÀ
+// marqué "récupéré" et serait donc exclu du test.
 
 // Fade helpers. closedFade slides a live transparency toward invisible; the default
 // of 55 reproduces the previous hardcoded look almost exactly.
@@ -3538,9 +3566,14 @@ openTrade(int sid, int dir) =>
 // exact level and spans the zone, so it can never collide with a candle or with
 // another drawing's z-order.
 tpMark(line ln, float lvl, string txt) =>
-    line.set_style(ln, line.style_solid)
-    line.set_color(ln, cLong)
-    line.set_width(ln, 2)
+    // GARDE INDISPENSABLE : les lignes lEnt / lT1 / lT2 / lT3 ne sont
+    // créées que si "Draw trade zones" est coché. Décoché, elles valent na,
+    // et line.set_style(na) lève une erreur d'exécution qui efface tout le
+    // graphique. Sans ce test, décocher une simple case vidait l'écran.
+    if not na(ln)
+        line.set_style(ln, line.style_solid)
+        line.set_color(ln, cLong)
+        line.set_width(ln, 2)
     label lb = na
     if showTpLabels
         lb := label.new(bar_index, lvl, txt, style = label.style_label_left,
