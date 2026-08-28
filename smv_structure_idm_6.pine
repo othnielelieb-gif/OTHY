@@ -249,8 +249,10 @@ refineCol = input.color(#26c6da, "Couleur zone affinée", group=gSn)
 // Zone restent les seules zones d'action.
 //=====================================================================
 gPh = "4. Phases"
-showPhaseBox     = input.bool(true, "Afficher le rectangle Accumulation/Distribution", group=gPh)
-showPhaseMarkers = input.bool(true, "Afficher SC / STB / SPRING / BC / UT / UTAD", group=gPh)
+showPhaseBox     = input.bool(false, "Afficher le rectangle Accumulation/Distribution", group=gPh,
+     tooltip="Décoché par défaut : les phases continuent d'être CALCULÉES et comptent dans le score de confluence (module 15), mais elles ne sont plus dessinées. C'est l'un des plus gros gains de lisibilité.")
+showPhaseMarkers = input.bool(false, "Afficher SC / STB / SPRING / BC / UT / UTAD", group=gPh,
+     tooltip="Décoché par défaut, même raison : SPRING, STB, UT et UTAD restent détectés et alimentent la confluence, sans encombrer le graphique.")
 phaseCol         = input.color(#ffa726, "Couleur manipulations (STB/SPRING/UT/UTAD)", group=gPh)
 
 //=====================================================================
@@ -361,7 +363,7 @@ fvgMinSize = input.float(0.15, "Taille minimale (x ATR)", minval=0.0, maxval=2.0
      tooltip="Ignore les micro-gaps sans signification. Plus grand = seules les grosses imbalances sont retenues.")
 
 gP3 = "11. IDM 3 — H1 confirmé par le M15 et le M5"
-showProjIdm = input.bool(true, "Afficher l'IDM 3 (multi-timeframe)", group=gP3,
+showProjIdm = input.bool(false, "Tracer l'IDM 3 sur le graphique", group=gP3,
      tooltip="Niveau ANCRÉ sur le H1 (le timeframe de décision) et CONFIRMÉ par le M15 et le M5. Ce n'est pas un pivot du graphique courant : c'est l'endroit où les trois lectures se rejoignent. Il disparaît dès que le prix l'a touché, ou dès que la structure H1 s'inverse.")
 projIdmCol = input.color(#00e5ff, "Couleur IDM 3", group=gP3)
 projTolAtr = input.float(0.6, "Tolérance de confluence (x ATR)", minval=0.1, maxval=3.0, step=0.1, group=gP3,
@@ -371,7 +373,7 @@ projMinTf = input.int(2, "Timeframes minimum d'accord pour l'afficher", minval=1
 projShowZone = input.bool(true, "Afficher la zone autour du niveau", group=gP3)
 
 gP4 = "12. IDM 4 — toujours entre l'IDM 1 et l'IDM 2"
-showIdm4 = input.bool(true, "Afficher l'IDM 4", group=gP4,
+showIdm4 = input.bool(false, "Tracer l'IDM 4 sur le graphique", group=gP4,
      tooltip="Par construction, l'IDM 4 est TOUJOURS situé entre l'IDM 1 et l'IDM 2. Dans ce couloir on retient, dans l'ordre : un Order Block non cassé, sinon une imbalance non comblée, sinon le milieu exact du couloir. Le repli garantit qu'il existe dès que les deux IDM existent.")
 idm4Col = input.color(#ffab00, "Couleur IDM 4", group=gP4)
 idm4ShowZone = input.bool(true, "Afficher la zone autour du niveau", group=gP4)
@@ -410,6 +412,39 @@ scorePosStr = input.string("En bas à droite", "Position du scoreboard",
      tooltip="Volontairement séparé du dashboard principal pour ne pas le surcharger.")
 minSampl = input.int(10, "Griser en dessous de N trades", minval=1, maxval=100, group=gSc,
      tooltip="Un pourcentage calculé sur 3 trades ne veut rien dire. En dessous de ce seuil, les chiffres restent affichés mais grisés pour te rappeler qu'ils ne sont pas encore exploitables.")
+
+//=====================================================================
+// 16. Déclencheur d'entrée — la fin du retracement se PROUVE
+//
+// Le module d'entrée tirait dès que le prix touchait l'IDM. C'est
+// attraper un couteau qui tombe : le prix qui traverse l'IDM ne prouve
+// rien, il ne fait que passer par là.
+//
+// Ici, la récupération de l'IDM ARME le setup au lieu de le tirer. Le
+// tir n'a lieu que quand le marché a PROUVÉ que la zone est défendue.
+//=====================================================================
+gTr = "16. Déclencheur d'entrée — fin du retracement"
+useTrigger = input.bool(true, "Exiger une preuve de retournement avant d'entrer", group=gTr,
+     tooltip="COCHÉ (recommandé) : la récupération de l'IDM arme le setup, elle ne l'ouvre pas. Il faut ensuite que le prix ait franchi le 0.5 ET qu'une bougie de rejet se forme. DÉCOCHÉ : comportement d'origine, entrée immédiate au contact de l'IDM.")
+trigNeedDeep = input.bool(true, "Exiger le franchissement du 0.5", group=gTr,
+     tooltip="Un retracement qui n'atteint pas le 0.5 du mouvement n'est pas un vrai pullback : c'est un piège, une fausse structure. Tant que le 0.5 n'est pas pris, aucune entrée. C'est le filtre qui élimine le plus de faux signaux.")
+trigPinRatio = input.float(0.5, "Taille minimale de la mèche de rejet (part de la bougie)", minval=0.2, maxval=0.9, step=0.05, group=gTr,
+     tooltip="0.5 = la mèche qui va chercher la liquidité doit faire au moins la moitié de la bougie. C'est la signature d'un vrai rejet : le prix est allé prendre l'argent puis a été repoussé dans la foulée. Plus haut = plus strict.")
+trigAllowEngulf = input.bool(true, "Accepter aussi une bougie englobante", group=gTr,
+     tooltip="En plus de la mèche de rejet, accepte une englobante : la bougie avale entièrement la précédente et clôture du bon côté de l'IDM. C'est l'autre façon dont un retournement se signe.")
+trigMaxBars = input.int(12, "Désarmer après N bougies sans preuve", minval=1, maxval=100, group=gTr,
+     tooltip="Si aucune bougie de rejet n'apparaît dans les N bougies qui suivent le balayage de l'IDM, le setup est abandonné. Le marché n'a pas défendu la zone : il n'y a rien à prendre.")
+
+//=====================================================================
+// 17. Épuration du graphique — moins d'éléments, plus de lisibilité
+//=====================================================================
+gEp = "17. Épuration du graphique"
+idmOnlyFirst = input.bool(true, "N'afficher que l'IDM 1 sur le graphique", group=gEp,
+     tooltip="L'institutionnel vise la PREMIÈRE vraie poche de liquidité. Les IDM 2, 3 et 4 continuent d'être calculés et restent lisibles dans le dashboard, mais ils ne sont plus tracés sur le graphique — c'est eux qui créaient le plus de confusion visuelle.")
+fvgDrawBoxes = input.bool(false, "Dessiner les boîtes d'imbalance (FVG)", group=gEp,
+     tooltip="DÉCOCHÉ (recommandé) : les imbalances continuent d'être calculées — elles servent au filtre des Order Blocks, à l'IDM 4 et au score de confluence — mais leurs boîtes ne sont plus dessinées. Ça supprime la double boîte OB + FVG qui se superposait.")
+obNeedFvg = input.bool(true, "N'afficher que les Order Blocks avec déséquilibre (FVG)", group=gEp,
+     tooltip="COCHÉ (recommandé) : un Order Block sans déséquilibre est un OB faible. Seuls ceux accompagnés d'un vrai Fair Value Gap — la marque d'une exécution institutionnelle — restent tracés. Les Breaker Blocks ne sont jamais filtrés : leur polarité inversée est une information à part entière.")
 
 
 //=====================================================================
@@ -1138,9 +1173,22 @@ if newIDM
 
     int n = array.size(idmLevel)
 
-    // L'ancien "le plus récent" passe en 2e position : reste "IDM",
-    // couleur secondaire, continue d'être surveillé et prolongé.
-    if n >= 2 and not array.get(idmDone, n - 2)
+    // L'ancien "le plus récent" passe en 2e position. Avec idmOnlyFirst
+    // (par défaut), on ne le RETROGRADE pas : on efface purement son
+    // tracé. Il reste dans les tableaux — donc toujours surveillé,
+    // toujours récupérable, toujours visible dans le dashboard — mais il
+    // ne charge plus le graphique.
+    if idmOnlyFirst and n >= 2 and not array.get(idmDone, n - 2)
+        line lnD2 = array.get(idmLine, n - 2)
+        if not na(lnD2)
+            line.delete(lnD2)
+            array.set(idmLine, n - 2, na)
+        label lbD2 = array.get(idmLbl, n - 2)
+        if not na(lbD2)
+            label.delete(lbD2)
+            array.set(idmLbl, n - 2, na)
+
+    if not idmOnlyFirst and n >= 2 and not array.get(idmDone, n - 2)
         line ln2 = array.get(idmLine, n - 2)
         if not na(ln2)
             line.set_color(ln2, idmWaitCol)
@@ -1298,6 +1346,14 @@ bool signalBlockedByChoch = false
 // module 13. Uniquement mémorisé ici, jamais utilisé par le moteur.
 var float entryIdmLvl = na
 
+// ÉTAT D'ARMEMENT (module 16). La récupération de l'IDM remplit ces
+// variables ; c'est le bloc DÉCLENCHEUR, juste après, qui décide de
+// tirer ou d'attendre.
+var int   armDir  = 0     // 1 = achat armé, -1 = vente armée, 0 = rien
+var float armLvl  = na    // niveau de l'IDM balayé
+var int   armBar  = na    // bougie du balayage
+var bool  armDeep = false // le 0.5 du mouvement a-t-il été franchi depuis ?
+
 if array.size(idmLevel) > 0
     for i = array.size(idmLevel) - 1 to 0
         if not array.get(idmDone, i)
@@ -1344,10 +1400,20 @@ if array.size(idmLevel) > 0
                         label.delete(lbr)
 
                     entryIdmLvl := lvl
-                    if dir == 1
-                        entrySignalBuy := true
-                    else
-                        entrySignalSell := true
+                    // Le balayage de l'IDM ARME le setup. Il ne l'ouvre
+                    // plus : sans preuve que la zone est défendue, rien
+                    // ne dit que le retracement est terminé.
+                    armDir  := dir
+                    armLvl  := lvl
+                    armBar  := bar_index
+                    armDeep := false
+                    // Déclencheur désactivé -> comportement d'origine,
+                    // entrée immédiate au contact.
+                    if not useTrigger
+                        if dir == 1
+                            entrySignalBuy := true
+                        else
+                            entrySignalSell := true
                 else
                     if isTopTwo and blockedByChoch
                         signalBlockedByChoch := true
@@ -1363,6 +1429,82 @@ if array.size(idmLevel) > 0
                         label.set_xy(lbr, bar_index, lvl)
                         label.set_color(lbr, color.new(idmDoneCol, 75))
                         label.set_textcolor(lbr, idmDoneCol)
+
+
+//=====================================================================
+// DÉCLENCHEUR D'ENTRÉE (module 16) — la fin du retracement se PROUVE
+//
+// Trois conditions, dans cet ordre :
+//
+//  1. BALAYAGE — déjà fait : c'est l'armement ci-dessus. Le prix est
+//     allé CHERCHER la liquidité au-delà de l'IDM (sous l'IDBL à
+//     l'achat, au-dessus de l'IDBR à la vente). Sans prise de
+//     liquidité, aucun rallye ne démarre.
+//
+//  2. PROFONDEUR — le prix doit avoir franchi le 0.5 du mouvement. Un
+//     retracement qui n'atteint pas le 0.5 n'est pas un vrai pullback,
+//     c'est un piège. C'est ce filtre qui élimine le plus de faux
+//     signaux.
+//
+//  3. REJET — une bougie doit prouver que la zone est DÉFENDUE :
+//       • mèche de rejet : la mèche perce l'IDM, le corps clôture du
+//         bon côté, la mèche fait au moins trigPinRatio de la bougie,
+//         et la clôture tient dans la bonne moitié ;
+//       • englobante : la bougie avale la précédente et clôture
+//         au-delà d'elle, du bon côté de l'IDM.
+//
+// Tant que les trois ne sont pas réunies, le setup reste ARMÉ. Il se
+// désarme si la structure s'inverse, ou après trigMaxBars sans preuve.
+//=====================================================================
+bool trigFired  = false
+bool trigArmed  = false
+bool trigExpired = false
+
+if useTrigger and armDir != 0
+    // --- 2. profondeur : le 0.5 a-t-il été franchi depuis l'armement ?
+    if not na(moveFib50)
+        if armDir == 1 and low <= moveFib50
+            armDeep := true
+        if armDir == -1 and high >= moveFib50
+            armDeep := true
+
+    // --- 3. rejet
+    float trRng = high - low
+    float trUpW = high - math.max(close, open)
+    float trDnW = math.min(close, open) - low
+
+    // Mèche de rejet : perce l'IDM, revient clôturer au-dessus, longue
+    // mèche, et clôture dans la moitié haute de la bougie.
+    bool pinBull = trRng > 0 and low < armLvl and close > armLvl and
+         trDnW >= trRng * trigPinRatio and (close - low) >= trRng * 0.5
+    bool pinBear = trRng > 0 and high > armLvl and close < armLvl and
+         trUpW >= trRng * trigPinRatio and (high - close) >= trRng * 0.5
+
+    // Englobante : avale la bougie précédente et clôture du bon côté.
+    bool engBull = trigAllowEngulf and close > open and close > high[1] and close > armLvl
+    bool engBear = trigAllowEngulf and close < open and close < low[1]  and close < armLvl
+
+    bool deepOk = not trigNeedDeep or armDeep
+
+    if armDir == 1 and deepOk and (pinBull or engBull)
+        entrySignalBuy := true
+        entryIdmLvl    := armLvl
+        trigFired      := true
+        armDir         := 0
+    else if armDir == -1 and deepOk and (pinBear or engBear)
+        entrySignalSell := true
+        entryIdmLvl     := armLvl
+        trigFired       := true
+        armDir          := 0
+    else
+        // Désarmement : la structure s'est inversée, ou le marché n'a
+        // rien défendu dans le délai imparti.
+        bool armFlip = (armDir == 1 and chochBear) or (armDir == -1 and chochBull)
+        if armFlip or (not na(armBar) and bar_index - armBar > trigMaxBars)
+            armDir      := 0
+            trigExpired := true
+        else
+            trigArmed := true
 
 
 // limitation historique — 8 tableaux liés, on garde tout synchronisé
@@ -1589,8 +1731,12 @@ if barstate.islast
             // justement changé de polarité.
             bool dirOk = not obFilter8020 or kOb or confirmedTrend == 0 or confirmedTrend == dOb
             bool brkOk = obShowBreaker or not kOb
+            // Un OB sans déséquilibre est un OB faible. Le filtre ne
+            // s'applique jamais aux Breakers : leur polarité inversée est
+            // une information à part entière.
+            bool fvgOk = not obNeedFvg or kOb or array.get(obFvgA, i)
 
-            if quotaOk and dirOk and brkOk
+            if quotaOk and dirOk and brkOk and fvgOk
                 if dOb == 1
                     drawnBull += 1
                 else
@@ -1824,6 +1970,9 @@ if array.size(fvgBox) > 0
             box.set_top(bxF, fT)
             box.set_bottom(bxF, fB)
             box.set_right(bxF, bar_index + zoneExt)
+            // Le calcul reste intact (filtre OB, IDM 4, confluence) ;
+            // seule la couleur décide si la boîte se voit ou non.
+            box.set_bgcolor(bxF, fvgDrawBoxes ? (fD == 1 ? fvgBullCol : fvgBearCol) : color.new(color.gray, 100))
 
 // Purge : au plus fvgCount imbalances par côté, les plus récentes.
 if array.size(fvgBox) > 0
@@ -1923,7 +2072,8 @@ if not na(lvH1) and not na(projTol)
 // naturellement là où les lectures se rejoignent.
 float projCand = agreeCnt > 0 ? agreeSum / agreeCnt : na
 
-if showProjIdm and not na(projCand) and agreeCnt >= projMinTf and h1Bias != 0
+// Calculé TOUJOURS (dashboard + confluence), même si le tracé est coupé.
+if not na(projCand) and agreeCnt >= projMinTf and h1Bias != 0
     projLvl   := projCand
     projDirV  := h1Bias
     projAgree := agreeCnt
@@ -2000,7 +2150,8 @@ if array.size(idmLevel) > 0
             else if i4B == -1
                 i4B := i
 
-if showIdm4 and i4A != -1 and i4B != -1
+// Calculé TOUJOURS (dashboard), même si le tracé est coupé.
+if i4A != -1 and i4B != -1
     float lvA = array.get(idmLevel, i4A)
     float lvB = array.get(idmLevel, i4B)
     float corridorLo = math.min(lvA, lvB)
@@ -3836,4 +3987,7 @@ alertcondition(trTp1Hit, "TP1 atteint", "SMV : TP1 atteint — pense à sécuris
 alertcondition(trTp3Hit, "TP3 atteint", "SMV : TP3 atteint — objectif final touché, le trade est clôturé")
 alertcondition(trStopHit, "Stop touché", "SMV : le stop vient d'être touché — le setup est invalidé")
 alertcondition(trBackT2, "Retour sur le TP2 — trade clôturé", "SMV : le prix était parti au-delà du TP2 puis y est revenu — le trade est clôturé, place à la prochaine opportunité")
+alertcondition(trigArmed, "Setup ARMÉ — IDM balayé, on attend la preuve", "SMV : le prix a balayé l'IDM. Le setup est armé mais PAS ouvert : il attend le franchissement du 0.5 et une bougie de rejet.")
+alertcondition(trigFired, "Retournement CONFIRMÉ — entrée", "SMV : 0.5 franchi et bougie de rejet formée sur l'IDM — le retracement est terminé, l'entrée est valide")
+alertcondition(trigExpired, "Setup abandonné", "SMV : l'IDM a été balayé mais le marché n'a jamais défendu la zone — setup désarmé, il n'y avait rien à prendre")
 alertcondition(smvTrendFlip, "Structure VRAIMENT inversée", "SMV : le prix a clôturé au-delà du dernier point protégé — la structure change de sens pour de bon, le sens des signaux s'inverse")
