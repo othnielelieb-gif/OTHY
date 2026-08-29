@@ -284,6 +284,7 @@ showIdmLines  = input.bool(true, "Afficher les 2 IDM actifs (lignes + étiquette
 showFsHistory = input.bool(false, "Afficher l'historique FS (anciens IDM figés)", group=gI,
      tooltip="Décoché par défaut pour garder le graphique lisible. Une fois décoché, les anciens IDM (devenus FS) sont simplement supprimés dès qu'ils sortent du top 2, au lieu de rester affichés en grisé.")
 idmActiveCol = input.color(#ab47bc, "IDM #1 — le plus récent (vrai signal à venir)", group=gI)
+idmWaitCol   = input.color(#ff9800, "IDM #2 — juste avant", group=gI)
 fsCol        = input.color(#9e9e9e, "FS (historique, plus ancien)", group=gI)
 idmDoneCol   = input.color(#26c6da, "Marqueur \"retesté\"", group=gI)
 entryBuyCol  = input.color(#00e676, "Couleur achat", group=gI)
@@ -1303,79 +1304,34 @@ bool candidateRetracementValid =
      moveDir == 1 ? idmCandidate <= moveFib50 :
      moveDir == -1 ? idmCandidate >= moveFib50 : false
 
-bool candidateIsFalseStructure =
-     na(moveFib50) or na(idmCandidate) ? true : not candidateRetracementValid
-
+// L'IDM SORT EN CONTINU — exactement comme dans ton exemple.
+//
+// Aucune condition supplementaire : chaque nouveau pivot oppose au
+// mouvement cree un IDM, qui remplace le precedent. L'IDM se deplace en
+// permanence, et c'est voulu — c'est la logique meme de l'inducement.
+//
+// Le verrou "uniquement sur fausse structure" que j'avais pose ici est
+// SUPPRIME : il empechait la quasi-totalite des IDM de se former.
+// candidateRetracementValid ne sert plus qu'a ecrire "•0.5" sur
+// l'etiquette quand le retracement a bien atteint le 0.5, sans jamais
+// bloquer la creation.
 bool newIDM =
      not na(idmCandidate) and
-     candidateIsFalseStructure and
      (nPrev == 0 or idmCandidate != prevTopLevel or prevTopDir != moveDir)
 
 bool isFS = newIDM and nPrev > 0 and not prevTopDone and prevTopDir == moveDir
 
 //---------------------------------------------------------------------
-// L'IDM QUI RESTE — celui qui se fige
+// L'IDM FIGE : SUPPRIME.
 //
-// « L'IDM qui se forme en dernière position avant l'enclenchement du
-// retracement reste figé sur son niveau et ne doit plus bouger jusqu'à
-// ce que le prix vienne le récupérer. Entre-temps il peut continuer à
-// afficher les autres IDM normalement, mais celui-là seul doit rester
-// figé. »
+// J'avais ajoute ici un verrou qui gelait le dernier IDM pose avant le
+// retracement : ses objets quittaient les tableaux, un bloc separe les
+// entretenait, un autre les liberait. C'est ce mecanisme qui faisait
+// tout disparaitre au moment ou un IDM se formait.
 //
-// L'enclenchement du retracement, c'est le moment où le prix atteint
-// enfin le 0.5 du mouvement : validTest bascule de false à true. À cet
-// instant précis, l'IDM en tête de liste est le DERNIER piège posé
-// avant le vrai retracement — c'est LUI qu'on gèle.
-//
-// Une fois gelé, son trait et son étiquette sortent des tableaux :
-// plus aucun autre bloc ne peut les déplacer, les recolorer, les
-// dégrader en FS ni les effacer. Le niveau lui-même reste dans
-// idmLevel / idmDir / idmDone, donc il continue d'armer le déclencheur
-// et de nourrir le dashboard exactement comme avant.
-//
-// Il n'est libéré que quand le prix vient RÉELLEMENT le récupérer :
-// balayage, puis clôture qui reprend le niveau (au-dessus de l'IDBL,
-// sous l'IDBR). Voir le bloc « LIBÉRATION DE L'IDM FIGÉ » plus bas.
+// L'IDM redevient celui de ton exemple : il se deplace librement, sans
+// aucun gel.
 //---------------------------------------------------------------------
-var int   frozenIdx     = na
-var line  frozenLn      = na
-var label frozenLb      = na
-var float frozenLvl     = na
-var int   frozenDir     = 0
-var int   frozenBar     = na
-var int   frozenSweptBar = na
-
-bool retraceEngaged = validTest and not validTest[1]
-
-if retraceEngaged and na(frozenIdx) and nPrev > 0 and not prevTopDone
-    frozenIdx  := nPrev - 1
-    frozenLvl  := prevTopLevel
-    frozenDir  := prevTopDir
-    frozenBar  := bar_index
-    frozenSweptBar := na
-
-    // On PREND possession du trait et de l'étiquette : ils quittent les
-    // tableaux (remplacés par na), donc plus rien d'autre ne les touche.
-    frozenLn := array.get(idmLine, frozenIdx)
-    frozenLb := array.get(idmLbl, frozenIdx)
-    array.set(idmLine, frozenIdx, na)
-    array.set(idmLbl, frozenIdx, na)
-
-    // ATTENTION : on ne touche PAS à sa Sniper Zone. Elle reste dans
-    // sniperZoneA, parce que c'est sa présence qui autorisera plus bas
-    // la création de la SIGNATURE au moment du balayage (règle 80/20).
-    // La lui retirer ici priverait de Signature l'IDM le plus important
-    // de tous — précisément celui qu'on vient de geler.
-
-    if not na(frozenLn)
-        line.set_color(frozenLn, idmActiveCol)
-        line.set_style(frozenLn, line.style_solid)
-        line.set_width(frozenLn, idmWidthBoost)
-    if not na(frozenLb)
-        label.set_text(frozenLb, (frozenDir == 1 ? "▲" : "▼") + " IDM FIGÉ " +
-             str.tostring(frozenLvl, format.mintick))
-        label.set_color(frozenLb, color.new(idmActiveCol, 25))
-        label.set_textcolor(frozenLb, color.white)
 
 if newIDM
 
@@ -1453,7 +1409,7 @@ if newIDM
     // Celui qui sort du top 2 devient une FS. Si showFsHistory est
     // actif, on la fige en gris (jamais supprimée). Sinon (par défaut),
     // on la supprime directement pour garder le graphique lisible.
-    if n >= 3 and not array.get(idmDone, n - 3) and (na(frozenIdx) or frozenIdx != n - 3)
+    if n >= 3 and not array.get(idmDone, n - 3)
         array.set(idmKind, n - 3, "FS")
         line ln3 = array.get(idmLine, n - 3)
         label lb3 = array.get(idmLbl, n - 3)
@@ -1621,8 +1577,7 @@ if array.size(idmLevel) > 0
                 // niveau sur lequel tu veux entrer. Même s'il a glissé
                 // en 3e position derrière des IDM plus récents, son
                 // balayage arme le setup.
-                bool isTopTwo       = i >= array.size(idmLevel) - 2 or
-                     (not na(frozenIdx) and i == frozenIdx)
+                bool isTopTwo       = i >= array.size(idmLevel) - 2
                 bool blockedByChoch = (dir == 1 and chochBear) or (dir == -1 and chochBull)
 
                 // Sniper Zone : dès que le prix part RÉELLEMENT pour le
@@ -1814,56 +1769,6 @@ if useTrigger and armDir != 0
 
 
 //=====================================================================
-// L'IDM FIGÉ — entretien et libération
-//
-// Tant qu'il est gelé, son trait avance avec le prix mais son NIVEAU ne
-// bouge jamais. Aucun nouvel IDM ne peut le remplacer, le dégrader en
-// FS ni l'effacer : ses objets ont quitté les tableaux au moment du gel.
-// Les autres IDM continuent de s'afficher normalement à côté.
-//
-// Il n'est libéré que quand le prix est VENU LE RÉCUPÉRER pour de bon,
-// c'est-à-dire les deux étapes, dans l'ordre :
-//   1. BALAYAGE — le prix passe au-delà du niveau (idmDone bascule) ;
-//   2. REPRISE  — une bougie SUIVANTE clôture de l'autre côté : au
-//      dessus de l'IDBL à l'achat, sous l'IDBR à la vente.
-// Tant que la reprise n'a pas eu lieu, le niveau reste affiché : c'est
-// exactement le prix auquel tu veux entrer, il ne doit pas disparaître
-// sous tes yeux au moment du balayage.
-//
-// Garde-fou : au-delà de 200 bougies sans reprise, la thèse est morte
-// et la ligne est retirée pour ne pas encombrer le graphique.
-//=====================================================================
-if not na(frozenIdx)
-    // Le balayage a-t-il eu lieu ? (mémorisé une seule fois)
-    if frozenIdx < array.size(idmDone) and array.get(idmDone, frozenIdx) and na(frozenSweptBar)
-        frozenSweptBar := bar_index
-        if not na(frozenLb)
-            label.set_text(frozenLb, (frozenDir == 1 ? "▲" : "▼") + " IDM FIGÉ ✦ balayé " +
-                 str.tostring(frozenLvl, format.mintick))
-
-    // Le trait suit le prix, le niveau ne bouge pas.
-    if not na(frozenLn)
-        line.set_x2(frozenLn, bar_index + 1)
-    if not na(frozenLb)
-        label.set_xy(frozenLb, bar_index + 1, frozenLvl)
-
-    bool frozenReclaimed = not na(frozenSweptBar) and bar_index > frozenSweptBar and
-         (frozenDir == 1 ? close > frozenLvl : close < frozenLvl)
-    bool frozenStale = not na(frozenBar) and bar_index - frozenBar > 200
-
-    if frozenReclaimed or frozenStale
-        line.delete(frozenLn)
-        label.delete(frozenLb)
-        frozenLn  := na
-        frozenLb  := na
-        frozenIdx := na
-        frozenLvl := na
-        frozenDir := 0
-        frozenBar := na
-        frozenSweptBar := na
-
-
-//=====================================================================
 // LA SIGNATURE — entretien
 //
 // Le bord droit suit le prix, comme toutes tes zones (jamais
@@ -1926,20 +1831,6 @@ if array.size(idmLevel) > maxHistory
     array.shift(idmDir)
     array.shift(idmDone)
     array.shift(idmKind)
-    // L'IDM figé glisse d'un cran vers la gauche. S'il tombe hors du
-    // tableau, on relâche le gel proprement.
-    if not na(frozenIdx)
-        frozenIdx := frozenIdx - 1
-        if frozenIdx < 0
-            line.delete(frozenLn)
-            label.delete(frozenLb)
-            frozenLn  := na
-            frozenLb  := na
-            frozenIdx := na
-            frozenLvl := na
-            frozenDir := 0
-            frozenBar := na
-            frozenSweptBar := na
 
 
 //=====================================================================
@@ -2944,24 +2835,27 @@ if showDash and barstate.islast
 
     // 3. IDM 1 — le plus récent qui respecte la structure (règle 80/20).
     int nIdm = array.size(idmLevel)
-    int idmWaitIdx = -1
+    int idmWaitIdx  = -1
+    int idmWaitIdx2 = -1
     if nIdm > 0
         for i = nIdm - 1 to 0
-            if idmWaitIdx == -1 and not array.get(idmDone, i) and
+            if not array.get(idmDone, i) and
                  (confirmedTrend == 0 or array.get(idmDir, i) == confirmedTrend)
-                idmWaitIdx := i
+                if idmWaitIdx == -1
+                    idmWaitIdx := i
+                else if idmWaitIdx2 == -1
+                    idmWaitIdx2 := i
 
     string idmWaitTxt = idmWaitIdx == -1 ? "-" :
          (array.get(idmDir, idmWaitIdx) == 1 ? "IDBL " : "IDBR ") +
          str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
     color idmWaitColCell = idmWaitIdx == -1 ? dashValueCol : idmActiveCol
 
-    // 4. IDM FIGÉ — le dernier piège posé avant le vrai retracement.
-    // C'est LE niveau sur lequel tu entres : il ne bouge plus.
-    string frzTxt = na(frozenIdx) ? "-" :
-         (frozenDir == 1 ? "IDBL " : "IDBR ") + str.tostring(frozenLvl, format.mintick) +
-         (na(frozenSweptBar) ? "  · attend le balayage" : "  ✦ balayé, attend la reprise")
-    color frzCol = na(frozenIdx) ? dashValueCol : idmActiveCol
+    // 4. IDM 2 — le precedent, toujours surveille.
+    string frzTxt = idmWaitIdx2 == -1 ? "-" :
+         (array.get(idmDir, idmWaitIdx2) == 1 ? "IDBL " : "IDBR ") +
+         str.tostring(array.get(idmLevel, idmWaitIdx2), format.mintick)
+    color frzCol = idmWaitIdx2 == -1 ? dashValueCol : idmWaitCol
 
     // 5. LE 0.5 — étape obligatoire avant toute entrée.
     string fibTxt = na(moveFib50) ? "-" :
@@ -3029,10 +2923,6 @@ if showDash and barstate.islast
         actionTxt := armDeep ? "Setup armé — attendre la bougie de rejet" :
              "Setup armé — attendre le 0.5"
         actionCol := armDir == 1 ? entryBuyCol : entrySellCol
-    else if not na(frozenIdx)
-        actionTxt := (frozenDir == 1 ? "Préparer ACHAT — IDM figé " : "Préparer VENTE — IDM figé ") +
-             str.tostring(frozenLvl, format.mintick)
-        actionCol := idmActiveCol
     else if idmWaitIdx != -1
         actionTxt := (array.get(idmDir, idmWaitIdx) == 1 ? "Préparer ACHAT — retest " : "Préparer VENTE — retest ") +
              str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
@@ -3053,7 +2943,7 @@ if showDash and barstate.islast
     table.cell(dash, 0, 3, "IDM 1 (le plus récent)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 3, idmWaitTxt, text_color=idmWaitColCell, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 4, "IDM FIGÉ (le niveau à trader)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 4, "IDM 2 (le précédent)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 4, frzTxt, text_color=frzCol, text_size=size.small, bgcolor=dashBgCol)
 
     table.cell(dash, 0, 5, "Le 0.5 (Premium / Discount)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
