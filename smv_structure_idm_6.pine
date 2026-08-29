@@ -3463,7 +3463,10 @@ int   vwapAway  = input.int(6,    "VWAP: min bars below before reclaim", minval 
 int   emaWindow = input.int(3,    "EMA: bars since touch",   minval = 1, group = GX)
 float brtTol    = input.float(0.3,"Retest tolerance (ATR)",  minval = 0.05, step = 0.05, group = GX)
 int   brtWindow = input.int(20,   "Retest window (bars)",    minval = 2, group = GX)
-int   sweepLen  = input.int(20,   "Sweep lookback",          minval = 5, group = GX)
+// maxval borné : sweepLen est la longueur de ta.lowest/ta.highest, donc
+// un décalage d'historique. Sans plafond, une valeur au-delà de
+// max_bars_back rejouerait le plantage qui efface tout le dessin.
+int   sweepLen  = input.int(20,   "Sweep lookback",          minval = 5, maxval = 200, group = GX)
 int   divGap    = input.int(60,   "Divergence max pivot gap",minval = 5, group = GX)
 
 // colours — tuned for dark charts. Drop the brightness if you trade on white.
