@@ -238,9 +238,9 @@ showSniperZone = input.bool(true, "Afficher la Sniper Zone", group=gSn,
 sniperSize = input.float(0.12, "Épaisseur avant liquidation (x ATR)", minval=0.02, maxval=0.5, step=0.02, group=gSn,
      tooltip="Bande fine autour de l'IDM, préparée dès sa formation.")
 sniperCol  = input.color(#ffd54f, "Couleur Sniper Zone", group=gSn)
-showSniperRefine = input.bool(true, "Affiner sur la bougie de récupération (intrabar)", group=gSn,
-     tooltip="Dès que l'IDM est récupéré, resserre la zone sur le niveau exact touché par la mèche de LA bougie qui fait la prise de liquidité, au lieu de la bande ATR large. 100% intrabar, même timeframe.")
-refineCol = input.color(#26c6da, "Couleur zone affinée", group=gSn)
+showSniperRefine = input.bool(true, "Afficher LA SIGNATURE (mèche de la bougie qui prend l'argent)", group=gSn,
+     tooltip="Dès que l'IDM est balayé, la zone n'est plus une bande ATR calculée : elle est posée sur la MÈCHE RÉELLE de la bougie qui est allée chercher la liquidité au-delà de l'IDM. C'est la vraie zone de Demand (achat) / Supply (vente) — plus précise qu'un Order Block. Concept BIS respecté : la zone d'achat reste sous l'IDBL, la zone de vente au-dessus de l'IDBR.")
+refineCol = input.color(#26c6da, "Couleur de la Signature", group=gSn)
 
 //=====================================================================
 // 4. Phases — repères Wyckoff SC/STB/SPRING/BC/UT/UTAD, purement
@@ -351,32 +351,34 @@ sdMitigatedCol = input.color(#90a4ae, "Couleur zone mitigée", group=gSD)
 // d'extension infinie. Se réduit au fur et à mesure qu'elle est
 // comblée, et disparaît une fois entièrement remplie.
 //=====================================================================
-gFv = "10. Imbalances (FVG)"
-showFvg = input.bool(true, "Afficher les imbalances (FVG)", group=gFv,
-     tooltip="Vide de prix sur 3 bougies : le haut de la bougie 1 n'a jamais rencontré le bas de la bougie 3. Le prix revient presque toujours le combler.")
-fvgCount = input.int(4, "Nombre d'imbalances par côté", minval=1, maxval=15, group=gFv)
-fvgBullCol = input.color(color.new(#26a69a, 82), "Couleur imbalance haussière", group=gFv)
-fvgBearCol = input.color(color.new(#ef5350, 82), "Couleur imbalance baissière", group=gFv)
+// Ce module ne dessine plus rien : ses boîtes ont été SUPPRIMÉES du
+// code. Il alimente le filtre des Order Blocks, le repli de l'IDM 4 et
+// le score de confluence.
+gFv = "10. Imbalances (FVG) — calcul seul, plus aucune boîte"
+showFvg = input.bool(true, "Calculer les imbalances (FVG)", group=gFv,
+     tooltip="Vide de prix sur 3 bougies : le haut de la bougie 1 n'a jamais rencontré le bas de la bougie 3. Les boîtes ne sont plus tracées — elles se superposaient aux Order Blocks et aux Sniper Zones. Le calcul reste indispensable : c'est lui qui autorise ou refuse l'affichage d'un Order Block, qui alimente l'IDM 4 et qui compte dans le score de confluence.")
+fvgCount = input.int(4, "Nombre d'imbalances suivies par côté", minval=1, maxval=15, group=gFv)
 fvgShrink = input.bool(true, "Réduire l'imbalance au fur et à mesure qu'elle se comble", group=gFv,
      tooltip="Coché : la zone rétrécit à mesure que le prix la remplit, et disparaît une fois entièrement comblée. Décoché : elle garde sa taille d'origine jusqu'à comblement complet.")
 fvgMinSize = input.float(0.15, "Taille minimale (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gFv,
      tooltip="Ignore les micro-gaps sans signification. Plus grand = seules les grosses imbalances sont retenues.")
 
-gP3 = "11. IDM 3 — H1 confirmé par le M15 et le M5"
-showProjIdm = input.bool(false, "Tracer l'IDM 3 sur le graphique", group=gP3,
-     tooltip="Niveau ANCRÉ sur le H1 (le timeframe de décision) et CONFIRMÉ par le M15 et le M5. Ce n'est pas un pivot du graphique courant : c'est l'endroit où les trois lectures se rejoignent. Il disparaît dès que le prix l'a touché, ou dès que la structure H1 s'inverse.")
-projIdmCol = input.color(#00e5ff, "Couleur IDM 3", group=gP3)
+// L'IDM 3 n'est PLUS tracé sur le graphique. Il reste entièrement
+// calculé : il alimente la case « IDM 3 » du dashboard et compte pour
+// 1 point dans le score de confluence (module 15). Seul son dessin a
+// été supprimé — c'est lui, avec l'IDM 2 et l'IDM 4, qui saturait le
+// graphique alors que l'institutionnel ne vise que la PREMIÈRE poche.
+gP3 = "11. IDM 3 — H1 confirmé par le M15 et le M5 (calcul + dashboard)"
+projIdmCol = input.color(#00e5ff, "Couleur de la case IDM 3 dans le dashboard", group=gP3)
 projTolAtr = input.float(0.6, "Tolérance de confluence (x ATR)", minval=0.1, maxval=3.0, step=0.1, group=gP3,
      tooltip="Écart maximum autorisé entre le niveau H1 et celui vu en M15 / M5 pour dire qu'ils sont d'accord. Plus petit = confluence plus stricte, donc plus rare mais plus fiable.")
-projMinTf = input.int(2, "Timeframes minimum d'accord pour l'afficher", minval=1, maxval=3, group=gP3,
+projMinTf = input.int(2, "Timeframes minimum d'accord", minval=1, maxval=3, group=gP3,
      tooltip="1 = le H1 seul suffit. 2 = il faut le H1 + (le M15 ou le M5). 3 = les trois doivent être d'accord.")
-projShowZone = input.bool(true, "Afficher la zone autour du niveau", group=gP3)
 
-gP4 = "12. IDM 4 — toujours entre l'IDM 1 et l'IDM 2"
-showIdm4 = input.bool(false, "Tracer l'IDM 4 sur le graphique", group=gP4,
-     tooltip="Par construction, l'IDM 4 est TOUJOURS situé entre l'IDM 1 et l'IDM 2. Dans ce couloir on retient, dans l'ordre : un Order Block non cassé, sinon une imbalance non comblée, sinon le milieu exact du couloir. Le repli garantit qu'il existe dès que les deux IDM existent.")
-idm4Col = input.color(#ffab00, "Couleur IDM 4", group=gP4)
-idm4ShowZone = input.bool(true, "Afficher la zone autour du niveau", group=gP4)
+// Même chose pour l'IDM 4 : calculé, lisible dans le dashboard, plus
+// jamais dessiné.
+gP4 = "12. IDM 4 — entre l'IDM 1 et l'IDM 2 (calcul + dashboard)"
+idm4Col = input.color(#ffab00, "Couleur de la case IDM 4 dans le dashboard", group=gP4)
 
 gTP = "13. Plan de trade — SL / TP1 / TP2 / TP3"
 showTradePlan = input.bool(true, "Afficher le plan de trade", group=gTP,
@@ -432,19 +434,38 @@ trigPinRatio = input.float(0.5, "Taille minimale de la mèche de rejet (part de 
      tooltip="0.5 = la mèche qui va chercher la liquidité doit faire au moins la moitié de la bougie. C'est la signature d'un vrai rejet : le prix est allé prendre l'argent puis a été repoussé dans la foulée. Plus haut = plus strict.")
 trigAllowEngulf = input.bool(true, "Accepter aussi une bougie englobante", group=gTr,
      tooltip="En plus de la mèche de rejet, accepte une englobante : la bougie avale entièrement la précédente et clôture du bon côté de l'IDM. C'est l'autre façon dont un retournement se signe.")
-trigMaxBars = input.int(12, "Désarmer après N bougies sans preuve", minval=1, maxval=100, group=gTr,
-     tooltip="Si aucune bougie de rejet n'apparaît dans les N bougies qui suivent le balayage de l'IDM, le setup est abandonné. Le marché n'a pas défendu la zone : il n'y a rien à prendre.")
+trigMaxBars = input.int(20, "Désarmer après N bougies sans preuve", minval=1, maxval=100, group=gTr,
+     tooltip="Le déclencheur tire à L'IDM, APRÈS L'IDM, ou AU RETEST : dès que l'IDM est balayé le setup reste armé pendant N bougies, et la première bougie de rejet qui apparaît dans cette fenêtre ouvre la position. Si le balayage lui-même est une pinbar, l'entrée se fait sur cette bougie-là. Si le prix repart, revient tester la zone et se fait rejeter, l'entrée se fait à ce moment-là. Passé N bougies sans preuve, le marché n'a pas défendu la zone : le setup est abandonné.")
 
 //=====================================================================
-// 17. Épuration du graphique — moins d'éléments, plus de lisibilité
+// 17. LA SIGNATURE — la bougie qui prend l'argent
+//
+// C'est le cœur de la méthode, et ça remplace la Sniper Zone « bande
+// ATR » : quand le prix vient balayer l'IDM, UNE bougie précise va
+// chercher la liquidité au-delà du niveau puis se fait repousser. Cette
+// bougie est la SIGNATURE de l'institutionnel. Sa mèche — pas une bande
+// calculée autour du niveau, sa VRAIE mèche — est la zone de Demand (à
+// l'achat) ou de Supply (à la vente).
+//
+// C'est elle, et pas un Order Block classique, qui est la véritable
+// zone d'offre/demande : l'Order Block est une approximation, la
+// Signature est l'endroit exact où l'argent a été pris.
+//
+// LE CONCEPT BIS est appliqué ici : la zone d'achat est TOUJOURS sous
+// l'IDBL (elle va du plus bas de la mèche jusqu'au niveau de l'IDM), la
+// zone de vente TOUJOURS au-dessus de l'IDBR. Jamais l'inverse.
+//
+// ÉPURATION (supprimé, pas désactivable) :
+//   • l'affichage des IDM 2, 3 et 4 a été RETIRÉ du code ;
+//   • les boîtes d'imbalance (FVG) ont été RETIRÉES du code ;
+//   • les Order Blocks exigent désormais FVG **et** non-mitigé.
+// Tous ces calculs restent actifs pour le dashboard et la confluence.
 //=====================================================================
-gEp = "17. Épuration du graphique"
-idmOnlyFirst = input.bool(true, "N'afficher que l'IDM 1 sur le graphique", group=gEp,
-     tooltip="L'institutionnel vise la PREMIÈRE vraie poche de liquidité. Les IDM 2, 3 et 4 continuent d'être calculés et restent lisibles dans le dashboard, mais ils ne sont plus tracés sur le graphique — c'est eux qui créaient le plus de confusion visuelle.")
-fvgDrawBoxes = input.bool(false, "Dessiner les boîtes d'imbalance (FVG)", group=gEp,
-     tooltip="DÉCOCHÉ (recommandé) : les imbalances continuent d'être calculées — elles servent au filtre des Order Blocks, à l'IDM 4 et au score de confluence — mais leurs boîtes ne sont plus dessinées. Ça supprime la double boîte OB + FVG qui se superposait.")
-obNeedFvg = input.bool(true, "N'afficher que les Order Blocks avec déséquilibre (FVG)", group=gEp,
-     tooltip="COCHÉ (recommandé) : un Order Block sans déséquilibre est un OB faible. Seuls ceux accompagnés d'un vrai Fair Value Gap — la marque d'une exécution institutionnelle — restent tracés. Les Breaker Blocks ne sont jamais filtrés : leur polarité inversée est une information à part entière.")
+gEp = "17. La Signature — la bougie qui prend l'argent"
+sigPadAtr = input.float(0.05, "Marge autour de la mèche (x ATR)", minval=0.0, maxval=0.5, step=0.01, group=gEp,
+     tooltip="Petit coussin ajouté de part et d'autre de la mèche pour que la zone reste cliquable et lisible même quand la mèche est très courte. 0 = la zone colle exactement à la mèche.")
+sigKeepBars = input.int(60, "Durée de vie d'une Signature (bougies)", minval=5, maxval=300, group=gEp,
+     tooltip="Au-delà, la zone est supprimée : une Signature qui n'a pas été respectée après si longtemps n'a plus de valeur.")
 
 
 //=====================================================================
@@ -1094,10 +1115,13 @@ var label[]  idmLbl   = array.new_label()    // peut contenir na si showIdmLines
 // Sniper Zone — LE reteste précis, rattachée uniquement à l'IDM.
 var box[] sniperZoneA = array.new_box()      // peut contenir na si showSniperZone=false
 
-// Zones de raffinage intrabar ("chandelier qui prend l'argent") — pas
-// strictement parallèle à idmLevel/sniperZoneA (une par récupération
-// effective, pas une par IDM créé), donc gérée avec sa propre limite.
-var box[] sniperRefineBx = array.new_box()
+// LA SIGNATURE (module 17) — la mèche de la bougie qui prend l'argent.
+// Pas strictement parallèle à idmLevel/sniperZoneA (une par récupération
+// effective, pas une par IDM créé), donc gérée avec sa propre limite et
+// ses propres tableaux d'accompagnement.
+var box[]   sniperRefineBx = array.new_box()
+var int[]   sigDirA = array.new_int()     // 1 = Demand, -1 = Supply
+var int[]   sigBarA = array.new_int()     // bougie de la Signature
 
 float idmCandidate    = na
 int   idmCandidateBar = na
@@ -1115,15 +1139,104 @@ float prevTopLevel = nPrev > 0 ? array.get(idmLevel, nPrev - 1) : na
 int   prevTopDir   = nPrev > 0 ? array.get(idmDir, nPrev - 1) : 0
 bool  prevTopDone  = nPrev > 0 ? array.get(idmDone, nPrev - 1) : true
 
+//---------------------------------------------------------------------
+// L'IDM NE SE FORME QUE SUR UNE FAUSSE STRUCTURE (< 0.5)
+//
+// Ta règle, mot pour mot : « le prix retrace ; s'il ne touche pas les
+// 0.5 (Discount / Premium), ce n'est PAS un vrai retracement, c'est un
+// piège — une Fausse Structure. L'IDM se place sur ce niveau, et à
+// chaque nouvelle fausse structure il se déplace. »
+//
+// Donc :
+//   • le creux du pullback est PLUS HAUT que le 0.5 (mouvement
+//     haussier) -> le retracement a échoué -> FAUSSE STRUCTURE -> IDM ;
+//   • le creux plonge SOUS le 0.5 -> c'est un vrai retracement, il n'y
+//     a pas de piège à marquer -> AUCUN IDM n'est créé là.
+//
+// candidateRetracementValid vaut true quand le pullback A atteint le
+// 0.5. La fausse structure, c'est exactement son contraire.
+//
+// Tant que le 0.5 n'est pas connu (moveFib50 na, tout début de
+// mouvement), on n'a aucun moyen de juger : on laisse passer, sinon
+// l'indicateur resterait muet au démarrage du graphique.
+//---------------------------------------------------------------------
+bool candidateRetracementValid =
+     moveDir == 1 ? idmCandidate <= moveFib50 :
+     moveDir == -1 ? idmCandidate >= moveFib50 : false
+
+bool candidateIsFalseStructure =
+     na(moveFib50) or na(idmCandidate) ? true : not candidateRetracementValid
+
 bool newIDM =
      not na(idmCandidate) and
+     candidateIsFalseStructure and
      (nPrev == 0 or idmCandidate != prevTopLevel or prevTopDir != moveDir)
 
 bool isFS = newIDM and nPrev > 0 and not prevTopDone and prevTopDir == moveDir
 
-bool candidateRetracementValid =
-     moveDir == 1 ? idmCandidate <= moveFib50 :
-     moveDir == -1 ? idmCandidate >= moveFib50 : false
+//---------------------------------------------------------------------
+// L'IDM QUI RESTE — celui qui se fige
+//
+// « L'IDM qui se forme en dernière position avant l'enclenchement du
+// retracement reste figé sur son niveau et ne doit plus bouger jusqu'à
+// ce que le prix vienne le récupérer. Entre-temps il peut continuer à
+// afficher les autres IDM normalement, mais celui-là seul doit rester
+// figé. »
+//
+// L'enclenchement du retracement, c'est le moment où le prix atteint
+// enfin le 0.5 du mouvement : validTest bascule de false à true. À cet
+// instant précis, l'IDM en tête de liste est le DERNIER piège posé
+// avant le vrai retracement — c'est LUI qu'on gèle.
+//
+// Une fois gelé, son trait et son étiquette sortent des tableaux :
+// plus aucun autre bloc ne peut les déplacer, les recolorer, les
+// dégrader en FS ni les effacer. Le niveau lui-même reste dans
+// idmLevel / idmDir / idmDone, donc il continue d'armer le déclencheur
+// et de nourrir le dashboard exactement comme avant.
+//
+// Il n'est libéré que quand le prix vient RÉELLEMENT le récupérer :
+// balayage, puis clôture qui reprend le niveau (au-dessus de l'IDBL,
+// sous l'IDBR). Voir le bloc « LIBÉRATION DE L'IDM FIGÉ » plus bas.
+//---------------------------------------------------------------------
+var int   frozenIdx     = na
+var line  frozenLn      = na
+var label frozenLb      = na
+var float frozenLvl     = na
+var int   frozenDir     = 0
+var int   frozenBar     = na
+var int   frozenSweptBar = na
+
+bool retraceEngaged = validTest and not validTest[1]
+
+if retraceEngaged and na(frozenIdx) and nPrev > 0 and not prevTopDone
+    frozenIdx  := nPrev - 1
+    frozenLvl  := prevTopLevel
+    frozenDir  := prevTopDir
+    frozenBar  := bar_index
+    frozenSweptBar := na
+
+    // On PREND possession du trait et de l'étiquette : ils quittent les
+    // tableaux (remplacés par na), donc plus rien d'autre ne les touche.
+    frozenLn := array.get(idmLine, frozenIdx)
+    frozenLb := array.get(idmLbl, frozenIdx)
+    array.set(idmLine, frozenIdx, na)
+    array.set(idmLbl, frozenIdx, na)
+
+    // ATTENTION : on ne touche PAS à sa Sniper Zone. Elle reste dans
+    // sniperZoneA, parce que c'est sa présence qui autorisera plus bas
+    // la création de la SIGNATURE au moment du balayage (règle 80/20).
+    // La lui retirer ici priverait de Signature l'IDM le plus important
+    // de tous — précisément celui qu'on vient de geler.
+
+    if not na(frozenLn)
+        line.set_color(frozenLn, idmActiveCol)
+        line.set_style(frozenLn, line.style_solid)
+        line.set_width(frozenLn, idmWidthBoost)
+    if not na(frozenLb)
+        label.set_text(frozenLb, (frozenDir == 1 ? "▲" : "▼") + " IDM FIGÉ " +
+             str.tostring(frozenLvl, format.mintick))
+        label.set_color(frozenLb, color.new(idmActiveCol, 25))
+        label.set_textcolor(frozenLb, color.white)
 
 if newIDM
 
@@ -1173,12 +1286,22 @@ if newIDM
 
     int n = array.size(idmLevel)
 
-    // L'ancien "le plus récent" passe en 2e position. Avec idmOnlyFirst
-    // (par défaut), on ne le RETROGRADE pas : on efface purement son
-    // tracé. Il reste dans les tableaux — donc toujours surveillé,
-    // toujours récupérable, toujours visible dans le dashboard — mais il
-    // ne charge plus le graphique.
-    if idmOnlyFirst and n >= 2 and not array.get(idmDone, n - 2)
+    // AFFICHAGE DE L'IDM 2 : SUPPRIMÉ.
+    //
+    // Il ne s'agit pas d'une case à décocher — le code qui traçait
+    // l'« IDM 2 » (recolorisation en orange, renommage de l'étiquette,
+    // Sniper Zone secondaire) a été retiré. Dès qu'un IDM passe en 2e
+    // position, son trait et son étiquette sont EFFACÉS.
+    //
+    // L'institutionnel vise la PREMIÈRE vraie poche de liquidité. Les
+    // suivantes ne sont que du bruit sur le graphique. Le niveau, lui,
+    // reste dans les tableaux : toujours surveillé, toujours
+    // récupérable, toujours lisible dans le dashboard.
+    //
+    // Exception : l'IDM FIGÉ. Ses objets ont déjà quitté les tableaux
+    // (remplacés par na), donc ce bloc ne peut pas les atteindre — il
+    // reste affiché tant que le prix n'est pas venu le récupérer.
+    if n >= 2 and not array.get(idmDone, n - 2)
         line lnD2 = array.get(idmLine, n - 2)
         if not na(lnD2)
             line.delete(lnD2)
@@ -1188,29 +1311,10 @@ if newIDM
             label.delete(lbD2)
             array.set(idmLbl, n - 2, na)
 
-    if not idmOnlyFirst and n >= 2 and not array.get(idmDone, n - 2)
-        line ln2 = array.get(idmLine, n - 2)
-        if not na(ln2)
-            line.set_color(ln2, idmWaitCol)
-            line.set_width(ln2, idmEmphasis ? math.max(idmWidthBoost - 1, 2) : 2)
-        label lb2 = array.get(idmLbl, n - 2)
-        if not na(lb2)
-            label.set_color(lb2, color.new(idmWaitCol, idmEmphasis ? 50 : 75))
-            label.set_textcolor(lb2, idmEmphasis ? color.white : idmWaitCol)
-            // Renommé en "IDM 2" pour que les deux derniers IDM restent
-            // identifiables d'un coup d'œil.
-            float lv2 = array.get(idmLevel, n - 2)
-            int   dr2 = array.get(idmDir, n - 2)
-            label.set_text(lb2, idmEmphasis ?
-                 (dr2 == 1 ? "▲" : "▼") + " IDM 2 " + str.tostring(lv2, format.mintick) : "IDM 2")
-        box sz2 = array.get(sniperZoneA, n - 2)
-        if not na(sz2)
-            box.set_border_width(sz2, 1)
-
     // Celui qui sort du top 2 devient une FS. Si showFsHistory est
     // actif, on la fige en gris (jamais supprimée). Sinon (par défaut),
     // on la supprime directement pour garder le graphique lisible.
-    if n >= 3 and not array.get(idmDone, n - 3)
+    if n >= 3 and not array.get(idmDone, n - 3) and (na(frozenIdx) or frozenIdx != n - 3)
         array.set(idmKind, n - 3, "FS")
         line ln3 = array.get(idmLine, n - 3)
         label lb3 = array.get(idmLbl, n - 3)
@@ -1364,7 +1468,14 @@ if array.size(idmLevel) > 0
             if recovered
                 array.set(idmDone, i, true)
 
-                bool isTopTwo       = i >= array.size(idmLevel) - 2
+                // L'IDM FIGÉ est éligible à l'entrée QUEL QUE SOIT son
+                // rang. C'est tout l'intérêt de l'avoir gelé : c'est le
+                // dernier piège posé avant le vrai retracement, donc le
+                // niveau sur lequel tu veux entrer. Même s'il a glissé
+                // en 3e position derrière des IDM plus récents, son
+                // balayage arme le setup.
+                bool isTopTwo       = i >= array.size(idmLevel) - 2 or
+                     (not na(frozenIdx) and i == frozenIdx)
                 bool blockedByChoch = (dir == 1 and chochBear) or (dir == -1 and chochBull)
 
                 // Sniper Zone : dès que le prix part RÉELLEMENT pour le
@@ -1373,22 +1484,55 @@ if array.size(idmLevel) > 0
                 if not na(szr)
                     box.delete(szr)
 
-                // Raffinage intrabar (Module 4, "chandelier qui prend
-                // l'argent") : uniquement si la Sniper Zone d'origine
-                // existait vraiment (règle 80/20 respectée). Bande TRÈS
-                // fine centrée exactement sur le niveau IDM que la mèche
-                // de CETTE bougie vient de toucher.
+                // LA SIGNATURE — la bougie qui prend l'argent (module 17)
+                //
+                // CETTE bougie-ci est allée chercher la liquidité au-delà
+                // de l'IDM. Ce n'est plus une bande ATR calculée autour
+                // du niveau : la zone est posée sur SA MÈCHE RÉELLE,
+                // celle qui a fait le balayage. C'est la vraie zone de
+                // Demand (achat) / Supply (vente) — plus exacte qu'un
+                // Order Block, qui ne fait que l'approcher.
+                //
+                // CONCEPT BIS. La zone d'achat est TOUJOURS sous l'IDBL,
+                // la zone de vente TOUJOURS au-dessus de l'IDBR :
+                //   achat -> du plus bas de la mèche (low) jusqu'au
+                //            niveau de l'IDM, plafonnée par lvl ;
+                //   vente -> du niveau de l'IDM jusqu'au plus haut de la
+                //            mèche (high), plancher à lvl.
+                // Jamais l'inverse : la zone ne déborde pas du bon côté.
+                //
+                // Le corps sert de borne intérieure quand il est déjà du
+                // bon côté : on garde la mèche seule, pas la bougie
+                // entière, parce que c'est la mèche qui a pris l'argent.
                 if showSniperRefine and isTopTwo and not blockedByChoch and not na(szr)
-                    float refineThick = atrSniper / 4
-                    float refTop = lvl + refineThick
-                    float refBot = lvl - refineThick
-                    array.push(sniperRefineBx, box.new(bar_index, refTop, bar_index + zoneExt, refBot,
-                         border_color=refineCol, border_width=2,
-                         bgcolor=color.new(refineCol, 70),
-                         text="Sniper affinée", text_color=refineCol,
-                         text_size=size.tiny, text_halign=text.align_left))
-                    if array.size(sniperRefineBx) > 15
-                        box.delete(array.shift(sniperRefineBx))
+                    float sigPad = atrReady ? atrFast * sigPadAtr : 0.0
+                    float sigTop = na
+                    float sigBot = na
+
+                    if dir == 1
+                        // Achat : la zone tient SOUS l'IDBL.
+                        float bodyLo = math.min(open, close)
+                        sigTop := math.min(lvl, math.max(bodyLo, low)) + sigPad
+                        sigBot := low - sigPad
+                    else
+                        // Vente : la zone tient AU-DESSUS de l'IDBR.
+                        float bodyHi = math.max(open, close)
+                        sigBot := math.max(lvl, math.min(bodyHi, high)) - sigPad
+                        sigTop := high + sigPad
+
+                    if not na(sigTop) and not na(sigBot) and sigTop > sigBot
+                        array.push(sniperRefineBx, box.new(bar_index, sigTop, bar_index + zoneExt, sigBot,
+                             border_color=refineCol, border_width=2,
+                             bgcolor=color.new(refineCol, 70),
+                             text=(dir == 1 ? "SIGNATURE — Demand" : "SIGNATURE — Supply"),
+                             text_color=refineCol,
+                             text_size=size.tiny, text_halign=text.align_left))
+                        array.push(sigDirA, dir)
+                        array.push(sigBarA, bar_index)
+                        if array.size(sniperRefineBx) > 15
+                            box.delete(array.shift(sniperRefineBx))
+                            array.shift(sigDirA)
+                            array.shift(sigBarA)
 
                 line lnr = array.get(idmLine, i)
                 label lbr = array.get(idmLbl, i)
@@ -1507,6 +1651,104 @@ if useTrigger and armDir != 0
             trigArmed := true
 
 
+//=====================================================================
+// L'IDM FIGÉ — entretien et libération
+//
+// Tant qu'il est gelé, son trait avance avec le prix mais son NIVEAU ne
+// bouge jamais. Aucun nouvel IDM ne peut le remplacer, le dégrader en
+// FS ni l'effacer : ses objets ont quitté les tableaux au moment du gel.
+// Les autres IDM continuent de s'afficher normalement à côté.
+//
+// Il n'est libéré que quand le prix est VENU LE RÉCUPÉRER pour de bon,
+// c'est-à-dire les deux étapes, dans l'ordre :
+//   1. BALAYAGE — le prix passe au-delà du niveau (idmDone bascule) ;
+//   2. REPRISE  — une bougie SUIVANTE clôture de l'autre côté : au
+//      dessus de l'IDBL à l'achat, sous l'IDBR à la vente.
+// Tant que la reprise n'a pas eu lieu, le niveau reste affiché : c'est
+// exactement le prix auquel tu veux entrer, il ne doit pas disparaître
+// sous tes yeux au moment du balayage.
+//
+// Garde-fou : au-delà de 200 bougies sans reprise, la thèse est morte
+// et la ligne est retirée pour ne pas encombrer le graphique.
+//=====================================================================
+if not na(frozenIdx)
+    // Le balayage a-t-il eu lieu ? (mémorisé une seule fois)
+    if frozenIdx < array.size(idmDone) and array.get(idmDone, frozenIdx) and na(frozenSweptBar)
+        frozenSweptBar := bar_index
+        if not na(frozenLb)
+            label.set_text(frozenLb, (frozenDir == 1 ? "▲" : "▼") + " IDM FIGÉ ✦ balayé " +
+                 str.tostring(frozenLvl, format.mintick))
+
+    // Le trait suit le prix, le niveau ne bouge pas.
+    if not na(frozenLn)
+        line.set_x2(frozenLn, bar_index + 1)
+    if not na(frozenLb)
+        label.set_xy(frozenLb, bar_index + 1, frozenLvl)
+
+    bool frozenReclaimed = not na(frozenSweptBar) and bar_index > frozenSweptBar and
+         (frozenDir == 1 ? close > frozenLvl : close < frozenLvl)
+    bool frozenStale = not na(frozenBar) and bar_index - frozenBar > 200
+
+    if frozenReclaimed or frozenStale
+        line.delete(frozenLn)
+        label.delete(frozenLb)
+        frozenLn  := na
+        frozenLb  := na
+        frozenIdx := na
+        frozenLvl := na
+        frozenDir := 0
+        frozenBar := na
+        frozenSweptBar := na
+
+
+//=====================================================================
+// LA SIGNATURE — entretien
+//
+// Le bord droit suit le prix, comme toutes tes zones (jamais
+// extend.right). Une Signature meurt quand elle a fait son travail ou
+// quand elle a été traversée :
+//   • Demand : le prix clôture SOUS le bas de la mèche -> invalidée ;
+//   • Supply : le prix clôture AU-DESSUS du haut de la mèche -> idem ;
+//   • plus de sigKeepBars bougies sans réaction -> périmée.
+//=====================================================================
+if array.size(sniperRefineBx) > 0
+    for si = array.size(sniperRefineBx) - 1 to 0
+        box sgB = array.get(sniperRefineBx, si)
+        bool sgDrop = false
+        if na(sgB)
+            sgDrop := true
+        else
+            float sgT = box.get_top(sgB)
+            float sgB2 = box.get_bottom(sgB)
+            int   sgD = array.get(sigDirA, si)
+            int   sgBar = array.get(sigBarA, si)
+            if sgD == 1 and close < sgB2
+                sgDrop := true
+            else if sgD == -1 and close > sgT
+                sgDrop := true
+            else if bar_index - sgBar > sigKeepBars
+                sgDrop := true
+            else
+                box.set_right(sgB, bar_index + zoneExt)
+        if sgDrop
+            if not na(sgB)
+                box.delete(sgB)
+            array.remove(sniperRefineBx, si)
+            array.remove(sigDirA, si)
+            array.remove(sigBarA, si)
+
+// Le prix est-il DANS une Signature en ce moment ? Sert au dashboard et
+// au score de confluence — la Signature remplace l'Order Block comme
+// vraie zone d'offre / demande.
+int sigZoneDir = 0
+if array.size(sniperRefineBx) > 0
+    for si = array.size(sniperRefineBx) - 1 to 0
+        if sigZoneDir == 0
+            box sgB = array.get(sniperRefineBx, si)
+            if not na(sgB) and close <= box.get_top(sgB) and close >= box.get_bottom(sgB)
+                sigZoneDir := array.get(sigDirA, si)
+
+
 // limitation historique — 8 tableaux liés, on garde tout synchronisé
 if array.size(idmLevel) > maxHistory
     line oldLn = array.shift(idmLine)
@@ -1522,6 +1764,20 @@ if array.size(idmLevel) > maxHistory
     array.shift(idmDir)
     array.shift(idmDone)
     array.shift(idmKind)
+    // L'IDM figé glisse d'un cran vers la gauche. S'il tombe hors du
+    // tableau, on relâche le gel proprement.
+    if not na(frozenIdx)
+        frozenIdx := frozenIdx - 1
+        if frozenIdx < 0
+            line.delete(frozenLn)
+            label.delete(frozenLb)
+            frozenLn  := na
+            frozenLb  := na
+            frozenIdx := na
+            frozenLvl := na
+            frozenDir := 0
+            frozenBar := na
+            frozenSweptBar := na
 
 
 //=====================================================================
@@ -1569,6 +1825,7 @@ var bool[]  obBrkA    = array.new_bool()     // devenu Breaker Block ?
 var int[]   obBrkLocA = array.new_int()
 var bool[]  obFvgA    = array.new_bool()
 var bool[]  obIdmA    = array.new_bool()     // confluence avec un IDM actif
+var bool[]  obMitA    = array.new_bool()     // déjà mitigé (le prix y est revenu) ?
 
 // Objets dessinés — on ne touche JAMAIS à box.all / line.all.
 var box[]   obDrawBox = array.new_box()
@@ -1627,6 +1884,7 @@ if showOB and obStructBroke and obScanLen > 0
         array.unshift(obBrkLocA, 0)
         array.unshift(obFvgA, obHasFvg)
         array.unshift(obIdmA, obHasIdm)
+        array.unshift(obMitA, false)
 
         // Limite d'historique (les plus anciens tombent).
         if array.size(obTopA) > 40
@@ -1638,6 +1896,7 @@ if showOB and obStructBroke and obScanLen > 0
             array.pop(obBrkLocA)
             array.pop(obFvgA)
             array.pop(obIdmA)
+            array.pop(obMitA)
 
 // Passage en Breaker Block, puis suppression définitive quand le prix
 // dépasse franchement le Breaker (logique LuxAlgo conservée).
@@ -1660,6 +1919,12 @@ if array.size(obTopA) > 0
                     obJustBroke := true
                 else if low <= tOb and high >= bOb
                     obTouchedNow := true
+                    // MITIGATION : le prix est revenu dans l'Order Block.
+                    // Les ordres qui y dormaient ont été servis. La zone
+                    // reste surveillée (dashboard, confluence) mais elle
+                    // n'est plus tracée : un OB déjà mitigé n'a plus rien
+                    // à donner.
+                    array.set(obMitA, i, true)
             else
                 if close > tOb
                     dropIt := true
@@ -1671,6 +1936,7 @@ if array.size(obTopA) > 0
                     obJustBroke := true
                 else if high >= bOb and low <= tOb
                     obTouchedNow := true
+                    array.set(obMitA, i, true)
             else
                 if close < bOb
                     dropIt := true
@@ -1684,6 +1950,7 @@ if array.size(obTopA) > 0
             array.remove(obBrkLocA, i)
             array.remove(obFvgA, i)
             array.remove(obIdmA, i)
+            array.remove(obMitA, i)
 
 // État courant pour le dashboard : le prix est-il dans un OB / Breaker ?
 int    obZoneDir = 0
@@ -1731,12 +1998,26 @@ if barstate.islast
             // justement changé de polarité.
             bool dirOk = not obFilter8020 or kOb or confirmedTrend == 0 or confirmedTrend == dOb
             bool brkOk = obShowBreaker or not kOb
-            // Un OB sans déséquilibre est un OB faible. Le filtre ne
-            // s'applique jamais aux Breakers : leur polarité inversée est
-            // une information à part entière.
-            bool fvgOk = not obNeedFvg or kOb or array.get(obFvgA, i)
+            // FILTRAGE RIGOUREUX DES ORDER BLOCKS — deux conditions, plus
+            // aucune case à décocher :
+            //
+            //   1. DÉSÉQUILIBRE OBLIGATOIRE. Un Order Block sans FVG est
+            //      un OB faible : rien ne prouve qu'une exécution
+            //      institutionnelle a eu lieu là. Seuls ceux qui ont
+            //      laissé un vrai Fair Value Gap derrière eux sont tracés.
+            //
+            //   2. NON MITIGÉ OBLIGATOIRE. Dès que le prix est revenu
+            //      dans la zone, les ordres qui y dormaient ont été
+            //      servis : l'OB a fait son travail, il n'a plus rien à
+            //      donner. Il disparaît du graphique.
+            //
+            // Les Breaker Blocks échappent aux deux filtres : leur
+            // polarité inversée est une information à part entière, et
+            // par définition ils ont déjà été traversés.
+            bool fvgOk   = kOb or array.get(obFvgA, i)
+            bool freshOk = kOb or not array.get(obMitA, i)
 
-            if quotaOk and dirOk and brkOk and fvgOk
+            if quotaOk and dirOk and brkOk and fvgOk and freshOk
                 if dOb == 1
                     drawnBull += 1
                 else
@@ -1906,11 +2187,22 @@ if array.size(sdBox) > 0
 //               bougie d'il y a 2 périodes -> zone [high, low[2]].
 //
 // Indices d'historique CONSTANTS ([2]) uniquement — aucun risque de
-// buffer. Comme toutes les zones : le bord droit suit le prix, jamais
-// d'extension infinie. La zone se réduit à mesure qu'elle est comblée
-// et disparaît une fois entièrement remplie.
+// buffer.
+//
+// AFFICHAGE SUPPRIMÉ. Ce module ne dessine plus RIEN : les boîtes
+// d'imbalance ont été retirées du code, pas mises derrière une case à
+// décocher. Elles se superposaient systématiquement aux Order Blocks et
+// aux Sniper Zones, et c'est cette double boîte qui rendait le
+// graphique illisible.
+//
+// Le calcul, lui, tourne toujours à plein régime et sert à trois
+// endroits :
+//   • le filtre « déséquilibre obligatoire » des Order Blocks ;
+//   • le repli de l'IDM 4 ;
+//   • le score de confluence du module 15.
+// Le suivi du comblement est donc maintenu à l'identique, simplement
+// sans objet graphique.
 //=====================================================================
-var box[]   fvgBox = array.new_box()
 var float[] fvgTop = array.new_float()
 var float[] fvgBot = array.new_float()
 var int[]   fvgDir = array.new_int()
@@ -1920,15 +2212,11 @@ bool fvgDownNew = showFvg and bar_index >= 2 and high < low[2]
 float fvgMinPx  = atrReady ? atrFast * fvgMinSize : 0.0
 
 if fvgUpNew and (low - high[2]) >= fvgMinPx
-    array.push(fvgBox, box.new(bar_index - 2, low, bar_index + zoneExt, high[2],
-         border_color=na, bgcolor=fvgBullCol))
     array.push(fvgTop, low)
     array.push(fvgBot, high[2])
     array.push(fvgDir, 1)
 
 if fvgDownNew and (low[2] - high) >= fvgMinPx
-    array.push(fvgBox, box.new(bar_index - 2, low[2], bar_index + zoneExt, high,
-         border_color=na, bgcolor=fvgBearCol))
     array.push(fvgTop, low[2])
     array.push(fvgBot, high)
     array.push(fvgDir, -1)
@@ -1936,8 +2224,8 @@ if fvgDownNew and (low[2] - high) >= fvgMinPx
 // Comblement : la zone rétrécit, puis disparaît quand elle est remplie.
 bool fvgFilledNow = false
 
-if array.size(fvgBox) > 0
-    for i = array.size(fvgBox) - 1 to 0
+if array.size(fvgTop) > 0
+    for i = array.size(fvgTop) - 1 to 0
         float fT = array.get(fvgTop, i)
         float fB = array.get(fvgBot, i)
         int   fD = array.get(fvgDir, i)
@@ -1948,37 +2236,25 @@ if array.size(fvgBox) > 0
             if low <= fB
                 gone := true
             else if fvgShrink and low < fT
-                fT := low
-                array.set(fvgTop, i, fT)
+                array.set(fvgTop, i, low)
                 fvgFilledNow := true
         else
             if high >= fT
                 gone := true
             else if fvgShrink and high > fB
-                fB := high
-                array.set(fvgBot, i, fB)
+                array.set(fvgBot, i, high)
                 fvgFilledNow := true
 
         if gone
-            box.delete(array.get(fvgBox, i))
-            array.remove(fvgBox, i)
             array.remove(fvgTop, i)
             array.remove(fvgBot, i)
             array.remove(fvgDir, i)
-        else
-            box bxF = array.get(fvgBox, i)
-            box.set_top(bxF, fT)
-            box.set_bottom(bxF, fB)
-            box.set_right(bxF, bar_index + zoneExt)
-            // Le calcul reste intact (filtre OB, IDM 4, confluence) ;
-            // seule la couleur décide si la boîte se voit ou non.
-            box.set_bgcolor(bxF, fvgDrawBoxes ? (fD == 1 ? fvgBullCol : fvgBearCol) : color.new(color.gray, 100))
 
 // Purge : au plus fvgCount imbalances par côté, les plus récentes.
-if array.size(fvgBox) > 0
+if array.size(fvgTop) > 0
     int keepUp = 0
     int keepDn = 0
-    for i = array.size(fvgBox) - 1 to 0
+    for i = array.size(fvgTop) - 1 to 0
         bool keepF = true
         if array.get(fvgDir, i) == 1
             keepUp := keepUp + 1
@@ -1987,16 +2263,14 @@ if array.size(fvgBox) > 0
             keepDn := keepDn + 1
             keepF := keepDn <= fvgCount
         if not keepF
-            box.delete(array.get(fvgBox, i))
-            array.remove(fvgBox, i)
             array.remove(fvgTop, i)
             array.remove(fvgBot, i)
             array.remove(fvgDir, i)
 
 // Le prix est-il dans une imbalance en ce moment ?
 int fvgZoneDir = 0
-if array.size(fvgBox) > 0
-    for i = array.size(fvgBox) - 1 to 0
+if array.size(fvgTop) > 0
+    for i = array.size(fvgTop) - 1 to 0
         if fvgZoneDir == 0 and close <= array.get(fvgTop, i) and close >= array.get(fvgBot, i)
             fvgZoneDir := array.get(fvgDir, i)
 
@@ -2043,9 +2317,6 @@ if obZoneDir != 0 and fvgZoneDir != 0
 var float projLvl   = na
 var int   projDirV  = 0
 var int   projAgree = 0
-var line  projLine  = na
-var label projLbl   = na
-var box   projBox   = na
 
 // Niveau vu par chaque timeframe, dans le sens du H1.
 float lvH1  = h1Bias == 1 ? h1Lo  : h1Bias == -1 ? h1Hi  : na
@@ -2090,34 +2361,12 @@ if projHit or projFlip or na(lvH1)
     projDirV  := 0
     projAgree := 0
 
-// Affichage — tirets, pour bien marquer que c'est un niveau H1
-// multi-timeframe et non un pivot du graphique courant. Comme toutes tes
-// zones, il s'arrête au prix (bar_index + zoneExt), jamais extend.right.
-if not na(projLine)
-    line.delete(projLine)
-    projLine := na
-if not na(projLbl)
-    label.delete(projLbl)
-    projLbl := na
-if not na(projBox)
-    box.delete(projBox)
-    projBox := na
-
-if showProjIdm and not na(projLvl) and barstate.islast
-    float projPad = atrReady ? atrFast * 0.12 : 0.0
-    if projShowZone and projPad > 0
-        projBox := box.new(bar_index - 3, projLvl + projPad, bar_index + zoneExt, projLvl - projPad,
-             border_color=color.new(projIdmCol, 40), border_width=1,
-             bgcolor=color.new(projIdmCol, 85))
-    projLine := line.new(bar_index - 3, projLvl, bar_index + zoneExt, projLvl,
-         color=projIdmCol, style=line.style_dashed, width=2)
-    string projTxt = (projDirV == 1 ? "▲" : "▼") + " IDM 3 (H1) " +
-         str.tostring(projLvl, format.mintick) + "  confluence " + str.tostring(projAgree) + "/3"
-    projLbl := label.new(bar_index + zoneExt, projLvl, projTxt,
-         style=label.style_label_left,
-         color=color.new(projIdmCol, 40),
-         textcolor=color.white,
-         size=size.small)
+// AFFICHAGE DE L'IDM 3 : SUPPRIMÉ.
+//
+// La ligne en tirets, sa zone et son étiquette ont été retirées du
+// code. Le niveau reste calculé bougie par bougie : il remplit la case
+// « IDM 3 » du dashboard et vaut 1 point dans le score de confluence du
+// module 15. Il n'encombre simplement plus le graphique.
 
 
 //=====================================================================
@@ -2135,9 +2384,6 @@ if showProjIdm and not na(projLvl) and barstate.islast
 var float  idm4Lvl  = na
 var int    idm4DirV = 0
 var string idm4Base = ""
-var line   idm4Line = na
-var label  idm4Lbl  = na
-var box    idm4Box  = na
 
 // Les deux IDM actifs les plus récents, cohérents avec la structure.
 int i4A = -1
@@ -2201,32 +2447,10 @@ if idm4Hit or idm4Flip or i4A == -1 or i4B == -1
     idm4DirV := 0
     idm4Base := ""
 
-// Affichage — pointillés fins, couleur distincte des IDM 1 / 2 / 3.
-if not na(idm4Line)
-    line.delete(idm4Line)
-    idm4Line := na
-if not na(idm4Lbl)
-    label.delete(idm4Lbl)
-    idm4Lbl := na
-if not na(idm4Box)
-    box.delete(idm4Box)
-    idm4Box := na
-
-if showIdm4 and not na(idm4Lvl) and barstate.islast
-    float pad4 = atrReady ? atrFast * 0.10 : 0.0
-    if idm4ShowZone and pad4 > 0
-        idm4Box := box.new(bar_index - 3, idm4Lvl + pad4, bar_index + zoneExt, idm4Lvl - pad4,
-             border_color=color.new(idm4Col, 45), border_width=1,
-             bgcolor=color.new(idm4Col, 86))
-    idm4Line := line.new(bar_index - 3, idm4Lvl, bar_index + zoneExt, idm4Lvl,
-         color=idm4Col, style=line.style_dotted, width=2)
-    string txt4 = (idm4DirV == 1 ? "▲" : "▼") + " IDM 4 " +
-         str.tostring(idm4Lvl, format.mintick) + "  (" + idm4Base + ")"
-    idm4Lbl := label.new(bar_index + zoneExt, idm4Lvl, txt4,
-         style=label.style_label_left,
-         color=color.new(idm4Col, 40),
-         textcolor=color.white,
-         size=size.small)
+// AFFICHAGE DE L'IDM 4 : SUPPRIMÉ.
+//
+// Ligne pointillée, zone et étiquette retirées du code. Le niveau reste
+// calculé et lisible dans la case « IDM 4 » du dashboard.
 
 
 //=====================================================================
@@ -2477,6 +2701,9 @@ if not na(protLow) and close < protLow and smvTrend != -1
 //      UTAD ou UT pour une vente
 //   5. Le 0.5 du mouvement déjà validé dans le bon sens (validTest)
 //   6. IDM 3 (le niveau H1 confirmé par le M15 et le M5) touché
+//   7. LA SIGNATURE — le prix est dans la mèche de la bougie qui a pris
+//      l'argent. C'est le point le plus fort de tous : la vraie zone de
+//      Demand / Supply, plus exacte qu'un Order Block.
 //
 // Le score est calculé séparément pour l'achat et pour la vente : un
 // même endroit peut être fort à l'achat et nul à la vente.
@@ -2484,8 +2711,8 @@ if not na(protLow) and close < protLow and smvTrend != -1
 gCf = "15. Filtre de signal — structure + confluence"
 smvUseFilter = input.bool(true, "Filtrer les entrées (structure + confluence)", group=gCf,
      tooltip="Décoché, les deux moteurs d'entrée redeviennent exactement ce qu'ils étaient. Coché (recommandé), une entrée doit respecter la structure ET réunir assez de confluence.")
-smvMinConf = input.int(1, "Éléments SMV minimum sur le point d'entrée", minval=0, maxval=6, group=gCf,
-     tooltip="Combien d'éléments de la méthode doivent être présents là où le prix entre : Order Block, imbalance, zone Supply/Demand, phase Wyckoff (SPRING/STB à l'achat, UTAD/UT à la vente), 0.5 du mouvement validé, IDM 3. 1 (défaut) = l'entrée doit avoir AU MOINS UNE raison concrète — un seul élément suffit. 2 ou 3 = tu attends que plusieurs se retrouvent au même endroit, plus rare mais plus solide. 0 = aucune exigence, seule la structure filtre.")
+smvMinConf = input.int(1, "Éléments SMV minimum sur le point d'entrée", minval=0, maxval=7, group=gCf,
+     tooltip="Combien d'éléments de la méthode doivent être présents là où le prix entre : Order Block, imbalance, zone Supply/Demand, phase Wyckoff (SPRING/STB à l'achat, UTAD/UT à la vente), 0.5 du mouvement validé, IDM 3, et LA SIGNATURE. 1 (défaut) = l'entrée doit avoir AU MOINS UNE raison concrète — un seul élément suffit. 2 ou 3 = tu attends que plusieurs se retrouvent au même endroit, plus rare mais plus solide. 0 = aucune exigence, seule la structure filtre.")
 smvPhaseBars = input.int(20, "Fraîcheur d'une phase Wyckoff (bougies)", minval=1, maxval=200, group=gCf,
      tooltip="Un SPRING, STB, UTAD ou UT ne compte comme confluence que s'il s'est formé il y a moins de N bougies.")
 
@@ -2557,6 +2784,14 @@ if not na(projLvl) and atrReady
 // Structure pas encore établie (smvTrend == 0) -> rien du tout : on
 // n'ouvre pas à l'aveugle au tout début du graphique.
 //---------------------------------------------------------------------
+// --- 7. LA SIGNATURE — la mèche qui a pris l'argent contient le prix.
+// C'est la vraie zone d'offre / demande de la méthode : elle prime sur
+// l'Order Block, qui n'en est qu'une approximation.
+if sigZoneDir == 1
+    smvConfBull := smvConfBull + 1
+if sigZoneDir == -1
+    smvConfSell := smvConfSell + 1
+
 bool smvBuyOk  = not smvUseFilter or (smvTrend == 1  and smvConfBull >= smvMinConf)
 bool smvSellOk = not smvUseFilter or (smvTrend == -1 and smvConfSell >= smvMinConf)
 
