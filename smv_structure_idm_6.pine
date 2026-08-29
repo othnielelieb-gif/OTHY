@@ -527,6 +527,10 @@ atrSniper = ta.atr(14) * sniperSize
 
 bool  isFastTF   = timeframe.period == "5" or timeframe.period == "15"
 float atrFast    = ta.atr(14)
+// Declaré ICI et pas plus bas : plusieurs modules antérieurs au module
+// Supply/Demand s'en servent (la Signature, notamment), et Pine exige
+// qu'un identifiant existe avant sa première utilisation.
+bool  atrReady   = not na(atrFast) and atrFast > 0
 float atrSlow    = ta.sma(atrFast, 100)
 float volRatio   = atrSlow > 0 ? atrFast / atrSlow : 1.0
 int   sensLevel  = volRatio >= 1.25 ? 3 : volRatio <= 0.85 ? 1 : 2
@@ -2087,7 +2091,6 @@ var int   sdBaseCount = 0
 var int   sdBaseStart = na
 
 float sdBody      = math.abs(close - open)
-bool  atrReady    = not na(atrFast) and atrFast > 0
 bool  sdIsImpulse = showSD and atrReady and sdBody > atrFast * sdImpulseMult
 bool  sdIsSmall   = atrReady and sdBody < atrFast * 0.8
 int   sdDirNow    = close > open ? 1 : -1
