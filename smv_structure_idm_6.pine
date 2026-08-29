@@ -1381,30 +1381,34 @@ if newIDM
 
     int n = array.size(idmLevel)
 
-    // AFFICHAGE DE L'IDM 2 : SUPPRIMÉ.
+    // L'ancien "le plus récent" passe en 2e position : reste "IDM",
+    // couleur secondaire, continue d'être surveillé et prolongé.
     //
-    // Il ne s'agit pas d'une case à décocher — le code qui traçait
-    // l'« IDM 2 » (recolorisation en orange, renommage de l'étiquette,
-    // Sniper Zone secondaire) a été retiré. Dès qu'un IDM passe en 2e
-    // position, son trait et son étiquette sont EFFACÉS.
-    //
-    // L'institutionnel vise la PREMIÈRE vraie poche de liquidité. Les
-    // suivantes ne sont que du bruit sur le graphique. Le niveau, lui,
-    // reste dans les tableaux : toujours surveillé, toujours
-    // récupérable, toujours lisible dans le dashboard.
-    //
-    // Exception : l'IDM FIGÉ. Ses objets ont déjà quitté les tableaux
-    // (remplacés par na), donc ce bloc ne peut pas les atteindre — il
-    // reste affiché tant que le prix n'est pas venu le récupérer.
+    // C'est LE mecanisme de ton code de reference, remis a l'identique.
+    // Je l'avais supprime (l'IDM 2 etait efface des qu'un nouvel IDM
+    // arrivait) : il ne restait qu'un seul trait, qui se deplacait sans
+    // arret. D'ou "je ne vois pas les IDM". Les DEUX derniers IDM
+    // actifs sont de nouveau traces en permanence.
     if n >= 2 and not array.get(idmDone, n - 2)
-        line lnD2 = array.get(idmLine, n - 2)
-        if not na(lnD2)
-            line.delete(lnD2)
-            array.set(idmLine, n - 2, na)
-        label lbD2 = array.get(idmLbl, n - 2)
-        if not na(lbD2)
-            label.delete(lbD2)
-            array.set(idmLbl, n - 2, na)
+        line ln2 = array.get(idmLine, n - 2)
+        if not na(ln2)
+            line.set_color(ln2, idmWaitCol)
+            // Reste bien visible même en 2e position quand la mise en
+            // évidence est active : juste un cran en dessous du #1.
+            line.set_width(ln2, idmEmphasis ? math.max(idmWidthBoost - 1, 2) : 2)
+        label lb2 = array.get(idmLbl, n - 2)
+        if not na(lb2)
+            label.set_color(lb2, color.new(idmWaitCol, idmEmphasis ? 50 : 75))
+            label.set_textcolor(lb2, idmEmphasis ? color.white : idmWaitCol)
+            // Renommé explicitement en "IDM 2" pour que les deux
+            // derniers IDM restent identifiables d'un coup d'œil.
+            float lv2 = array.get(idmLevel, n - 2)
+            int   dr2 = array.get(idmDir, n - 2)
+            label.set_text(lb2, idmEmphasis ?
+                 (dr2 == 1 ? "▲" : "▼") + " IDM 2 " + str.tostring(lv2, format.mintick) : "IDM 2")
+        box sz2 = array.get(sniperZoneA, n - 2)
+        if not na(sz2)
+            box.set_border_width(sz2, 1)
 
     // Celui qui sort du top 2 devient une FS. Si showFsHistory est
     // actif, on la fige en gris (jamais supprimée). Sinon (par défaut),
