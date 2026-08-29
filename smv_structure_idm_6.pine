@@ -630,6 +630,33 @@ bool  atrReady   = not na(atrFast) and atrFast > 0
 // La distance est mesurée depuis le BORD le plus proche de la zone, pas
 // depuis son centre : une zone large que le prix effleure reste nette.
 //=====================================================================
+// GARDE-FOU BUFFER — coordonnee X d'un objet dessine
+//
+// C'EST LA CAUSE DE "Error on bar N: The requested historical offset
+// (1026) is beyond the historical buffer's limit (1025)".
+//
+// Un objet dessine (box, line, label) ancre sur une bougie memorisee
+// pointe vers `bar_index - X` bougies en arriere. Quand cette bougie
+// s'eloigne au-dela du buffer d'historique du script, Pine leve une
+// erreur d'execution et TradingView efface TOUT le dessin.
+//
+// Le decalage grandit d'exactement UNE unite par bougie — d'ou les
+// deux nombres colles dans le message (1026 / 1025).
+//
+// POURQUOI CA SORT MAINTENANT : dans la version d'origine, la creation
+// des Order Blocks etait bornee par `inLookback`, donc un OB etait
+// toujours recent par construction. J'ai retire ce filtre (les zones
+// n'apparaissaient plus quand tu arrivais sur un graphique), ce qui a
+// leve la borne : un OB peut desormais naitre n'importe ou dans
+// l'historique et y rester des milliers de bougies. Sa boite pointe
+// alors vers une bougie hors du buffer.
+//
+// f_xSafe borne toute coordonnee X a 400 bougies en arriere, sous le
+// max_bars_back de 500. L'objet reste visible, sa bordure gauche est
+// simplement rabotee quand il est tres ancien.
+f_xSafe(int b) =>
+    math.max(nz(b, bar_index), bar_index - 400)
+
 f_zoneDist(float zTop, float zBot) =>
     close > zTop ? close - zTop : close < zBot ? zBot - close : 0.0
 
@@ -810,7 +837,7 @@ if not na(ph) and inLookback
     if showStruct and okStruct and lblAll
         string txt = na(prevPH) ? "H" : ph > prevPH ? "HH" : "LH"
         color col = na(prevPH) ? rangeCol : ph > prevPH ? bullCol : bearCol
-        f_capPivotLbl(label.new(phBar, ph, txt,
+        f_capPivotLbl(label.new(f_xSafe(phBar), ph, txt,
              style=label.style_label_down,
              color=color.new(col, 80),
              textcolor=col,
@@ -830,7 +857,7 @@ if not na(pl) and inLookback
     if showStruct and okStruct and lblAll
         string txt = na(prevPL) ? "L" : pl > prevPL ? "HL" : "LL"
         color col = na(prevPL) ? rangeCol : pl > prevPL ? bullCol : bearCol
-        f_capPivotLbl(label.new(plBar, pl, txt,
+        f_capPivotLbl(label.new(f_xSafe(plBar), pl, txt,
              style=label.style_label_up,
              color=color.new(col, 80),
              textcolor=col,
@@ -904,9 +931,9 @@ if isStructLowBroken
     string evTxt = isContinuation ? "BMS" : "BOS"
     color  evCol = isContinuation ? bmsBearColor : bosBearColor
 
-    line  evLnD = okBosLine ? line.new(bosLowBar, bosLow, bar_index, bosLow, xloc=xloc.bar_index, extend=extend.none,
+    line  evLnD = okBosLine ? line.new(f_xSafe(bosLowBar), bosLow, bar_index, bosLow, xloc=xloc.bar_index, extend=extend.none,
          color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth) : na
-    label evLbD = (okBosLine and lblEss) ? label.new(int(math.avg(bar_index, bosLowBar)), bosLow, text=evTxt, style=label.style_none, textcolor=evCol) : na
+    label evLbD = (okBosLine and lblEss) ? label.new(int(math.avg(bar_index, f_xSafe(bosLowBar))), bosLow, text=evTxt, style=label.style_none, textcolor=evCol) : na
     array.push(structLines, evLnD)
     array.push(structLabels, evLbD)
 
@@ -939,9 +966,9 @@ else if isStructHighBroken
     string evTxt = isContinuation ? "BMS" : "BOS"
     color  evCol = isContinuation ? bmsBullColor : bosBullColor
 
-    line  evLnU = okBosLine ? line.new(bosHighBar, bosHigh, bar_index, bosHigh, xloc=xloc.bar_index, extend=extend.none,
+    line  evLnU = okBosLine ? line.new(f_xSafe(bosHighBar), bosHigh, bar_index, bosHigh, xloc=xloc.bar_index, extend=extend.none,
          color=evCol, style=isContinuation ? bmsLineStyle : bosLineStyle, width=isContinuation ? bmsLineWidth : bosLineWidth) : na
-    label evLbU = (okBosLine and lblEss) ? label.new(int(math.avg(bar_index, bosHighBar)), bosHigh, text=evTxt, style=label.style_none, textcolor=evCol) : na
+    label evLbU = (okBosLine and lblEss) ? label.new(int(math.avg(bar_index, f_xSafe(bosHighBar))), bosHigh, text=evTxt, style=label.style_none, textcolor=evCol) : na
     array.push(structLines, evLnU)
     array.push(structLabels, evLbU)
 
@@ -987,9 +1014,9 @@ if showCurrentStruct and okCurStr
         line.delete(curStructHighLine)
     if not na(curStructLowLine)
         line.delete(curStructLowLine)
-    curStructHighLine := line.new(bosHighBar, bosHigh, bar_index, bosHigh, xloc=xloc.bar_index,
+    curStructHighLine := line.new(f_xSafe(bosHighBar), bosHigh, bar_index, bosHigh, xloc=xloc.bar_index,
          color=currentStructColor, style=currentStructLineStyle, width=currentStructLineWidth)
-    curStructLowLine := line.new(bosLowBar, bosLow, bar_index, bosLow, xloc=xloc.bar_index,
+    curStructLowLine := line.new(f_xSafe(bosLowBar), bosLow, bar_index, bosLow, xloc=xloc.bar_index,
          color=currentStructColor, style=currentStructLineStyle, width=currentStructLineWidth)
 
 // STRUCTURE H1 — seule référence pour "Acheteur/Vendeur maintenant" et la
@@ -1088,7 +1115,7 @@ if showIntact and okIntact
             int   rankH = array.size(intactHighLevels) - idx
             string txtH = "Intact Sellers #" + str.tostring(rankH)
             if not f_zoneFar(lvlH, lvlH)
-                array.push(intactHighLines, line.new(barH, lvlH, bar_index + zoneExt, lvlH,
+                array.push(intactHighLines, line.new(f_xSafe(barH), lvlH, bar_index + zoneExt, lvlH,
                      color=f_zoneFade(intactSellCol, lvlH, lvlH), style=line.style_dashed, width=1))
             if lblAll
                 array.push(intactHighLbls, label.new(bar_index + zoneExt, lvlH, txtH,
@@ -1102,7 +1129,7 @@ if showIntact and okIntact
             int   rankL = array.size(intactLowLevels) - idx
             string txtL = "Intact Buyers #" + str.tostring(rankL)
             if not f_zoneFar(lvlL, lvlL)
-                array.push(intactLowLines, line.new(barL, lvlL, bar_index + zoneExt, lvlL,
+                array.push(intactLowLines, line.new(f_xSafe(barL), lvlL, bar_index + zoneExt, lvlL,
                      color=f_zoneFade(intactBuyCol, lvlL, lvlL), style=line.style_dashed, width=1))
             if lblAll
                 array.push(intactLowLbls, label.new(bar_index + zoneExt, lvlL, txtL,
@@ -1349,7 +1376,7 @@ if newIDM
         string idmTxt0 = idmEmphasis ?
              idmArrow + " IDM 1 " + str.tostring(idmCandidate, format.mintick) + (candidateRetracementValid ? " •0.5" : "") :
              (candidateRetracementValid ? "IDM 1 •0.5" : "IDM 1")
-        ln := line.new(idmCandidateBar, idmCandidate, bar_index + 1, idmCandidate,
+        ln := line.new(f_xSafe(idmCandidateBar), idmCandidate, bar_index + 1, idmCandidate,
              color=idmActiveCol,
              style=idmEmphasis ? line.style_solid : line.style_dotted,
              width=idmEmphasis ? idmWidthBoost : 3)
@@ -1369,7 +1396,7 @@ if newIDM
 
     box sn = na
     if showSniperZone and dirAllowed
-        sn := box.new(idmCandidateBar, idmCandidate + atrSniper, bar_index + zoneExt, idmCandidate - atrSniper,
+        sn := box.new(f_xSafe(idmCandidateBar), idmCandidate + atrSniper, bar_index + zoneExt, idmCandidate - atrSniper,
              border_color=sniperCol,
              border_width=2,
              bgcolor=color.new(sniperCol, 85),
@@ -2100,9 +2127,9 @@ if barstate.islast
                 int rightEdge = bar_index + zoneExt
 
                 if kOb
-                    int bLoc = array.get(obBrkLocA, i)
+                    int bLoc = f_xSafe(array.get(obBrkLocA, i))
                     // Partie encore valide (avant la cassure)
-                    array.push(obDrawBox, box.new(lOb, tOb, bLoc, bOb,
+                    array.push(obDrawBox, box.new(f_xSafe(lOb), tOb, bLoc, bOb,
                          border_color=solid, bgcolor=baseCol))
                     // Partie Breaker (polarité inversée), suit le prix
                     array.push(obDrawBox, box.new(bLoc, tOb, rightEdge, bOb,
@@ -2115,11 +2142,11 @@ if barstate.islast
                         array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
                              style=label.style_label_left, color=brkCol, textcolor=brkSol, size=size.tiny))
                 else
-                    array.push(obDrawBox, box.new(lOb, tOb, rightEdge, bOb,
+                    array.push(obDrawBox, box.new(f_xSafe(lOb), tOb, rightEdge, bOb,
                          border_color=na, bgcolor=baseCol))
-                    array.push(obDrawLn, line.new(lOb, tOb, rightEdge, tOb,
+                    array.push(obDrawLn, line.new(f_xSafe(lOb), tOb, rightEdge, tOb,
                          xloc=xloc.bar_index, color=solid))
-                    array.push(obDrawLn, line.new(lOb, bOb, rightEdge, bOb,
+                    array.push(obDrawLn, line.new(f_xSafe(lOb), bOb, rightEdge, bOb,
                          xloc=xloc.bar_index, color=solid))
                     if lblAll
                         array.push(obDrawLbl, label.new(rightEdge, (tOb + bOb) / 2, tag,
@@ -2161,10 +2188,10 @@ if sdIsImpulse
         color  sdCol = sdDirNow == 1 ? sdDemandCol : sdSupplyCol
         string sdTxt = sdDirNow == 1 ? "DEMAND" : "SUPPLY"
 
-        box   sb = box.new(sdBaseStart, sdBaseTop, bar_index + zoneExt, sdBaseBot,
+        box   sb = box.new(f_xSafe(sdBaseStart), sdBaseTop, bar_index + zoneExt, sdBaseBot,
              border_color=sdCol, border_width=1,
              bgcolor=color.new(sdCol, 88))
-        label sl = not lblAll ? na : label.new(sdBaseStart, sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
+        label sl = not lblAll ? na : label.new(f_xSafe(sdBaseStart), sdDirNow == 1 ? sdBaseBot : sdBaseTop, sdTxt,
              style=sdDirNow == 1 ? label.style_label_up : label.style_label_down,
              color=color.new(sdCol, 82), textcolor=sdCol, size=size.tiny)
 
@@ -2577,8 +2604,8 @@ if accActive and newMoveUp and not na(accSCBar)
     accActive := false
     phaseAccConfirmed := true
     if showPhaseBox and okPhase
-        f_capPhaseBox(box.new(accSCBar, topA, bar_index, accLow, border_color=color.new(bullCol, 30), bgcolor=color.new(bullCol, 92)))
-        f_capPhaseLbl(label.new(accSCBar, topA, phTxt, style=label.style_label_down, color=color.new(bullCol, 55), textcolor=bullCol, size=size.small))
+        f_capPhaseBox(box.new(f_xSafe(accSCBar), topA, bar_index, accLow, border_color=color.new(bullCol, 30), bgcolor=color.new(bullCol, 92)))
+        f_capPhaseLbl(label.new(f_xSafe(accSCBar), topA, phTxt, style=label.style_label_down, color=color.new(bullCol, 55), textcolor=bullCol, size=size.small))
 
 if disActive and newMoveDown and not na(disBCBar)
     float botD = math.min(disBottom, low)
@@ -2587,8 +2614,8 @@ if disActive and newMoveDown and not na(disBCBar)
     disActive := false
     phaseDisConfirmed := true
     if showPhaseBox and okPhase
-        f_capPhaseBox(box.new(disBCBar, disHigh, bar_index, botD, border_color=color.new(bearCol, 30), bgcolor=color.new(bearCol, 92)))
-        f_capPhaseLbl(label.new(disBCBar, botD, phTxt, style=label.style_label_up, color=color.new(bearCol, 55), textcolor=bearCol, size=size.small))
+        f_capPhaseBox(box.new(f_xSafe(disBCBar), disHigh, bar_index, botD, border_color=color.new(bearCol, 30), bgcolor=color.new(bearCol, 92)))
+        f_capPhaseLbl(label.new(f_xSafe(disBCBar), botD, phTxt, style=label.style_label_up, color=color.new(bearCol, 55), textcolor=bearCol, size=size.small))
 
 if not accActive and not na(pl)
     accActive := true
@@ -2603,7 +2630,7 @@ if not accActive and not na(pl)
     accAge := 0
     accStartBias := bias
     if showPhaseMarkers and okPhase and lblEss
-        f_capPhaseLbl(label.new(accSCBar, accSC, "SC", style=label.style_label_up, color=color.new(bullCol, 70), textcolor=bullCol, size=size.small))
+        f_capPhaseLbl(label.new(f_xSafe(accSCBar), accSC, "SC", style=label.style_label_up, color=color.new(bullCol, 70), textcolor=bullCol, size=size.small))
 
 if not disActive and not na(ph)
     disActive := true
@@ -2618,7 +2645,7 @@ if not disActive and not na(ph)
     disAge := 0
     disStartBias := bias
     if showPhaseMarkers and okPhase and lblEss
-        f_capPhaseLbl(label.new(disBCBar, disBC, "BC", style=label.style_label_down, color=color.new(bearCol, 70), textcolor=bearCol, size=size.small))
+        f_capPhaseLbl(label.new(f_xSafe(disBCBar), disBC, "BC", style=label.style_label_down, color=color.new(bearCol, 70), textcolor=bearCol, size=size.small))
 
 bool stbJustFormed    = accSTBBar == bar_index
 bool springJustFormed = accSpringBar == bar_index
@@ -3076,7 +3103,9 @@ f_trKill(SmvTrade t) =>
     label.delete(t.lOut)
 
 f_trDraw(SmvTrade t) =>
-    int l = t.openBar
+    // Borne buffer : un trade peut rester ouvert des centaines de
+    // bougies, sa bougie d'ouverture finirait hors du buffer.
+    int l = f_xSafe(t.openBar)
     int r = bar_index + zoneExt
     if tpZoneShow
         t.bRisk := box.new(l, math.max(t.entry, t.stop), r, math.min(t.entry, t.stop),
@@ -3962,8 +3991,10 @@ killDrawings(Trade t) =>
     label.delete(t.lOut)
 
 drawTrade(Trade t) =>
-    int l = t.openBar
-    int r = t.openBar + zoneLen
+    // Meme borne : l reste dans le buffer, et r ne peut jamais passer
+    // a gauche de l.
+    int l = f_xSafe(t.openBar)
+    int r = math.max(f_xSafe(t.openBar + zoneLen), l + 1)
     if showZones
         t.bRisk := box.new(l, math.max(t.entry, t.stop), r, math.min(t.entry, t.stop),
              border_color = color.new(cShort, 5), bgcolor = color.new(cShort, 100 - liveFill),
@@ -3985,7 +4016,7 @@ drawTrade(Trade t) =>
             "Full"  => (t.dir == 1 ? "▲ " : "▼ ") + setupName(t.sid)
             "Short" => (t.dir == 1 ? "▲ " : "▼ ") + setupTag(t.sid)
             => t.dir == 1 ? "▲" : "▼"
-        t.lTag := label.new(t.openBar, t.dir == 1 ? low - off : high + off, txt,
+        t.lTag := label.new(f_xSafe(t.openBar), t.dir == 1 ? low - off : high + off, txt,
              style = t.dir == 1 ? label.style_label_up : label.style_label_down,
              color = t.dir == 1 ? cLong : cShort,
              textcolor = #0B0F14, size = lblSize(liveLbl))
