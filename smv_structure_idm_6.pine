@@ -64,14 +64,14 @@ indicator("SMV STRUCTURE — Moteur fractal (IDM/Reteste)", "SMV Engine", overla
 // réglage ci-dessous n'est qu'une petite marge de respiration pour que
 // les étiquettes restent lisibles, jamais une extension infinie.
 //=====================================================================
-gZ = "0. Affichage des zones"
+gZ = "01. Affichage des zones — règle globale"
 zoneExt = input.int(3, "Marge au-delà du prix (bougies)", minval=0, maxval=30, group=gZ,
      tooltip="Toutes les zones s'arrêtent au prix actuel et le suivent. Cette valeur n'ajoute qu'une petite marge à droite pour la lisibilité des étiquettes. 0 = la zone colle exactement à la bougie en cours.")
 
 //=====================================================================
 // 1. Structure
 //=====================================================================
-gS = "1. Structure"
+gS = "02. Structure"
 showStruct   = input.bool(true, "Afficher HH / HL / LH / LL", group=gS,
      tooltip="C'est le seul marquage qui apparaît dès qu'un swing structurel est confirmé, sans attendre l'IDM — la façon la plus rapide de voir un HL/LH se former.")
 pivMode      = input.string("Auto", "Sensibilité des pivots", options=["Auto", "Manuel"], group=gS,
@@ -90,7 +90,7 @@ rangeCol     = input.color(#9e9e9e, "Couleur consolidation", group=gS)
 // (pilote confirmedTrend), BMS = CONTINUATION — inversé par rapport à
 // l'indicateur d'origine, à ta demande.
 //=====================================================================
-gB = "1b. Cassures de structure — BOS (retournement) / BMS (continuation)"
+gB = "03. Cassures de structure — BOS / BMS"
 isStructBodyCandleBreak = input.bool(true, "Cassure validée par la clôture (corps de bougie)", group=gB,
      tooltip="Coché (recommandé) : une cassure n'est validée que si le CORPS de la bougie (close) dépasse le niveau. Décoché : la mèche (high/low) suffit. Pilote aussi confirmedTrend (IDM, Sniper Zone, Liquidité Cible, Acheteur/Vendeur maintenant).")
 bosBullColor = input.color(color.yellow, "Couleur BOS haussier (retournement)", group=gB)
@@ -200,13 +200,12 @@ f_h1Bias() =>
 // c'est normal, le dashboard suit toujours le plus récent aligné avec
 // la structure actuelle.
 //=====================================================================
-gI = "2. IDM (Inducement) — LE plus important"
+gI = "04. IDM (Inducement) — le cœur de la méthode"
 showIdmLines  = input.bool(true, "Afficher les 2 IDM actifs (lignes + étiquettes)", group=gI,
      tooltip="Les deux IDM les plus récents — ceux qui comptent vraiment pour trader. Toujours prioritaires sur tout le reste de l'indicateur.")
 showFsHistory = input.bool(false, "Afficher l'historique FS (anciens IDM figés)", group=gI,
      tooltip="Décoché par défaut pour garder le graphique lisible. Une fois décoché, les anciens IDM (devenus FS) sont simplement supprimés dès qu'ils sortent du top 2, au lieu de rester affichés en grisé.")
 idmActiveCol = input.color(#ab47bc, "IDM #1 — le plus récent (vrai signal à venir)", group=gI)
-idmWaitCol   = input.color(#ff9800, "IDM #2 — juste avant", group=gI)
 fsCol        = input.color(#9e9e9e, "FS (historique, plus ancien)", group=gI)
 idmDoneCol   = input.color(#26c6da, "Marqueur \"retesté\"", group=gI)
 entryBuyCol  = input.color(#00e676, "Couleur achat", group=gI)
@@ -227,195 +226,6 @@ idmEmphasis = input.bool(true, "Mettre l'IDM bien en évidence", group=gI,
 idmWidthBoost = input.int(4, "Épaisseur du trait IDM", minval=1, maxval=6, group=gI)
 
 //=====================================================================
-// 3. Sniper Zone — LE reteste précis, rattachée UNIQUEMENT à l'IDM.
-// Préparée dès la formation de l'IDM, affinée sur la bougie exacte de
-// récupération ("chandelier qui prend l'argent"), supprimée dès que le
-// prix part pour de bon.
-//=====================================================================
-gSn = "3. Sniper Zone (liée à l'IDM)"
-showSniperZone = input.bool(true, "Afficher la Sniper Zone", group=gSn,
-     tooltip="Bande fine préparée à l'IDM — visible seulement en attente, supprimée dès que le prix part pour le vrai mouvement.")
-sniperSize = input.float(0.12, "Épaisseur avant liquidation (x ATR)", minval=0.02, maxval=0.5, step=0.02, group=gSn,
-     tooltip="Bande fine autour de l'IDM, préparée dès sa formation.")
-sniperCol  = input.color(#ffd54f, "Couleur Sniper Zone", group=gSn)
-showSniperRefine = input.bool(true, "Afficher LA SIGNATURE (mèche de la bougie qui prend l'argent)", group=gSn,
-     tooltip="Dès que l'IDM est balayé, la zone n'est plus une bande ATR calculée : elle est posée sur la MÈCHE RÉELLE de la bougie qui est allée chercher la liquidité au-delà de l'IDM. C'est la vraie zone de Demand (achat) / Supply (vente) — plus précise qu'un Order Block. Concept BIS respecté : la zone d'achat reste sous l'IDBL, la zone de vente au-dessus de l'IDBR.")
-refineCol = input.color(#26c6da, "Couleur de la Signature", group=gSn)
-
-//=====================================================================
-// 4. Phases — repères Wyckoff SC/STB/SPRING/BC/UT/UTAD, purement
-// informatifs (bons endroits pour préparer un trade). Pas de zone
-// d'intervention ni d'étiquette d'entrée séparée — l'IDM et la Sniper
-// Zone restent les seules zones d'action.
-//=====================================================================
-gPh = "4. Phases"
-showPhaseBox     = input.bool(false, "Afficher le rectangle Accumulation/Distribution", group=gPh,
-     tooltip="Décoché par défaut : les phases continuent d'être CALCULÉES et comptent dans le score de confluence (module 15), mais elles ne sont plus dessinées. C'est l'un des plus gros gains de lisibilité.")
-showPhaseMarkers = input.bool(false, "Afficher SC / STB / SPRING / BC / UT / UTAD", group=gPh,
-     tooltip="Décoché par défaut, même raison : SPRING, STB, UT et UTAD restent détectés et alimentent la confluence, sans encombrer le graphique.")
-phaseCol         = input.color(#ffa726, "Couleur manipulations (STB/SPRING/UT/UTAD)", group=gPh)
-
-//=====================================================================
-// 5. Dashboard
-//=====================================================================
-gD = "5. Dashboard"
-showDash     = input.bool(true, "Afficher le tableau de bord", group=gD)
-dashLabelCol = input.color(#b0bec5, "Couleur des libellés", group=gD)
-dashValueCol = input.color(#ffffff, "Couleur des valeurs neutres", group=gD)
-dashBgCol    = input.color(color.new(#101418, 15), "Fond des cellules", group=gD)
-dashTitleBg  = input.color(#0d47a1, "Fond du titre", group=gD)
-
-//=====================================================================
-// 6. Zones de Liquidité (Intact) — le High/Low le plus récent PAS
-// ENCORE balayé par le prix. C'est la liquidité que le marché doit
-// aller chercher — la base du module Liquidité Cible juste après.
-//=====================================================================
-gIL = "6. Zones de Liquidité (Intact)"
-showIntact = input.bool(true, "Afficher les niveaux Intact (High/Low en attente)", group=gIL,
-     tooltip="Jusqu'à 4 Intact Sellers (les 4 derniers sommets pas encore balayés) et 4 Intact Buyers (les 4 derniers creux pas encore balayés), simultanément. Chaque niveau disparaît dès qu'une bougie le traverse.")
-intactBuyCol  = input.color(#4fc3f7, "Couleur Intact Buyers (Low)", group=gIL)
-intactSellCol = input.color(#ff8a65, "Couleur Intact Sellers (High)", group=gIL)
-
-//=====================================================================
-// 7. Liquidité Cible — l'IDM n'est PAS la destination du prix, c'est
-// l'étape où il se ravitaille avant de continuer sa route. La cible
-// reste COHÉRENTE avec la case "Acheteur/Vendeur maintenant" (structure
-// H1) : Acheteur -> vise un Intact Seller (High non balayé au-dessus).
-// Vendeur -> vise un Intact Buyer (Low non balayé en dessous).
-//=====================================================================
-gLC = "7. Liquidité Cible"
-showLiquidityTarget = input.bool(true, "Afficher la cible de liquidité + distance parcourue", group=gLC,
-     tooltip="Acheteur (H1) -> cible = Intact Seller (High non balayé au-dessus). Vendeur (H1) -> cible = Intact Buyer (Low non balayé en dessous). Affiche aussi le % du chemin déjà parcouru depuis l'origine du mouvement.")
-targetCol = input.color(#ba68c8, "Couleur cible de liquidité", group=gLC)
-
-//=====================================================================
-// 8. Order Blocks (OB) — la trace chirurgicale du Smart Money.
-// Définition STRICTE : la dernière bougie de couleur OPPOSÉE juste
-// avant le mouvement impulsif qui CASSE la structure (BOS ou BMS). Pas
-// de cassure = pas d'Order Block. Très étroit (une seule bougie), à
-// l'inverse de la zone Supply/Demand large (module 9).
-// Un OB s'accompagne presque toujours d'un déséquilibre (FVG) : détecté
-// et signalé par une pastille, sans être obligatoire.
-// Calculé UNIQUEMENT sur le timeframe du graphique courant — bascule de
-// TF pour voir les OB de cette TF-là.
-//=====================================================================
-gOB = "8. Order Blocks (OB) + Breaker Blocks"
-showOB = input.bool(true, "Afficher les Order Blocks", group=gOB,
-     tooltip="La bougie extrême (le dernier creux avant une impulsion haussière / le dernier sommet avant une impulsion baissière) qui a provoqué la cassure de structure BOS/BMS de TON moteur. Zone étroite et chirurgicale — le niveau précis laissé par les institutionnels. Timeframe courant uniquement.")
-obShowBull = input.int(3, "Nombre d'OB haussiers affichés", minval=0, maxval=10, group=gOB)
-obShowBear = input.int(3, "Nombre d'OB baissiers affichés", minval=0, maxval=10, group=gOB)
-obUseBody = input.bool(false, "Utiliser le corps de bougie (au lieu des mèches)", group=gOB,
-     tooltip="Décoché : la zone OB couvre toute la bougie, mèches comprises. Coché : uniquement le corps (open/close), zone plus serrée.")
-obBullCol = input.color(color.new(#2962ff, 80), "Couleur OB haussier", group=gOB)
-obBearCol = input.color(color.new(#ff5d00, 80), "Couleur OB baissier", group=gOB)
-obShowBreaker = input.bool(true, "Activer les Breaker Blocks (OB cassés)", group=gOB,
-     tooltip="Quand le prix casse VRAIMENT à travers un Order Block, celui-ci échoue et change de polarité : il devient un Breaker Block. Un ancien OB haussier cassé devient une résistance, et inversement. C'est une confirmation très forte pour la SMV.")
-obBullBreakCol = input.color(color.new(#ff1100, 80), "Couleur Breaker issu d'un OB haussier", group=gOB)
-obBearBreakCol = input.color(color.new(#0cb51a, 80), "Couleur Breaker issu d'un OB baissier", group=gOB)
-obShowFvg = input.bool(true, "Signaler le déséquilibre (FVG) sur l'OB", group=gOB,
-     tooltip="Ajoute ⚡ sur l'étiquette quand l'impulsion qui part de l'OB laisse un vrai Fair Value Gap — signe d'un OB de qualité institutionnelle.")
-obShowIdmConfluence = input.bool(true, "Signaler la confluence OB + IDM", group=gOB,
-     tooltip="Ajoute ★ quand un IDM encore actif tombe À L'INTÉRIEUR de l'Order Block. C'est la confluence la plus forte de la SMV : le niveau où tu attends déjà le prix est aussi celui où les institutionnels ont laissé leur trace.")
-obFilter8020 = input.bool(false, "Filtre 80/20 : masquer les OB à contre-tendance", group=gOB,
-     tooltip="Décoché par défaut pour que tu voies TOUT. Coché : en tendance confirmée haussière, seuls les OB haussiers restent affichés (et inversement). Les Breaker Blocks ne sont jamais masqués — ils ont changé de polarité.")
-
-//=====================================================================
-// 9. Zones Supply / Demand — la version LARGE : toute la base de
-// consolidation avant le départ impulsif, pas seulement la bougie
-// finale. Sert à voir la zone globale de réaction, là où l'OB (module
-// 8) donne le niveau chirurgical à l'intérieur.
-// Contrairement à l'OB, une zone S/D n'exige PAS de cassure de
-// structure — elle se forme sur toute base suivie d'une impulsion.
-//=====================================================================
-gSD = "9. Zones Supply / Demand"
-showSD = input.bool(true, "Afficher les zones Supply / Demand", group=gSD,
-     tooltip="Zone LARGE : toute la base de consolidation (plusieurs bougies) avant le mouvement impulsif. L'Order Block du module 8 est le détail précis à l'intérieur de cette zone.")
-sdCount = input.int(3, "Nombre de zones conservées par côté", minval=1, maxval=10, group=gSD)
-sdImpulseMult = input.float(1.5, "Force minimale de l'impulsion (x ATR)", minval=0.5, maxval=5.0, step=0.1, group=gSD,
-     tooltip="Une base ne devient une zone Supply/Demand que si le mouvement qui en part dépasse cette taille (en multiples d'ATR). Plus grand = moins de zones, mais plus significatives.")
-sdMaxBase = input.int(6, "Largeur max de la base (bougies)", minval=2, maxval=20, group=gSD,
-     tooltip="Nombre maximum de bougies de consolidation regroupées dans une même zone avant l'impulsion.")
-sdDemandCol = input.color(#00897b, "Couleur zone Demand (achat)", group=gSD)
-sdSupplyCol = input.color(#d81b60, "Couleur zone Supply (vente)", group=gSD)
-sdMitigatedCol = input.color(#90a4ae, "Couleur zone mitigée", group=gSD)
-
-//=====================================================================
-// 10. Imbalances (Fair Value Gap) — le vide de prix laissé par une
-// impulsion brutale : le marché est passé trop vite, il n'y a pas eu
-// d'échange équitable sur cette plage. Le prix revient très souvent
-// combler ce vide, ce qui en fait une zone de réaction de premier plan
-// — et c'est exactement le déséquilibre qui accompagne un vrai Order
-// Block.
-//
-// Comme toutes les autres zones : s'arrête au prix et le suit, jamais
-// d'extension infinie. Se réduit au fur et à mesure qu'elle est
-// comblée, et disparaît une fois entièrement remplie.
-//=====================================================================
-// Ce module ne dessine plus rien : ses boîtes ont été SUPPRIMÉES du
-// code. Il alimente le filtre des Order Blocks, le repli de l'IDM 4 et
-// le score de confluence.
-gFv = "10. Imbalances (FVG) — calcul seul, plus aucune boîte"
-showFvg = input.bool(true, "Calculer les imbalances (FVG)", group=gFv,
-     tooltip="Vide de prix sur 3 bougies : le haut de la bougie 1 n'a jamais rencontré le bas de la bougie 3. Les boîtes ne sont plus tracées — elles se superposaient aux Order Blocks et aux Sniper Zones. Le calcul reste indispensable : c'est lui qui autorise ou refuse l'affichage d'un Order Block, qui alimente l'IDM 4 et qui compte dans le score de confluence.")
-fvgCount = input.int(4, "Nombre d'imbalances suivies par côté", minval=1, maxval=15, group=gFv)
-fvgShrink = input.bool(true, "Réduire l'imbalance au fur et à mesure qu'elle se comble", group=gFv,
-     tooltip="Coché : la zone rétrécit à mesure que le prix la remplit, et disparaît une fois entièrement comblée. Décoché : elle garde sa taille d'origine jusqu'à comblement complet.")
-fvgMinSize = input.float(0.15, "Taille minimale (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gFv,
-     tooltip="Ignore les micro-gaps sans signification. Plus grand = seules les grosses imbalances sont retenues.")
-
-// L'IDM 3 n'est PLUS tracé sur le graphique. Il reste entièrement
-// calculé : il alimente la case « IDM 3 » du dashboard et compte pour
-// 1 point dans le score de confluence (module 15). Seul son dessin a
-// été supprimé — c'est lui, avec l'IDM 2 et l'IDM 4, qui saturait le
-// graphique alors que l'institutionnel ne vise que la PREMIÈRE poche.
-gP3 = "11. IDM 3 — H1 confirmé par le M15 et le M5 (calcul + dashboard)"
-projIdmCol = input.color(#00e5ff, "Couleur de la case IDM 3 dans le dashboard", group=gP3)
-projTolAtr = input.float(0.6, "Tolérance de confluence (x ATR)", minval=0.1, maxval=3.0, step=0.1, group=gP3,
-     tooltip="Écart maximum autorisé entre le niveau H1 et celui vu en M15 / M5 pour dire qu'ils sont d'accord. Plus petit = confluence plus stricte, donc plus rare mais plus fiable.")
-projMinTf = input.int(2, "Timeframes minimum d'accord", minval=1, maxval=3, group=gP3,
-     tooltip="1 = le H1 seul suffit. 2 = il faut le H1 + (le M15 ou le M5). 3 = les trois doivent être d'accord.")
-
-// Même chose pour l'IDM 4 : calculé, lisible dans le dashboard, plus
-// jamais dessiné.
-gP4 = "12. IDM 4 — entre l'IDM 1 et l'IDM 2 (calcul + dashboard)"
-idm4Col = input.color(#ffab00, "Couleur de la case IDM 4 dans le dashboard", group=gP4)
-
-gTP = "13. Plan de trade — SL / TP1 / TP2 / TP3"
-showTradePlan = input.bool(true, "Afficher le plan de trade", group=gTP,
-     tooltip="Dès qu'un IDM est récupéré (ton signal d'entrée actuel), l'indicateur pose le stop et les trois objectifs, puis suit le trade jusqu'au bout. Il ne CRÉE aucun signal : il habille uniquement ceux que ton moteur produit déjà. Ta structure, tes IDM, tes Sniper Zones et ta Liquidité Cible ne sont pas touchés.")
-stopModeStruct = input.bool(true, "Stop structurel (juste au-delà de l'IDM)", group=gTP,
-     tooltip="COCHÉ (recommandé) : le stop se place juste derrière l'IDM récupéré. C'est le vrai point d'invalidation de ta stratégie — si le prix repasse derrière l'IDM, le setup est mort. DÉCOCHÉ : distance fixe en ATR, comme un indicateur générique.")
-stopBufAtr = input.float(0.25, "Marge du stop au-delà de l'IDM (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gTP,
-     tooltip="Petit coussin derrière l'IDM pour ne pas se faire sortir par une mèche. Plus grand = stop plus large, donc objectifs plus lointains en prix pour un même R.")
-stopAtrMult = input.float(1.2, "Distance du stop en ATR (si stop structurel décoché)", minval=0.2, maxval=5.0, step=0.1, group=gTP)
-rMul1 = input.float(1.0, "TP1 (en R)", minval=0.2, maxval=10.0, step=0.1, group=gTP)
-rMul2 = input.float(2.0, "TP2 (en R)", minval=0.2, maxval=20.0, step=0.1, group=gTP)
-rMul3 = input.float(3.0, "TP3 (en R)", minval=0.2, maxval=30.0, step=0.1, group=gTP)
-tpModeTarget = input.bool(true, "Caler le TP3 sur la Liquidité Cible", group=gTP,
-     tooltip="COCHÉ (recommandé) : ton indicateur sait déjà où le prix veut aller — le dernier objectif se pose dessus au lieu d'un 3R arbitraire. Si la cible est derrière le prix ou plus proche que le TP2, le 3R reprend automatiquement la main.")
-maxOpenTr = input.int(1, "Trades simultanés maximum", minval=1, maxval=5, group=gTP,
-     tooltip="À 1, un nouveau signal est ignoré tant que le trade en cours n'est pas terminé — c'est ce qui donne un scoreboard lisible. Au-delà, les trades se superposent sur le graphique.")
-maxBarsTr = input.int(60, "Abandonner après N bougies", minval=5, maxval=500, group=gTP,
-     tooltip="Un trade qui n'a touché ni son stop ni son TP3 au bout de N bougies est classé « expiré ». Il ne compte ni en gain ni en perte.")
-keepTr = input.int(5, "Garder les N derniers trades à l'écran", minval=1, maxval=30, group=gTP)
-tpZoneShow = input.bool(true, "Afficher les zones risque / gain", group=gTP,
-     tooltip="Décoche pour ne garder que les lignes de stop et d'objectifs, sans les rectangles colorés. Beaucoup plus léger visuellement.")
-tpCol = input.color(#00e39a, "Couleur des objectifs", group=gTP)
-slCol = input.color(#ff3b6b, "Couleur du stop", group=gTP)
-fadeClosedTr = input.bool(true, "Estomper les trades terminés", group=gTP,
-     tooltip="Le trade en cours reste vif, les trades finis s'effacent. Un objectif ATTEINT s'efface deux fois moins qu'un objectif manqué : tu peux lire d'un coup d'œil jusqu'où chaque trade est allé.")
-fadeStrength = input.int(55, "Force de l'estompage", minval=0, maxval=95, group=gTP)
-
-gSc = "14. Scoreboard — résultats réels de TA stratégie"
-showScore = input.bool(true, "Afficher le scoreboard", group=gSc,
-     tooltip="Compte, sur tout l'historique visible, combien de fois ton setup est parti et jusqu'où il est allé. C'est la mesure honnête de ta stratégie : rien n'est simulé, chaque ligne vient d'un trade réellement déclenché par ton moteur.")
-scorePosStr = input.string("En bas à droite", "Position du scoreboard",
-     options=["En bas à droite", "En bas à gauche", "En haut à gauche", "Au milieu à droite"], group=gSc,
-     tooltip="Volontairement séparé du dashboard principal pour ne pas le surcharger.")
-minSampl = input.int(10, "Griser en dessous de N trades", minval=1, maxval=100, group=gSc,
-     tooltip="Un pourcentage calculé sur 3 trades ne veut rien dire. En dessous de ce seuil, les chiffres restent affichés mais grisés pour te rappeler qu'ils ne sont pas encore exploitables.")
-
-//=====================================================================
 // 16. Déclencheur d'entrée — la fin du retracement se PROUVE
 //
 // Le module d'entrée tirait dès que le prix touchait l'IDM. C'est
@@ -425,7 +235,7 @@ minSampl = input.int(10, "Griser en dessous de N trades", minval=1, maxval=100, 
 // Ici, la récupération de l'IDM ARME le setup au lieu de le tirer. Le
 // tir n'a lieu que quand le marché a PROUVÉ que la zone est défendue.
 //=====================================================================
-gTr = "16. Déclencheur d'entrée — fin du retracement"
+gTr = "05. Déclencheur d'entrée — fin du retracement"
 useTrigger = input.bool(true, "Exiger une preuve de retournement avant d'entrer", group=gTr,
      tooltip="COCHÉ (recommandé) : la récupération de l'IDM arme le setup, elle ne l'ouvre pas. Il faut ensuite que le prix ait franchi le 0.5 ET qu'une bougie de rejet se forme. DÉCOCHÉ : comportement d'origine, entrée immédiate au contact de l'IDM.")
 trigNeedDeep = input.bool(true, "Exiger le franchissement du 0.5", group=gTr,
@@ -461,12 +271,210 @@ trigMaxBars = input.int(20, "Désarmer après N bougies sans preuve", minval=1, 
 //   • les Order Blocks exigent désormais FVG **et** non-mitigé.
 // Tous ces calculs restent actifs pour le dashboard et la confluence.
 //=====================================================================
-gEp = "17. La Signature — la bougie qui prend l'argent"
+gEp = "06. La Signature — la bougie qui prend l'argent"
 sigPadAtr = input.float(0.05, "Marge autour de la mèche (x ATR)", minval=0.0, maxval=0.5, step=0.01, group=gEp,
      tooltip="Petit coussin ajouté de part et d'autre de la mèche pour que la zone reste cliquable et lisible même quand la mèche est très courte. 0 = la zone colle exactement à la mèche.")
 sigKeepBars = input.int(60, "Durée de vie d'une Signature (bougies)", minval=5, maxval=300, group=gEp,
      tooltip="Au-delà, la zone est supprimée : une Signature qui n'a pas été respectée après si longtemps n'a plus de valeur.")
 
+//=====================================================================
+// Filtre de signal — structure robuste + confluence
+//
+// Les réglages sont ici, avec le reste du moteur d'entrée ; le calcul
+// lui-même reste dans le module 15, plus bas, là où les zones qu'il
+// compte existent déjà.
+//=====================================================================
+gCf = "07. Filtre de signal — structure + confluence"
+smvUseFilter = input.bool(true, "Filtrer les entrées (structure + confluence)", group=gCf,
+     tooltip="Décoché, les deux moteurs d'entrée redeviennent exactement ce qu'ils étaient. Coché (recommandé), une entrée doit respecter la structure ET réunir assez de confluence.")
+smvMinConf = input.int(1, "Éléments SMV minimum sur le point d'entrée", minval=0, maxval=7, group=gCf,
+     tooltip="Combien d'éléments de la méthode doivent être présents là où le prix entre : Order Block, imbalance, zone Supply/Demand, phase Wyckoff (SPRING/STB à l'achat, UTAD/UT à la vente), 0.5 du mouvement validé, IDM 3, et LA SIGNATURE. 1 (défaut) = l'entrée doit avoir AU MOINS UNE raison concrète — un seul élément suffit. 2 ou 3 = tu attends que plusieurs se retrouvent au même endroit, plus rare mais plus solide. 0 = aucune exigence, seule la structure filtre.")
+smvPhaseBars = input.int(20, "Fraîcheur d'une phase Wyckoff (bougies)", minval=1, maxval=200, group=gCf,
+     tooltip="Un SPRING, STB, UTAD ou UT ne compte comme confluence que s'il s'est formé il y a moins de N bougies.")
+
+//=====================================================================
+// 3. Sniper Zone — LE reteste précis, rattachée UNIQUEMENT à l'IDM.
+// Préparée dès la formation de l'IDM, affinée sur la bougie exacte de
+// récupération ("chandelier qui prend l'argent"), supprimée dès que le
+// prix part pour de bon.
+//=====================================================================
+gSn = "08. Sniper Zone (liée à l'IDM)"
+showSniperZone = input.bool(true, "Afficher la Sniper Zone", group=gSn,
+     tooltip="Bande fine préparée à l'IDM — visible seulement en attente, supprimée dès que le prix part pour le vrai mouvement.")
+sniperSize = input.float(0.12, "Épaisseur avant liquidation (x ATR)", minval=0.02, maxval=0.5, step=0.02, group=gSn,
+     tooltip="Bande fine autour de l'IDM, préparée dès sa formation.")
+sniperCol  = input.color(#ffd54f, "Couleur Sniper Zone", group=gSn)
+showSniperRefine = input.bool(true, "Afficher LA SIGNATURE (mèche de la bougie qui prend l'argent)", group=gSn,
+     tooltip="Dès que l'IDM est balayé, la zone n'est plus une bande ATR calculée : elle est posée sur la MÈCHE RÉELLE de la bougie qui est allée chercher la liquidité au-delà de l'IDM. C'est la vraie zone de Demand (achat) / Supply (vente) — plus précise qu'un Order Block. Concept BIS respecté : la zone d'achat reste sous l'IDBL, la zone de vente au-dessus de l'IDBR.")
+refineCol = input.color(#26c6da, "Couleur de la Signature", group=gSn)
+
+//=====================================================================
+// 4. Phases — repères Wyckoff SC/STB/SPRING/BC/UT/UTAD, purement
+// informatifs (bons endroits pour préparer un trade). Pas de zone
+// d'intervention ni d'étiquette d'entrée séparée — l'IDM et la Sniper
+// Zone restent les seules zones d'action.
+//=====================================================================
+gPh = "09. Phases Wyckoff"
+showPhaseBox     = input.bool(false, "Afficher le rectangle Accumulation/Distribution", group=gPh,
+     tooltip="Décoché par défaut : les phases continuent d'être CALCULÉES et comptent dans le score de confluence (module 15), mais elles ne sont plus dessinées. C'est l'un des plus gros gains de lisibilité.")
+showPhaseMarkers = input.bool(false, "Afficher SC / STB / SPRING / BC / UT / UTAD", group=gPh,
+     tooltip="Décoché par défaut, même raison : SPRING, STB, UT et UTAD restent détectés et alimentent la confluence, sans encombrer le graphique.")
+phaseCol         = input.color(#ffa726, "Couleur manipulations (STB/SPRING/UT/UTAD)", group=gPh)
+
+//=====================================================================
+// 5. Dashboard
+//=====================================================================
+gD = "10. Tableau de bord"
+showDash     = input.bool(true, "Afficher le tableau de bord", group=gD)
+dashLabelCol = input.color(#b0bec5, "Couleur des libellés", group=gD)
+dashValueCol = input.color(#ffffff, "Couleur des valeurs neutres", group=gD)
+dashBgCol    = input.color(color.new(#101418, 15), "Fond des cellules", group=gD)
+dashTitleBg  = input.color(#0d47a1, "Fond du titre", group=gD)
+
+//=====================================================================
+// 6. Zones de Liquidité (Intact) — le High/Low le plus récent PAS
+// ENCORE balayé par le prix. C'est la liquidité que le marché doit
+// aller chercher — la base du module Liquidité Cible juste après.
+//=====================================================================
+gIL = "11. Liquidité Intact"
+showIntact = input.bool(true, "Afficher les niveaux Intact (High/Low en attente)", group=gIL,
+     tooltip="Jusqu'à 4 Intact Sellers (les 4 derniers sommets pas encore balayés) et 4 Intact Buyers (les 4 derniers creux pas encore balayés), simultanément. Chaque niveau disparaît dès qu'une bougie le traverse.")
+intactBuyCol  = input.color(#4fc3f7, "Couleur Intact Buyers (Low)", group=gIL)
+intactSellCol = input.color(#ff8a65, "Couleur Intact Sellers (High)", group=gIL)
+
+//=====================================================================
+// 7. Liquidité Cible — l'IDM n'est PAS la destination du prix, c'est
+// l'étape où il se ravitaille avant de continuer sa route. La cible
+// reste COHÉRENTE avec la case "Acheteur/Vendeur maintenant" (structure
+// H1) : Acheteur -> vise un Intact Seller (High non balayé au-dessus).
+// Vendeur -> vise un Intact Buyer (Low non balayé en dessous).
+//=====================================================================
+gLC = "12. Liquidité Cible"
+showLiquidityTarget = input.bool(true, "Afficher la cible de liquidité + distance parcourue", group=gLC,
+     tooltip="Acheteur (H1) -> cible = Intact Seller (High non balayé au-dessus). Vendeur (H1) -> cible = Intact Buyer (Low non balayé en dessous). Affiche aussi le % du chemin déjà parcouru depuis l'origine du mouvement.")
+targetCol = input.color(#ba68c8, "Couleur cible de liquidité", group=gLC)
+
+//=====================================================================
+// 8. Order Blocks (OB) — la trace chirurgicale du Smart Money.
+// Définition STRICTE : la dernière bougie de couleur OPPOSÉE juste
+// avant le mouvement impulsif qui CASSE la structure (BOS ou BMS). Pas
+// de cassure = pas d'Order Block. Très étroit (une seule bougie), à
+// l'inverse de la zone Supply/Demand large (module 9).
+// Un OB s'accompagne presque toujours d'un déséquilibre (FVG) : détecté
+// et signalé par une pastille, sans être obligatoire.
+// Calculé UNIQUEMENT sur le timeframe du graphique courant — bascule de
+// TF pour voir les OB de cette TF-là.
+//=====================================================================
+gOB = "13. Order Blocks + Breaker Blocks"
+showOB = input.bool(true, "Afficher les Order Blocks", group=gOB,
+     tooltip="La bougie extrême (le dernier creux avant une impulsion haussière / le dernier sommet avant une impulsion baissière) qui a provoqué la cassure de structure BOS/BMS de TON moteur. Zone étroite et chirurgicale — le niveau précis laissé par les institutionnels. Timeframe courant uniquement.")
+obShowBull = input.int(3, "Nombre d'OB haussiers affichés", minval=0, maxval=10, group=gOB)
+obShowBear = input.int(3, "Nombre d'OB baissiers affichés", minval=0, maxval=10, group=gOB)
+obUseBody = input.bool(false, "Utiliser le corps de bougie (au lieu des mèches)", group=gOB,
+     tooltip="Décoché : la zone OB couvre toute la bougie, mèches comprises. Coché : uniquement le corps (open/close), zone plus serrée.")
+obBullCol = input.color(color.new(#2962ff, 80), "Couleur OB haussier", group=gOB)
+obBearCol = input.color(color.new(#ff5d00, 80), "Couleur OB baissier", group=gOB)
+obShowBreaker = input.bool(true, "Activer les Breaker Blocks (OB cassés)", group=gOB,
+     tooltip="Quand le prix casse VRAIMENT à travers un Order Block, celui-ci échoue et change de polarité : il devient un Breaker Block. Un ancien OB haussier cassé devient une résistance, et inversement. C'est une confirmation très forte pour la SMV.")
+obBullBreakCol = input.color(color.new(#ff1100, 80), "Couleur Breaker issu d'un OB haussier", group=gOB)
+obBearBreakCol = input.color(color.new(#0cb51a, 80), "Couleur Breaker issu d'un OB baissier", group=gOB)
+obShowFvg = input.bool(true, "Signaler le déséquilibre (FVG) sur l'OB", group=gOB,
+     tooltip="Ajoute ⚡ sur l'étiquette quand l'impulsion qui part de l'OB laisse un vrai Fair Value Gap — signe d'un OB de qualité institutionnelle.")
+obShowIdmConfluence = input.bool(true, "Signaler la confluence OB + IDM", group=gOB,
+     tooltip="Ajoute ★ quand un IDM encore actif tombe À L'INTÉRIEUR de l'Order Block. C'est la confluence la plus forte de la SMV : le niveau où tu attends déjà le prix est aussi celui où les institutionnels ont laissé leur trace.")
+obFilter8020 = input.bool(false, "Filtre 80/20 : masquer les OB à contre-tendance", group=gOB,
+     tooltip="Décoché par défaut pour que tu voies TOUT. Coché : en tendance confirmée haussière, seuls les OB haussiers restent affichés (et inversement). Les Breaker Blocks ne sont jamais masqués — ils ont changé de polarité.")
+
+//=====================================================================
+// 9. Zones Supply / Demand — la version LARGE : toute la base de
+// consolidation avant le départ impulsif, pas seulement la bougie
+// finale. Sert à voir la zone globale de réaction, là où l'OB (module
+// 8) donne le niveau chirurgical à l'intérieur.
+// Contrairement à l'OB, une zone S/D n'exige PAS de cassure de
+// structure — elle se forme sur toute base suivie d'une impulsion.
+//=====================================================================
+gSD = "14. Zones Supply / Demand"
+showSD = input.bool(true, "Afficher les zones Supply / Demand", group=gSD,
+     tooltip="Zone LARGE : toute la base de consolidation (plusieurs bougies) avant le mouvement impulsif. L'Order Block du module 8 est le détail précis à l'intérieur de cette zone.")
+sdCount = input.int(3, "Nombre de zones conservées par côté", minval=1, maxval=10, group=gSD)
+sdImpulseMult = input.float(1.5, "Force minimale de l'impulsion (x ATR)", minval=0.5, maxval=5.0, step=0.1, group=gSD,
+     tooltip="Une base ne devient une zone Supply/Demand que si le mouvement qui en part dépasse cette taille (en multiples d'ATR). Plus grand = moins de zones, mais plus significatives.")
+sdMaxBase = input.int(6, "Largeur max de la base (bougies)", minval=2, maxval=20, group=gSD,
+     tooltip="Nombre maximum de bougies de consolidation regroupées dans une même zone avant l'impulsion.")
+sdDemandCol = input.color(#00897b, "Couleur zone Demand (achat)", group=gSD)
+sdSupplyCol = input.color(#d81b60, "Couleur zone Supply (vente)", group=gSD)
+sdMitigatedCol = input.color(#90a4ae, "Couleur zone mitigée", group=gSD)
+
+//=====================================================================
+// 10. Imbalances (Fair Value Gap) — le vide de prix laissé par une
+// impulsion brutale : le marché est passé trop vite, il n'y a pas eu
+// d'échange équitable sur cette plage. Le prix revient très souvent
+// combler ce vide, ce qui en fait une zone de réaction de premier plan
+// — et c'est exactement le déséquilibre qui accompagne un vrai Order
+// Block.
+//
+// Comme toutes les autres zones : s'arrête au prix et le suit, jamais
+// d'extension infinie. Se réduit au fur et à mesure qu'elle est
+// comblée, et disparaît une fois entièrement remplie.
+//=====================================================================
+// Ce module ne dessine plus rien : ses boîtes ont été SUPPRIMÉES du
+// code. Il alimente le filtre des Order Blocks, le repli de l'IDM 4 et
+// le score de confluence.
+gFv = "15. Imbalances (FVG) — calcul seul, aucune boîte"
+showFvg = input.bool(true, "Calculer les imbalances (FVG)", group=gFv,
+     tooltip="Vide de prix sur 3 bougies : le haut de la bougie 1 n'a jamais rencontré le bas de la bougie 3. Les boîtes ne sont plus tracées — elles se superposaient aux Order Blocks et aux Sniper Zones. Le calcul reste indispensable : c'est lui qui autorise ou refuse l'affichage d'un Order Block, qui alimente l'IDM 4 et qui compte dans le score de confluence.")
+fvgCount = input.int(4, "Nombre d'imbalances suivies par côté", minval=1, maxval=15, group=gFv)
+fvgShrink = input.bool(true, "Réduire l'imbalance au fur et à mesure qu'elle se comble", group=gFv,
+     tooltip="Coché : la zone rétrécit à mesure que le prix la remplit, et disparaît une fois entièrement comblée. Décoché : elle garde sa taille d'origine jusqu'à comblement complet.")
+fvgMinSize = input.float(0.15, "Taille minimale (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gFv,
+     tooltip="Ignore les micro-gaps sans signification. Plus grand = seules les grosses imbalances sont retenues.")
+
+// L'IDM 3 n'est PLUS tracé sur le graphique. Il reste entièrement
+// calculé : il alimente la case « IDM 3 » du dashboard et compte pour
+// 1 point dans le score de confluence (module 15). Seul son dessin a
+// été supprimé — c'est lui, avec l'IDM 2 et l'IDM 4, qui saturait le
+// graphique alors que l'institutionnel ne vise que la PREMIÈRE poche.
+gP3 = "16. IDM 3 — H1 confirmé par le M15 et le M5 (calcul seul)"
+projTolAtr = input.float(0.6, "Tolérance de confluence (x ATR)", minval=0.1, maxval=3.0, step=0.1, group=gP3,
+     tooltip="Écart maximum autorisé entre le niveau H1 et celui vu en M15 / M5 pour dire qu'ils sont d'accord. Plus petit = confluence plus stricte, donc plus rare mais plus fiable.")
+projMinTf = input.int(2, "Timeframes minimum d'accord", minval=1, maxval=3, group=gP3,
+     tooltip="1 = le H1 seul suffit. 2 = il faut le H1 + (le M15 ou le M5). 3 = les trois doivent être d'accord.")
+
+
+gTP = "17. Plan de trade — SL / TP1 / TP2 / TP3"
+showTradePlan = input.bool(true, "Afficher le plan de trade", group=gTP,
+     tooltip="Dès qu'un IDM est récupéré (ton signal d'entrée actuel), l'indicateur pose le stop et les trois objectifs, puis suit le trade jusqu'au bout. Il ne CRÉE aucun signal : il habille uniquement ceux que ton moteur produit déjà. Ta structure, tes IDM, tes Sniper Zones et ta Liquidité Cible ne sont pas touchés.")
+stopModeStruct = input.bool(true, "Stop structurel (juste au-delà de l'IDM)", group=gTP,
+     tooltip="COCHÉ (recommandé) : le stop se place juste derrière l'IDM récupéré. C'est le vrai point d'invalidation de ta stratégie — si le prix repasse derrière l'IDM, le setup est mort. DÉCOCHÉ : distance fixe en ATR, comme un indicateur générique.")
+stopBufAtr = input.float(0.25, "Marge du stop au-delà de l'IDM (x ATR)", minval=0.0, maxval=2.0, step=0.05, group=gTP,
+     tooltip="Petit coussin derrière l'IDM pour ne pas se faire sortir par une mèche. Plus grand = stop plus large, donc objectifs plus lointains en prix pour un même R.")
+stopAtrMult = input.float(1.2, "Distance du stop en ATR (si stop structurel décoché)", minval=0.2, maxval=5.0, step=0.1, group=gTP)
+rMul1 = input.float(1.0, "TP1 (en R)", minval=0.2, maxval=10.0, step=0.1, group=gTP)
+rMul2 = input.float(2.0, "TP2 (en R)", minval=0.2, maxval=20.0, step=0.1, group=gTP)
+rMul3 = input.float(3.0, "TP3 (en R)", minval=0.2, maxval=30.0, step=0.1, group=gTP)
+tpModeTarget = input.bool(true, "Caler le TP3 sur la Liquidité Cible", group=gTP,
+     tooltip="COCHÉ (recommandé) : ton indicateur sait déjà où le prix veut aller — le dernier objectif se pose dessus au lieu d'un 3R arbitraire. Si la cible est derrière le prix ou plus proche que le TP2, le 3R reprend automatiquement la main.")
+maxOpenTr = input.int(1, "Trades simultanés maximum", minval=1, maxval=5, group=gTP,
+     tooltip="À 1, un nouveau signal est ignoré tant que le trade en cours n'est pas terminé — c'est ce qui donne un scoreboard lisible. Au-delà, les trades se superposent sur le graphique.")
+maxBarsTr = input.int(60, "Abandonner après N bougies", minval=5, maxval=500, group=gTP,
+     tooltip="Un trade qui n'a touché ni son stop ni son TP3 au bout de N bougies est classé « expiré ». Il ne compte ni en gain ni en perte.")
+keepTr = input.int(5, "Garder les N derniers trades à l'écran", minval=1, maxval=30, group=gTP)
+tpZoneShow = input.bool(true, "Afficher les zones risque / gain", group=gTP,
+     tooltip="Décoche pour ne garder que les lignes de stop et d'objectifs, sans les rectangles colorés. Beaucoup plus léger visuellement.")
+tpCol = input.color(#00e39a, "Couleur des objectifs", group=gTP)
+slCol = input.color(#ff3b6b, "Couleur du stop", group=gTP)
+fadeClosedTr = input.bool(true, "Estomper les trades terminés", group=gTP,
+     tooltip="Le trade en cours reste vif, les trades finis s'effacent. Un objectif ATTEINT s'efface deux fois moins qu'un objectif manqué : tu peux lire d'un coup d'œil jusqu'où chaque trade est allé.")
+fadeStrength = input.int(55, "Force de l'estompage", minval=0, maxval=95, group=gTP)
+
+gSc = "18. Scoreboard — résultats réels de TA stratégie"
+showScore = input.bool(true, "Afficher le scoreboard", group=gSc,
+     tooltip="Compte, sur tout l'historique visible, combien de fois ton setup est parti et jusqu'où il est allé. C'est la mesure honnête de ta stratégie : rien n'est simulé, chaque ligne vient d'un trade réellement déclenché par ton moteur.")
+scorePosStr = input.string("En bas à droite", "Position du scoreboard",
+     options=["En bas à droite", "En bas à gauche", "En haut à gauche", "Au milieu à droite"], group=gSc,
+     tooltip="Volontairement séparé du dashboard principal pour ne pas le surcharger.")
+minSampl = input.int(10, "Griser en dessous de N trades", minval=1, maxval=100, group=gSc,
+     tooltip="Un pourcentage calculé sur 3 trades ne veut rien dire. En dessous de ce seuil, les chiffres restent affichés mais grisés pour te rappeler qu'ils ne sont pas encore exploitables.")
 
 //=====================================================================
 // FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
@@ -2371,89 +2379,18 @@ if projHit or projFlip or na(lvH1)
 // « IDM 3 » du dashboard et vaut 1 point dans le score de confluence du
 // module 15. Il n'encombre simplement plus le graphique.
 
-
 //=====================================================================
-// IDM 4 — TOUJOURS entre l'IDM 1 et l'IDM 2 (module 12)
+// IDM 4 : MODULE ENTIÈREMENT SUPPRIMÉ (ex-module 12)
 //
-// Par construction : on identifie d'abord les deux IDM actifs les plus
-// récents (exactement ceux du dashboard), puis on cherche le meilleur
-// niveau À L'INTÉRIEUR du couloir qu'ils délimitent.
-//   1. Order Block non cassé situé dans le couloir
-//   2. sinon imbalance non comblée dans le couloir
-//   3. sinon le milieu exact du couloir
-// Le repli garantit qu'il existe TOUJOURS dès que les deux IDM existent,
-// et qu'il est toujours entre l'IDM 1 et l'IDM 2.
+// Il n'était plus tracé sur le graphique et il ne figure plus dans le
+// tableau de bord. Plus personne ne lisait idm4Lvl / idm4DirV /
+// idm4Base : c'était devenu du calcul mort à chaque bougie. Le module
+// est donc retiré, avec son groupe de réglages et sa couleur.
+//
+// Rien d'autre n'en dépendait : les imbalances et les Order Blocks qui
+// lui servaient de matière première alimentent toujours le filtre des
+// OB et le score de confluence.
 //=====================================================================
-var float  idm4Lvl  = na
-var int    idm4DirV = 0
-var string idm4Base = ""
-
-// Les deux IDM actifs les plus récents, cohérents avec la structure.
-int i4A = -1
-int i4B = -1
-if array.size(idmLevel) > 0
-    for i = array.size(idmLevel) - 1 to 0
-        if not array.get(idmDone, i) and (confirmedTrend == 0 or array.get(idmDir, i) == confirmedTrend)
-            if i4A == -1
-                i4A := i
-            else if i4B == -1
-                i4B := i
-
-// Calculé TOUJOURS (dashboard), même si le tracé est coupé.
-if i4A != -1 and i4B != -1
-    float lvA = array.get(idmLevel, i4A)
-    float lvB = array.get(idmLevel, i4B)
-    float corridorLo = math.min(lvA, lvB)
-    float corridorHi = math.max(lvA, lvB)
-    int   dir4 = array.get(idmDir, i4A)
-
-    // 1) Order Block non cassé dans le couloir — le plus proche du prix,
-    // c'est celui que le prix rencontrera en premier.
-    float bestOb  = na
-    float bestObD = na
-    if array.size(obTopA) > 0
-        for i = 0 to array.size(obTopA) - 1
-            if not array.get(obBrkA, i) and array.get(obDirA, i) == dir4
-                float midOb = (array.get(obTopA, i) + array.get(obBtmA, i)) / 2.0
-                if midOb > corridorLo and midOb < corridorHi
-                    float dOb4 = math.abs(close - midOb)
-                    if na(bestObD) or dOb4 < bestObD
-                        bestObD := dOb4
-                        bestOb  := midOb
-
-    // 2) Imbalance non comblée dans le couloir.
-    float bestFv  = na
-    float bestFvD = na
-    if na(bestOb) and array.size(fvgTop) > 0
-        for i = 0 to array.size(fvgTop) - 1
-            if array.get(fvgDir, i) == dir4
-                float midFv = (array.get(fvgTop, i) + array.get(fvgBot, i)) / 2.0
-                if midFv > corridorLo and midFv < corridorHi
-                    float dFv4 = math.abs(close - midFv)
-                    if na(bestFvD) or dFv4 < bestFvD
-                        bestFvD := dFv4
-                        bestFv  := midFv
-
-    // 3) Repli : le milieu exact du couloir.
-    idm4Lvl  := not na(bestOb) ? bestOb : not na(bestFv) ? bestFv : (corridorLo + corridorHi) / 2.0
-    idm4Base := not na(bestOb) ? "Order Block" : not na(bestFv) ? "imbalance" : "milieu IDM1-IDM2"
-    idm4DirV := dir4
-
-// Disparition : le prix l'a touché, la structure s'inverse, ou l'un des
-// deux IDM du couloir n'existe plus.
-bool idm4Hit = not na(idm4Lvl) and
-     (idm4DirV == 1 ? low <= idm4Lvl : idm4DirV == -1 ? high >= idm4Lvl : false)
-bool idm4Flip = not na(idm4Lvl) and idm4DirV != 0 and confirmedTrend != 0 and confirmedTrend != idm4DirV
-
-if idm4Hit or idm4Flip or i4A == -1 or i4B == -1
-    idm4Lvl  := na
-    idm4DirV := 0
-    idm4Base := ""
-
-// AFFICHAGE DE L'IDM 4 : SUPPRIMÉ.
-//
-// Ligne pointillée, zone et étiquette retirées du code. Le niveau reste
-// calculé et lisible dans la case « IDM 4 » du dashboard.
 
 
 //=====================================================================
@@ -2711,14 +2648,6 @@ if not na(protLow) and close < protLow and smvTrend != -1
 // Le score est calculé séparément pour l'achat et pour la vente : un
 // même endroit peut être fort à l'achat et nul à la vente.
 //=====================================================================
-gCf = "15. Filtre de signal — structure + confluence"
-smvUseFilter = input.bool(true, "Filtrer les entrées (structure + confluence)", group=gCf,
-     tooltip="Décoché, les deux moteurs d'entrée redeviennent exactement ce qu'ils étaient. Coché (recommandé), une entrée doit respecter la structure ET réunir assez de confluence.")
-smvMinConf = input.int(1, "Éléments SMV minimum sur le point d'entrée", minval=0, maxval=7, group=gCf,
-     tooltip="Combien d'éléments de la méthode doivent être présents là où le prix entre : Order Block, imbalance, zone Supply/Demand, phase Wyckoff (SPRING/STB à l'achat, UTAD/UT à la vente), 0.5 du mouvement validé, IDM 3, et LA SIGNATURE. 1 (défaut) = l'entrée doit avoir AU MOINS UNE raison concrète — un seul élément suffit. 2 ou 3 = tu attends que plusieurs se retrouvent au même endroit, plus rare mais plus solide. 0 = aucune exigence, seule la structure filtre.")
-smvPhaseBars = input.int(20, "Fraîcheur d'une phase Wyckoff (bougies)", minval=1, maxval=200, group=gCf,
-     tooltip="Un SPRING, STB, UTAD ou UT ne compte comme confluence que s'il s'est formé il y a moins de N bougies.")
-
 int smvConfBull = 0
 int smvConfSell = 0
 
@@ -2803,55 +2732,108 @@ bool smvSellOk = not smvUseFilter or (smvTrend == -1 and smvConfSell >= smvMinCo
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si tous
 // les autres modules d'affichage sont désactivés
 //=====================================================================
-var table dash = table.new(position.top_right, 2, 10,
+// Le tableau suit désormais TA séquence, dans l'ordre où tu la lis :
+//
+//   structure -> biais -> IDM à surveiller -> IDM figé -> 0.5 ->
+//   Signature -> confluence -> déclencheur -> cible -> action
+//
+// RETIRÉ : « Structure » (bias brut), IDM 2, IDM 3, IDM 4. Le bias brut
+// contredisait parfois la ligne suivante et surtout ce n'est PAS lui qui
+// autorise les entrées — c'est smvTrend, désormais affiché à sa place.
+// Les IDM 2/3/4 ne sont plus tracés et ne sont plus listés ici non plus.
+var table dash = table.new(position.top_right, 2, 12,
      border_width=1, frame_width=1, frame_color=color.gray)
 
 if showDash and barstate.islast
 
-    string structTxt =
-         bias == 1 ? "BULLISH" :
-         bias == -1 ? "BEARISH" :
-         "CONSOLIDATION"
+    // 1. STRUCTURE SMV — la seule qui autorise ou refuse une entrée.
+    // C'est la lecture lente, ancrée sur le point protégé (module 15),
+    // pas le bias brut qui bascule au moindre retracement.
+    string smvTxt =
+         smvTrend == 1 ? "HAUSSIÈRE — achats seuls" :
+         smvTrend == -1 ? "BAISSIÈRE — ventes seules" :
+         "pas encore établie — aucun signal"
+    color smvCol = smvTrend == 1 ? bullCol : smvTrend == -1 ? bearCol : rangeCol
 
-    color structColor =
-         bias == 1 ? bullCol :
-         bias == -1 ? bearCol :
-         rangeCol
-
-    // Acheteur/Vendeur maintenant — se fie UNIQUEMENT à la structure H1
-    // (h1Bias), jamais au chart courant. H1 haussier -> acheteur, H1
-    // baissier -> vendeur, rien d'autre à mélanger.
+    // 2. Acheteur/Vendeur maintenant — se fie UNIQUEMENT à la structure
+    // H1 (h1Bias), jamais au chart courant.
     string posTxt = h1Bias == 1 ? "ACHETEUR" : h1Bias == -1 ? "VENDEUR" : "NEUTRE"
     color  posCol = h1Bias == 1 ? entryBuyCol : h1Bias == -1 ? entrySellCol : rangeCol
 
-    // IDM en attente — UN SEUL, le plus récent qui respecte la
-    // structure actuelle (règle 80/20 : direction == confirmedTrend).
-    // Se déplace automatiquement dès qu'un nouveau candidat remplace
-    // l'ancien — c'est normal, c'est la logique même de l'IDM.
+    // 3. IDM 1 — le plus récent qui respecte la structure (règle 80/20).
     int nIdm = array.size(idmLevel)
-    int idmWaitIdx  = -1
-    int idmWaitIdx2 = -1
+    int idmWaitIdx = -1
     if nIdm > 0
         for i = nIdm - 1 to 0
-            if not array.get(idmDone, i) and (confirmedTrend == 0 or array.get(idmDir, i) == confirmedTrend)
-                if idmWaitIdx == -1
-                    idmWaitIdx := i
-                else if idmWaitIdx2 == -1
-                    idmWaitIdx2 := i
+            if idmWaitIdx == -1 and not array.get(idmDone, i) and
+                 (confirmedTrend == 0 or array.get(idmDir, i) == confirmedTrend)
+                idmWaitIdx := i
 
     string idmWaitTxt = idmWaitIdx == -1 ? "-" :
-         (array.get(idmDir, idmWaitIdx) == 1 ? "IDBL " : "IDBR ") + str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
+         (array.get(idmDir, idmWaitIdx) == 1 ? "IDBL " : "IDBR ") +
+         str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
     color idmWaitColCell = idmWaitIdx == -1 ? dashValueCol : idmActiveCol
 
-    string idmWaitTxt2 = idmWaitIdx2 == -1 ? "-" :
-         (array.get(idmDir, idmWaitIdx2) == 1 ? "IDBL " : "IDBR ") + str.tostring(array.get(idmLevel, idmWaitIdx2), format.mintick)
-    color idmWaitColCell2 = idmWaitIdx2 == -1 ? dashValueCol : idmWaitCol
+    // 4. IDM FIGÉ — le dernier piège posé avant le vrai retracement.
+    // C'est LE niveau sur lequel tu entres : il ne bouge plus.
+    string frzTxt = na(frozenIdx) ? "-" :
+         (frozenDir == 1 ? "IDBL " : "IDBR ") + str.tostring(frozenLvl, format.mintick) +
+         (na(frozenSweptBar) ? "  · attend le balayage" : "  ✦ balayé, attend la reprise")
+    color frzCol = na(frozenIdx) ? dashValueCol : idmActiveCol
 
+    // 5. LE 0.5 — étape obligatoire avant toute entrée.
+    string fibTxt = na(moveFib50) ? "-" :
+         str.tostring(moveFib50, format.mintick) +
+         (validTest ? "  ✓ atteint" :
+              "  · à " + str.tostring(math.abs(close - moveFib50), format.mintick))
+    color fibCol = na(moveFib50) ? dashValueCol : validTest ? idmDoneCol : rangeCol
+
+    // 6. LA SIGNATURE — la mèche qui a pris l'argent.
+    int nSig = array.size(sniperRefineBx)
+    string sigTxt =
+         sigZoneDir == 1 ? "PRIX DEDANS — Demand" :
+         sigZoneDir == -1 ? "PRIX DEDANS — Supply" :
+         nSig > 0 ? str.tostring(nSig) + " active(s), prix dehors" : "-"
+    color sigCol = sigZoneDir == 1 ? entryBuyCol : sigZoneDir == -1 ? entrySellCol : dashValueCol
+
+    // 7. CONFLUENCE — le score qui autorise ou refuse le signal.
+    string cfTxt = "achat " + str.tostring(smvConfBull) + "/7   ·   vente " +
+         str.tostring(smvConfSell) + "/7   (seuil " + str.tostring(smvMinConf) + ")"
+    color cfCol =
+         smvTrend == 1 and smvConfBull >= smvMinConf ? entryBuyCol :
+         smvTrend == -1 and smvConfSell >= smvMinConf ? entrySellCol :
+         dashValueCol
+
+    // 8. DÉCLENCHEUR — l'état réel du setup.
+    string trigTxt = "-"
+    color  trigCol = rangeCol
+    if not useTrigger
+        trigTxt := "désactivé — entrée au contact de l'IDM"
+        trigCol := rangeCol
+    else if entrySignalBuy
+        trigTxt := "TIRÉ — ACHAT"
+        trigCol := entryBuyCol
+    else if entrySignalSell
+        trigTxt := "TIRÉ — VENTE"
+        trigCol := entrySellCol
+    else if trigArmed
+        int trigLeft = na(armBar) ? trigMaxBars : trigMaxBars - (bar_index - armBar)
+        trigTxt := (armDir == 1 ? "ARMÉ ACHAT" : "ARMÉ VENTE") +
+             (armDeep ? " · 0.5 pris, attend le rejet" : " · attend le 0.5") +
+             "  (" + str.tostring(math.max(trigLeft, 0)) + " bougies)"
+        trigCol := armDir == 1 ? entryBuyCol : entrySellCol
+    else if trigExpired
+        trigTxt := "expiré — zone non défendue"
+        trigCol := rangeCol
+
+    // 9. Liquidité cible.
     string targetDashTxt = targetValid ?
-         str.tostring(targetLevel, format.mintick) + (na(targetProgressPct) ? "" : " (" + str.tostring(targetProgressPct, "#") + "% parcouru)") :
+         str.tostring(targetLevel, format.mintick) +
+         (na(targetProgressPct) ? "" : " (" + str.tostring(targetProgressPct, "#") + "% parcouru)") :
          "-"
     color targetDashCol = targetValid ? targetCol : rangeCol
 
+    // 10. Action.
     string actionTxt = "-"
     color actionCol = rangeCol
 
@@ -2861,8 +2843,17 @@ if showDash and barstate.islast
     else if entrySignalSell
         actionTxt := "ENTRER VENTE MAINTENANT"
         actionCol := entrySellCol
+    else if trigArmed
+        actionTxt := armDeep ? "Setup armé — attendre la bougie de rejet" :
+             "Setup armé — attendre le 0.5"
+        actionCol := armDir == 1 ? entryBuyCol : entrySellCol
+    else if not na(frozenIdx)
+        actionTxt := (frozenDir == 1 ? "Préparer ACHAT — IDM figé " : "Préparer VENTE — IDM figé ") +
+             str.tostring(frozenLvl, format.mintick)
+        actionCol := idmActiveCol
     else if idmWaitIdx != -1
-        actionTxt := (array.get(idmDir, idmWaitIdx) == 1 ? "Préparer ACHAT — retest " : "Préparer VENTE — retest ") + str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
+        actionTxt := (array.get(idmDir, idmWaitIdx) == 1 ? "Préparer ACHAT — retest " : "Préparer VENTE — retest ") +
+             str.tostring(array.get(idmLevel, idmWaitIdx), format.mintick)
         actionCol := idmActiveCol
     else if nIdm > 0
         actionTxt := "Attendre le prochain IDM"
@@ -2871,8 +2862,8 @@ if showDash and barstate.islast
     table.cell(dash, 0, 0, "SMV — MOTEUR", text_color=color.white, bgcolor=dashTitleBg, text_size=size.small)
     table.merge_cells(dash, 0, 0, 1, 0)
 
-    table.cell(dash, 0, 1, "Structure", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 1, structTxt, text_color=structColor, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 1, "Structure SMV (autorise les entrées)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 1, smvTxt, text_color=smvCol, text_size=size.small, bgcolor=dashBgCol)
 
     table.cell(dash, 0, 2, "Acheteur / Vendeur maintenant (H1)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 2, posTxt, text_color=posCol, text_size=size.small, bgcolor=dashBgCol)
@@ -2880,36 +2871,32 @@ if showDash and barstate.islast
     table.cell(dash, 0, 3, "IDM 1 (le plus récent)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
     table.cell(dash, 1, 3, idmWaitTxt, text_color=idmWaitColCell, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 4, "IDM 2 (le précédent)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 4, idmWaitTxt2, text_color=idmWaitColCell2, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 4, "IDM FIGÉ (le niveau à trader)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 4, frzTxt, text_color=frzCol, text_size=size.small, bgcolor=dashBgCol)
 
-    // IDM 3 — niveau H1 confirmé par le M15 et le M5.
-    string idm3Txt = na(projLvl) ? "-" :
-         (projDirV == 1 ? "IDBL " : "IDBR ") + str.tostring(projLvl, format.mintick) +
-         "  (" + str.tostring(projAgree) + "/3)"
-    color idm3Cell = na(projLvl) ? dashValueCol : projIdmCol
-    table.cell(dash, 0, 5, "IDM 3 (H1 + M15 + M5)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 5, idm3Txt, text_color=idm3Cell, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 5, "Le 0.5 (Premium / Discount)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 5, fibTxt, text_color=fibCol, text_size=size.small, bgcolor=dashBgCol)
 
-    // IDM 4 — toujours situé entre l'IDM 1 et l'IDM 2.
-    string idm4Txt = na(idm4Lvl) ? "-" :
-         (idm4DirV == 1 ? "IDBL " : "IDBR ") + str.tostring(idm4Lvl, format.mintick) +
-         "  (" + idm4Base + ")"
-    color idm4Cell = na(idm4Lvl) ? dashValueCol : idm4Col
-    table.cell(dash, 0, 6, "IDM 4 (entre le 1 et le 2)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 6, idm4Txt, text_color=idm4Cell, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 6, "Signature (mèche qui prend l'argent)", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 6, sigTxt, text_color=sigCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 7, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 7, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
-
-    // Confirmation par la zone : le prix est-il actuellement DANS un
-    // Order Block ou une zone Supply/Demand de ce timeframe ?
+    // Le prix est-il actuellement DANS un Order Block ou une zone
+    // Supply/Demand de ce timeframe ?
     color zoneNowCol = zoneNowDir == 1 ? entryBuyCol : zoneNowDir == -1 ? entrySellCol : dashValueCol
-    table.cell(dash, 0, 8, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 8, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 7, "Zone OB / Supply-Demand", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 7, zoneNowTxt, text_color=zoneNowCol, text_size=size.small, bgcolor=dashBgCol)
 
-    table.cell(dash, 0, 9, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
-    table.cell(dash, 1, 9, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 0, 8, "Confluence", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 8, cfTxt, text_color=cfCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 9, "Déclencheur", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 9, trigTxt, text_color=trigCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 10, "Liquidité cible", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 10, targetDashTxt, text_color=targetDashCol, text_size=size.small, bgcolor=dashBgCol)
+
+    table.cell(dash, 0, 11, "Action", text_color=dashLabelCol, text_size=size.small, bgcolor=dashBgCol)
+    table.cell(dash, 1, 11, actionTxt, text_color=actionCol, text_size=size.small, bgcolor=dashBgCol)
 
 
 //=====================================================================
@@ -3372,7 +3359,7 @@ setupName(int sid) =>
 //  INPUTS
 // ═════════════════════════════════════════════════════════════════════
 
-var string GS = "16. GBB — Setups"
+var string GS = "19. GBB — Setups"
 bool useVwap  = input.bool(true,  "VWAP reclaim",         group = GS)
 bool useEma   = input.bool(true,  "EMA pullback (9/21)",  group = GS)
 bool useBrt   = input.bool(true,  "Break and retest",     group = GS)
@@ -3380,7 +3367,7 @@ bool useSweep = input.bool(true,  "Liquidity sweep",      group = GS)
 bool useDiv   = input.bool(true,  "RSI divergence",       group = GS)
 bool useOrb   = input.bool(true,  "Opening range break",  group = GS)
 
-var string GT = "17. GBB — Trade plan"
+var string GT = "20. GBB — Plan de trade"
 float stopAtr  = input.float(1.2, "Stop distance (ATR)",  minval = 0.2, step = 0.1, group = GT)
 float r1       = input.float(1.0, "TP1 (R)",              minval = 0.2, step = 0.1, group = GT)
 float r2       = input.float(2.0, "TP2 (R)",              minval = 0.2, step = 0.1, group = GT)
@@ -3394,25 +3381,25 @@ int   reentry  = input.int(0,     "Re-entry cooldown (bars)", minval = 0, group 
 bool  oneWay   = input.bool(true, "Block opposite-direction entries", group = GT,
      tooltip = "While a long is open, ignore short signals and vice versa.")
 
-var string GF = "18. GBB — Filters"
+var string GF = "21. GBB — Filtres"
 int   atrLen   = input.int(14,   "ATR length",             minval = 2,  group = GF)
 float volMult  = input.float(1.0,"Volume must exceed x SMA20", minval = 0, step = 0.1, group = GF)
 int   pvLen    = input.int(5,    "Swing pivot length",     minval = 2,  group = GF)
 
-var string GD = "19. GBB — Display"
+var string GD = "22. GBB — Affichage"
 bool  showZones = input.bool(true,  "Draw trade zones",    group = GD)
 int   zoneLen   = input.int(6,      "Project zone N bars ahead", minval = 1, group = GD,
      tooltip = "An open trade's zone extends from entry to the current bar, plus this much " +
                "projection. It stops growing when the trade resolves.")
 int   keepTrades= input.int(8,      "Keep last N drawings",minval = 1, maxval = 40, group = GD)
 
-var string GO = "20. GBB — Opening range"
+var string GO = "23. GBB — Opening range"
 string orSess   = input.session("0930-1600", "Session",     group = GO)
 string orTz     = input.string("America/New_York", "Timezone", group = GO,
      tooltip = "Use UTC for 24h crypto and set the session to your chosen anchor.")
 int    orMin    = input.int(15, "Range length (minutes)", minval = 1, group = GO)
 
-var string GX = "21. GBB — Setup tuning"
+var string GX = "24. GBB — Réglage fin des setups"
 int   vwapAway  = input.int(6,    "VWAP: min bars below before reclaim", minval = 1, group = GX)
 int   emaWindow = input.int(3,    "EMA: bars since touch",   minval = 1, group = GX)
 float brtTol    = input.float(0.3,"Retest tolerance (ATR)",  minval = 0.05, step = 0.05, group = GX)
@@ -3439,7 +3426,7 @@ bool showTpLabels = input.bool(false, "Also label TP1 / TP2 on the bar", group =
      tooltip = "Off: a filled target promotes its ladder line to solid instead. " +
                "On: adds a text tag at the hit bar, which will overlap candles on a dense chart.")
 
-var string GL = "22. GBB — Live trade appearance"
+var string GL = "25. GBB — Trade en cours"
 string liveLbl   = input.string("Small", "Signal label size",
      options = ["Tiny","Small","Normal","Large"], group = GL)
 int    liveWidth = input.int(2, "Zone border width", minval = 1, maxval = 4, group = GL)
@@ -3447,7 +3434,7 @@ int    liveFill  = input.int(16, "Risk zone fill strength", minval = 0, maxval =
      tooltip = "Higher fills the risk box more solidly. The reward box is kept lighter " +
                "so the two never compete.")
 
-var string GK = "23. GBB — Closed trade appearance"
+var string GK = "26. GBB — Trade clôturé"
 bool   dimClosed  = input.bool(true, "Fade closed trades", group = GK)
 int    closedFade = input.int(55, "Fade strength", minval = 0, maxval = 95, group = GK,
      tooltip = "0 leaves resolved trades as bright as the live one. 95 makes them nearly invisible. " +
@@ -4220,7 +4207,6 @@ alertcondition(obJustBroke, "OB cassé → Breaker Block", "SMV : un Order Block
 alertcondition(fvgFilledNow, "Imbalance en cours de comblement", "SMV : le prix est en train de combler une imbalance (FVG)")
 alertcondition(sdTouched, "Zone Supply/Demand touchée", "SMV : le prix vient d'entrer dans une zone Supply/Demand — observe la réaction")
 alertcondition(projHit, "IDM 3 (H1) atteint", "SMV : le prix vient d'atteindre l'IDM 3 — niveau H1 confirmé par le M15 et le M5")
-alertcondition(idm4Hit, "IDM 4 atteint", "SMV : le prix vient d'atteindre l'IDM 4, situé entre l'IDM 1 et l'IDM 2")
 alertcondition(trTp1Hit, "TP1 atteint", "SMV : TP1 atteint — pense à sécuriser une partie de la position")
 alertcondition(trTp3Hit, "TP3 atteint", "SMV : TP3 atteint — objectif final touché, le trade est clôturé")
 alertcondition(trStopHit, "Stop touché", "SMV : le stop vient d'être touché — le setup est invalidé")
