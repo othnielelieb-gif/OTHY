@@ -1347,12 +1347,18 @@ if newIDM
                 box.set_bgcolor(sz3, color.new(fsCol, 94))
                 box.set_text(sz3, "")
         else
+            // Suppression + remise a na des trois slots : un identifiant
+            // detruit laisse dans le tableau fait planter toute
+            // relecture ulterieure.
             if not na(ln3)
                 line.delete(ln3)
+                array.set(idmLine, n - 3, na)
             if not na(lb3)
                 label.delete(lb3)
+                array.set(idmLbl, n - 3, na)
             if not na(sz3)
                 box.delete(sz3)
+                array.set(sniperZoneA, n - 3, na)
 
 
 // Prolongation des DEUX plus récents tant qu'ils ne sont pas recouverts.
@@ -1393,7 +1399,9 @@ if nNow > 1
 //=====================================================================
 bool inSniperNow = false
 
-if nNow > 0
+// Garde supplementaire `not idmDone` : un IDM deja recupere a vu sa
+// Sniper Zone supprimee. On ne relit jamais la boite d'un IDM inactif.
+if nNow > 0 and not array.get(idmDone, nNow - 1)
     box topSniperA = array.get(sniperZoneA, nNow - 1)
     if not na(topSniperA)
         float tsTop = box.get_top(topSniperA)
@@ -1492,9 +1500,18 @@ if array.size(idmLevel) > 0
 
                 // Sniper Zone : dès que le prix part RÉELLEMENT pour le
                 // mouvement, on la supprime immédiatement.
+                //
+                // ET ON REMET LE SLOT À na. C'est OBLIGATOIRE : après
+                // box.delete(), la case du tableau contient encore
+                // l'identifiant d'un objet qui n'existe plus. Toute
+                // relecture ultérieure (box.get_top, box.set_right...)
+                // déclenche une erreur d'exécution, et TradingView efface
+                // alors TOUT le dessin de l'indicateur.
                 box szr = array.get(sniperZoneA, i)
-                if not na(szr)
+                bool szrWasDrawn = not na(szr)
+                if szrWasDrawn
                     box.delete(szr)
+                    array.set(sniperZoneA, i, na)
 
                 // LA SIGNATURE — la bougie qui prend l'argent (module 17)
                 //
@@ -1516,7 +1533,7 @@ if array.size(idmLevel) > 0
                 // Le corps sert de borne intérieure quand il est déjà du
                 // bon côté : on garde la mèche seule, pas la bougie
                 // entière, parce que c'est la mèche qui a pris l'argent.
-                if showSniperRefine and isTopTwo and not blockedByChoch and not na(szr)
+                if showSniperRefine and isTopTwo and not blockedByChoch and szrWasDrawn
                     float sigPad = atrReady ? atrFast * sigPadAtr : 0.0
                     float sigTop = na
                     float sigBot = na
@@ -1550,10 +1567,16 @@ if array.size(idmLevel) > 0
                 label lbr = array.get(idmLbl, i)
 
                 if isTopTwo and not blockedByChoch
+                    // Même règle que pour la Sniper Zone : on supprime,
+                    // ET on remet le slot à na. Sans ça le tableau garde
+                    // l'identifiant d'un trait détruit, et la moindre
+                    // relecture fait planter le script.
                     if not na(lnr)
                         line.delete(lnr)
+                        array.set(idmLine, i, na)
                     if not na(lbr)
                         label.delete(lbr)
+                        array.set(idmLbl, i, na)
 
                     entryIdmLvl := lvl
                     // Le balayage de l'IDM ARME le setup. Il ne l'ouvre
