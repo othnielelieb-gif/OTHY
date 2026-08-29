@@ -115,11 +115,43 @@ bmsLineStyle = f_getLineStyle(bmsLineStyleOption)
 currentStructLineStyle = f_getLineStyle(currentStructLineStyleOption)
 
 // Bar du plus haut / plus bas significatif sur les 10 dernières bougies
-// (sert à replacer bosHigh/bosLow après une cassure) — porté tel quel
-// depuis get_structure_highest_bar/get_structure_lowest_bar.
+// (sert à replacer bosHigh/bosLow après une cassure).
+//
+// ATTENTION — LA BOMBE À RETARDEMENT QUI EFFAÇAIT L'INDICATEUR
+//
+// La version d'origine écrivait :
+//
+//   bar_index > lookback ? ta.highestbars(high, lookback)
+//                        : ta.highestbars(high, bar_index + 1)
+//
+// L'intention était bonne : sur les toutes premières bougies il n'y a
+// pas encore 10 bougies d'historique, donc on réduisait la fenêtre.
+//
+// Le piège : Pine évalue les DEUX branches d'un ternaire dès qu'elles
+// contiennent une fonction ta.*, parce que ces fonctions doivent tenir
+// leur état à chaque bougie. La branche `ta.highestbars(high,
+// bar_index + 1)` était donc exécutée sur TOUTES les bougies, avec une
+// longueur qui grandit d'une unité à chaque nouvelle bougie.
+//
+// À la bougie 1366, elle réclame un décalage de 1367. Aucun buffer fixe
+// ne peut suivre une demande qui grandit indéfiniment : Pine agrandit,
+// réessaie, agrandit encore, puis abandonne —
+//
+//   « The requested historical offset (1367) is beyond the historical
+//     buffer limit (1366) »
+//
+// — et TradingView efface tout le dessin. D'où l'indicateur qui
+// disparaît au fur et à mesure que le graphique avance, et jamais tout
+// de suite.
+//
+// LA CORRECTION : une seule fonction, appelée une seule fois, avec une
+// longueur BORNÉE par lookback. math.min gère les premières bougies
+// exactement comme avant, mais la longueur ne dépasse jamais 10 — Pine
+// dimensionne donc son buffer à 10 et n'en sort plus jamais.
 f_structHighestBar(int lookback) =>
     int idx = 0
-    int maxBar = bar_index > lookback ? ta.highestbars(high, lookback) : ta.highestbars(high, bar_index + 1)
+    int len = math.max(1, math.min(lookback, bar_index + 1))
+    int maxBar = nz(ta.highestbars(high, len))
     for i = 0 to lookback - 1
         if high[i+1] > high[i+2] and high[i] <= high[i+1] and ((i+1) * -1) >= maxBar
             idx := (i+1) * -1
@@ -128,7 +160,8 @@ f_structHighestBar(int lookback) =>
 
 f_structLowestBar(int lookback) =>
     int idx = 0
-    int minBar = bar_index > lookback ? ta.lowestbars(low, lookback) : ta.lowestbars(low, bar_index + 1)
+    int len = math.max(1, math.min(lookback, bar_index + 1))
+    int minBar = nz(ta.lowestbars(low, len))
     for i = 0 to lookback - 1
         if low[i+1] < low[i+2] and low[i] >= low[i+1] and ((i+1) * -1) >= minBar
             idx := (i+1) * -1
@@ -3407,7 +3440,10 @@ bool  oneWay   = input.bool(true, "Block opposite-direction entries", group = GT
 var string GF = "21. GBB — Filtres"
 int   atrLen   = input.int(14,   "ATR length",             minval = 2,  group = GF)
 float volMult  = input.float(1.0,"Volume must exceed x SMA20", minval = 0, step = 0.1, group = GF)
-int   pvLen    = input.int(5,    "Swing pivot length",     minval = 2,  group = GF)
+// maxval BORNÉ volontairement : pvLen sert d'index d'historique
+// (rsiV[pvLen]). Sans plafond, une valeur saisie au-delà de
+// max_bars_back ferait planter le script et effacerait tout le dessin.
+int   pvLen    = input.int(5,    "Swing pivot length",     minval = 2, maxval = 100, group = GF)
 
 var string GD = "22. GBB — Affichage"
 bool  showZones = input.bool(true,  "Draw trade zones",    group = GD)
