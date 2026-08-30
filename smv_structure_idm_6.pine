@@ -1093,19 +1093,31 @@ var label[] intactHighLbls  = array.new_label()
 var line[]  intactLowLines  = array.new_line()
 var label[] intactLowLbls   = array.new_label()
 
-if array.size(intactHighLines) > 0
-    for idx = array.size(intactHighLines) - 1 to 0
-        line.delete(array.get(intactHighLines, idx))
-        label.delete(array.get(intactHighLbls, idx))
-    array.clear(intactHighLines)
-    array.clear(intactHighLbls)
-
-if array.size(intactLowLines) > 0
-    for idx = array.size(intactLowLines) - 1 to 0
-        line.delete(array.get(intactLowLines, idx))
-        label.delete(array.get(intactLowLbls, idx))
-    array.clear(intactLowLines)
-    array.clear(intactLowLbls)
+// PURGE INDEPENDANTE PAR TABLEAU — obligatoire.
+//
+// C'est la cause de "RE10045 : Index 0 is out of bounds, array size
+// is 0".
+//
+// Depuis l'anti-encombrement, les lignes et les etiquettes ne sont
+// PLUS poussees en meme temps :
+//   la ligne     n'est creee que si  not f_zoneFar(...)
+//   l'etiquette  n'est creee que si  lblAll
+// Les deux tableaux n'ont donc plus la meme taille. En mode
+// d'etiquettes "Essentiel" (le defaut), intactHighLbls est VIDE alors
+// que intactHighLines est plein : boucler sur la taille de l'un pour
+// lire l'autre avec le meme index sort du tableau et efface tout le
+// dessin.
+//
+// Chaque tableau se vide donc avec sa PROPRE boucle, sans jamais
+// partager d'index.
+while array.size(intactHighLines) > 0
+    line.delete(array.pop(intactHighLines))
+while array.size(intactHighLbls) > 0
+    label.delete(array.pop(intactHighLbls))
+while array.size(intactLowLines) > 0
+    line.delete(array.pop(intactLowLines))
+while array.size(intactLowLbls) > 0
+    label.delete(array.pop(intactLowLbls))
 
 if showIntact and okIntact
     if array.size(intactHighLevels) > 0
