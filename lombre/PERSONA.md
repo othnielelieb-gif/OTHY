@@ -163,12 +163,11 @@ dans `lombre/reference/` (`ombre_dos_banque.jpg`, `ombre_pose_reflexion.jpg`,
 **Image de référence maîtresse (validée explicitement par l'utilisateur —
 "je veux la même chose")** : `ombre_coffre_cat_cash.jpg`. L'Ombre debout dans
 un coffre-fort dévalisé, doigt sur le menton en pose de réflexion, entourée de
-piles de billets étiquetées **"CAT-CASH"**, porte de coffre dorée massive à
-grande roue de verrouillage en arrière-plan, mur de petits casiers/tiroirs
-dorés type coffres bancaires. Cette image fixe la proportion exacte du
-personnage (tête large ovale, grands yeux blancs très écartés, corps svelte,
-jambes fines, posture cambrée élégante) — s'y référer en priorité pour toute
-génération.
+piles de billets, porte de coffre dorée massive à grande roue de verrouillage
+en arrière-plan, mur de petits casiers/tiroirs dorés type coffres bancaires.
+Cette image fixe la proportion exacte du personnage (tête large ovale, grands
+yeux blancs très écartés, corps svelte, jambes fines, posture cambrée
+élégante) — s'y référer en priorité pour toute génération.
 
 **Personnage**
 - Chat noir anthropomorphe, silhouette élancée façon dessin animé vintage
@@ -210,9 +209,6 @@ génération.
   ("Executive Console / System Dashboard"), immeuble de rapport locatif,
   personnages secondaires ponctuels (ex. chien locataire) pour des scènes
   d'interaction.
-- **"CAT-CASH"** : étiquette/marque récurrente à faire apparaître sur les
-  liasses et piles de billets dans les scènes d'argent (bandes de billets
-  timbrées "CAT-CASH").
 - Sous-titres brûlés à l'écran : texte blanc gras, fond noir semi-opaque,
   centré bas de plan.
 
