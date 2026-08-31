@@ -112,3 +112,32 @@ Tout script futur doit suivre cette structure exacte, seul le concept change.
 >
 > Si vous voulez arrêter de subir et cloner sa stratégie, commentez simplement
 > le mot "LBR", et L'Ombre va vous envoyer sa feuille de route en DM. »
+
+## Workflow standard — chaque demande de script
+
+Dès que l'utilisateur demande un ou plusieurs scripts (sans autre précision),
+appliquer systématiquement ce protocole :
+
+1. **Trouver le/les concept(s) moi-même** — dans la niche finance/argent/actifs
+   digitaux, angle "épargne classique = illusion", en s'inspirant du script
+   étalon (crédit lombard). Ne pas demander à l'utilisateur de fournir l'idée
+   sauf s'il en donne une lui-même.
+2. **Respecter le moule à 5 actes** défini plus haut (hook interdit → constat
+   chiffré → la règle → twist logique → résolution + CTA `LBR`).
+3. **Livrer en tableau, découpé par tranche de 2 secondes**, avec colonnes :
+   `Timing | Voix off | Visuel écran | Prompt image (Nano Banana Pro)`.
+   Une ligne = un plan = 2 secondes fixes.
+4. **Chaque plan visuel doit avoir un prompt image prêt à copier-coller**,
+   pensé pour Nano Banana Pro (système de référence `@image1`/`@image2`),
+   mettant en scène **le même avatar cartoon** (référence fournie par
+   l'utilisateur) pour garantir la cohérence du personnage sur tous les plans.
+5. **Générer directement les images quand c'est possible** (outils dispo :
+   Higgsfield, Alexya AI, Magnific) plutôt que de se limiter au prompt texte,
+   sauf si l'utilisateur précise qu'il veut juste les prompts.
+6. Toujours fournir en plus le **script intégral de la voix off** (texte
+   continu, sans découpage) sous le tableau, pour la lecture/l'enregistrement.
+
+### Référence personnage (avatar cartoon de L'Ombre)
+_En attente de l'image de référence de l'utilisateur. Une fois reçue, la
+décrire ici (traits, tenue, palette, capuche/cagoule, ambiance) pour que tout
+prompt image généré par la suite reste cohérent avec cette référence._
