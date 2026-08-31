@@ -81,13 +81,24 @@ Tout script futur doit suivre cette structure exacte, seul le concept change.
 
 ### Grammaire visuelle (alternance des plans)
 
+- **RÈGLE PRIORITAIRE — L'Ombre doit figurer dans quasi tous les plans.**
+  Elle n'est plus réservée aux plans "personnage" : même les plans qui
+  illustrent un concept abstrait (graphique, coffre, flèche, texte) doivent,
+  autant que possible, montrer L'Ombre en train d'interagir avec cet élément
+  (elle regarde le graphique, elle ouvre le coffre, elle pointe le texte,
+  elle est debout au milieu des billets) plutôt qu'un plan d'objet seul sans
+  personnage. Un plan 100% objet/texte sans L'Ombre reste possible mais doit
+  rester l'exception (idéalement pas plus de 3-4 plans sur 23).
 - **Plans "personnage"** : L'Ombre de dos/silhouette, cagoule, cape, marche au
   ralenti, mains, regard caméra — ancrent le mystère et l'incarnation.
-- **Plans "concept"** : graphiques neon, texte en métal liquide/chromé, icônes
-  3D (diamant, cadenas, jauge), notifications de paiement, code Matrix —
-  illustrent l'idée abstraite du moment.
-- Alterner strictement personnage / concept à chaque plan pour garder le rythme
-  micro-cutting lisible.
+- **Plans "concept + personnage"** (à privilégier) : L'Ombre intégrée dans la
+  scène qui illustre l'idée — ex. debout devant le graphique néon, la main sur
+  le coffre-fort, en train de compter les billets, assise sur la pile d'or.
+- **Plans "concept pur"** (exception) : uniquement quand un gros plan objet/texte
+  sans personnage sert mieux le rythme (ex. le mot-clé final "LBR" en gros plan).
+- Garder le rythme micro-cutting en variant les cadrages (plan large, plan
+  serré, plan objet+personnage) plutôt qu'en sacrifiant la présence du
+  personnage.
 
 ### Script étalon complet (référence verbatim)
 
@@ -131,6 +142,9 @@ appliquer systématiquement ce protocole :
    pensé pour Nano Banana Pro (système de référence `@image1`/`@image2`),
    mettant en scène **le même avatar cartoon** (référence fournie par
    l'utilisateur) pour garantir la cohérence du personnage sur tous les plans.
+   **L'Ombre doit apparaître dans le prompt de quasi chaque plan** (voir règle
+   prioritaire dans "Grammaire visuelle" ci-dessous) — ne pas la réserver aux
+   seuls plans "personnage".
 5. **Générer directement les images quand c'est possible** (outils dispo :
    Higgsfield, Alexya AI, Magnific) plutôt que de se limiter au prompt texte,
    sauf si l'utilisateur précise qu'il veut juste les prompts.
@@ -141,9 +155,20 @@ appliquer systématiquement ce protocole :
 
 ### Référence personnage (avatar cartoon de L'Ombre) — VALIDÉ
 
-Source : vidéo de référence fournie par l'utilisateur (71s, extraits analysés).
-Images clés sauvegardées dans `lombre/reference/` (`ombre_dos_banque.jpg`,
-`ombre_pose_reflexion.jpg`, `ombre_scene_immeuble.jpg`).
+Source : vidéo de référence fournie par l'utilisateur (71s, extraits analysés)
++ image de référence supplémentaire (coffre-fort). Images clés sauvegardées
+dans `lombre/reference/` (`ombre_dos_banque.jpg`, `ombre_pose_reflexion.jpg`,
+`ombre_scene_immeuble.jpg`, `ombre_coffre_cat_cash.jpg`).
+
+**Image de référence maîtresse (validée explicitement par l'utilisateur —
+"je veux la même chose")** : `ombre_coffre_cat_cash.jpg`. L'Ombre debout dans
+un coffre-fort dévalisé, doigt sur le menton en pose de réflexion, entourée de
+piles de billets étiquetées **"CAT-CASH"**, porte de coffre dorée massive à
+grande roue de verrouillage en arrière-plan, mur de petits casiers/tiroirs
+dorés type coffres bancaires. Cette image fixe la proportion exacte du
+personnage (tête large ovale, grands yeux blancs très écartés, corps svelte,
+jambes fines, posture cambrée élégante) — s'y référer en priorité pour toute
+génération.
 
 **Personnage**
 - Chat noir anthropomorphe, silhouette élancée façon dessin animé vintage
@@ -180,10 +205,14 @@ Images clés sauvegardées dans `lombre/reference/` (`ombre_dos_banque.jpg`,
 - **"Banque de L'Ombre — EST. 1931"** : façade à colonnes de marbre,
   logo = tête de chat stylisée dans un médaillon doré. Décor signature pour
   les scènes d'ouverture/institutionnelles.
-- Coffre-fort ("STEEL-CLAD SAFES"), laptop exécutif noir et or
+- Coffre-fort ("STEEL-CLAD SAFES" ou grande porte dorée à roue de
+  verrouillage + mur de petits casiers dorés), laptop exécutif noir et or
   ("Executive Console / System Dashboard"), immeuble de rapport locatif,
   personnages secondaires ponctuels (ex. chien locataire) pour des scènes
   d'interaction.
+- **"CAT-CASH"** : étiquette/marque récurrente à faire apparaître sur les
+  liasses et piles de billets dans les scènes d'argent (bandes de billets
+  timbrées "CAT-CASH").
 - Sous-titres brûlés à l'écran : texte blanc gras, fond noir semi-opaque,
   centré bas de plan.
 
@@ -205,3 +234,7 @@ elegant theatrical posture, luxury mysterious atmosphere
 doit démarrer par le bloc "mots-clés prompt" ci-dessus (identité du
 personnage + style), puis ajouter la pose/l'action/le décor spécifiques au
 plan, puis le registre couleur (clair ou sombre) adapté au ton du plan.
+**Par défaut, L'Ombre doit être physiquement présente et active dans la
+scène décrite** (elle regarde/touche/manipule l'élément-concept du plan),
+même sur les plans qui illustrent une idée abstraite — voir règle
+prioritaire dans "Grammaire visuelle".
