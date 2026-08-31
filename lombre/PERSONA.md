@@ -135,7 +135,9 @@ appliquer systématiquement ce protocole :
    Higgsfield, Alexya AI, Magnific) plutôt que de se limiter au prompt texte,
    sauf si l'utilisateur précise qu'il veut juste les prompts.
 6. Toujours fournir en plus le **script intégral de la voix off** (texte
-   continu, sans découpage) sous le tableau, pour la lecture/l'enregistrement.
+   continu, sans découpage), **dans le corps de la réponse** juste avant ou
+   après le tableau — jamais uniquement en pièce jointe/fichier, pour que
+   l'utilisateur l'ait sous les yeux directement dans le chat.
 
 ### Référence personnage (avatar cartoon de L'Ombre) — VALIDÉ
 
