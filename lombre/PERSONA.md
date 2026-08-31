@@ -100,6 +100,33 @@ Tout script futur doit suivre cette structure exacte, seul le concept change.
   serré, plan objet+personnage) plutôt qu'en sacrifiant la présence du
   personnage.
 
+### Expression et gestuelle (obligatoire dans chaque prompt)
+
+Un pose générique ("standing", "looking at camera") ne suffit jamais. Chaque
+prompt qui inclut L'Ombre doit préciser, en fonction de l'émotion de la ligne
+de voix off à ce moment précis :
+- **Les yeux** : plissés (focus/mépris/malice), grands ouverts (surprise/
+  délice théâtral), mi-clos (satisfaction/supériorité calme), regard fixé sur
+  un point précis de la scène (jamais un regard vague).
+- **La bouche** : sourire en coin (assurance, ironie), sourire large et
+  malicieux (fierté, révélation), ligne droite sérieuse (autorité, gravité),
+  moue/frown (mépris, dédain).
+- **Les oreilles et la queue** : dressées et pointées en avant (attention,
+  alerte), plaquées puis redressées (sursaut), immobile et droite (calme
+  contrôlé), qui fouette (effort, irritation) — ce sont les marqueurs
+  d'émotion clés d'un personnage cartoon sans sourcils.
+- **Le geste précis des mains gantées** : doigt qui pointe/tape/gratte,
+  main posée à plat sur un objet, poing qui se referme, main tendue paume
+  ouverte, main sur la hanche, bras croisés serrés — jamais juste "gesturing".
+- **La posture du corps** : penché en avant (intérêt/menace douce), redressé
+  et cambré (fierté/domination), figé à mi-mouvement (surprise/arrêt net),
+  poids sur une jambe (nonchalance).
+
+Ces détails doivent coller à l'émotion de la phrase du plan (ironie sur un
+constat, autorité sur une règle, délice sur une révélation, mépris sur
+l'échec des autres, invitation chaleureuse sur le CTA) — jamais une
+expression neutre par défaut.
+
 ### Script étalon complet (référence verbatim)
 
 > « Pourquoi L'Ombre refuse-t-elle de vendre ses investissements pour financer
