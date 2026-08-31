@@ -137,7 +137,69 @@ appliquer systématiquement ce protocole :
 6. Toujours fournir en plus le **script intégral de la voix off** (texte
    continu, sans découpage) sous le tableau, pour la lecture/l'enregistrement.
 
-### Référence personnage (avatar cartoon de L'Ombre)
-_En attente de l'image de référence de l'utilisateur. Une fois reçue, la
-décrire ici (traits, tenue, palette, capuche/cagoule, ambiance) pour que tout
-prompt image généré par la suite reste cohérent avec cette référence._
+### Référence personnage (avatar cartoon de L'Ombre) — VALIDÉ
+
+Source : vidéo de référence fournie par l'utilisateur (71s, extraits analysés).
+Images clés sauvegardées dans `lombre/reference/` (`ombre_dos_banque.jpg`,
+`ombre_pose_reflexion.jpg`, `ombre_scene_immeuble.jpg`).
+
+**Personnage**
+- Chat noir anthropomorphe, silhouette élancée façon dessin animé vintage
+  ("rubber-hose", esprit Cuphead / cartoons Fleischer 1930s revisités).
+- Corps 100% noir mat (silhouette pleine), grandes oreilles pointues
+  triangulaires, moustaches fines, grands yeux ronds très expressifs
+  (blancs avec pupilles noires), petit nez rose, queue longue et fine.
+- **Tenue** : smoking noir strict, nœud papillon blanc, **gants blancs**
+  façon Mickey Mouse (toujours visibles, mains gantées), chaussures noires
+  arrondies.
+- **Attitude** : posture élégante et théâtrale — mains dans le dos, doigt
+  sur le menton en réflexion, marche assurée, jamais de visage montré à la
+  caméra de face prolongée (dos, silhouette, ou expression cartoon stylisée).
+- Peut apparaître de dos (silhouette pure) ou de profil/face en version
+  cartoon pleinement dessinée selon le plan.
+
+**Style graphique**
+- Ligne épaisse et propre, aplats de couleur (cel-shading plat), pas de
+  texture réaliste — 100% cartoon vectoriel.
+- Univers "luxe feutré + mystère" : colonnes de marbre, banques, penthouses,
+  bureaux exécutifs.
+
+**Palette / ambiance (2 registres qui alternent)**
+1. **Registre clair** — fond beige/crème chaud (`#E8D9B5` environ), utilisé
+   pour les scènes "concept" et explicatives (graphiques, réflexion).
+2. **Registre sombre** — noir/anthracite profond avec éclairages ponctuels
+   dorés ou verts, utilisé pour les scènes "pouvoir/secret" (coffre-fort,
+   code Matrix, décisions stratégiques).
+- **Accents couleur récurrents** : vert néon (graphiques boursiers, code
+  Matrix), or/doré (couronne, liseré laptop, éléments de luxe), rouge
+  (rare, pour les alertes/pertes uniquement).
+
+**Univers narratif / props récurrents**
+- **"Banque de L'Ombre — EST. 1931"** : façade à colonnes de marbre,
+  logo = tête de chat stylisée dans un médaillon doré. Décor signature pour
+  les scènes d'ouverture/institutionnelles.
+- Coffre-fort ("STEEL-CLAD SAFES"), laptop exécutif noir et or
+  ("Executive Console / System Dashboard"), immeuble de rapport locatif,
+  personnages secondaires ponctuels (ex. chien locataire) pour des scènes
+  d'interaction.
+- Sous-titres brûlés à l'écran : texte blanc gras, fond noir semi-opaque,
+  centré bas de plan.
+
+**Mots-clés prompt (à réutiliser tel quel dans les prompts image)**
+```
+anthropomorphic black cat character, vintage rubber-hose cartoon style
+(1930s Fleischer / Cuphead-inspired), thick clean vector linework, flat
+cel-shading, solid black fur silhouette, large round expressive eyes,
+triangular ears, thin whiskers, pink nose, long thin tail, wearing a sharp
+black tuxedo with white bow tie and white Mickey-Mouse-style gloves,
+elegant theatrical posture, luxury mysterious atmosphere
+```
+- Registre clair : ajouter `warm cream/beige flat background (#E8D9B5),
+  minimalist, soft cartoon lighting`
+- Registre sombre : ajouter `deep black/anthracite background, dramatic
+  spotlight, gold or neon-green accent lighting, moody luxury atmosphere`
+
+**Règle de cohérence** : tout prompt Nano Banana Pro généré pour un plan
+doit démarrer par le bloc "mots-clés prompt" ci-dessus (identité du
+personnage + style), puis ajouter la pose/l'action/le décor spécifiques au
+plan, puis le registre couleur (clair ou sombre) adapté au ton du plan.
