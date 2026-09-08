@@ -556,6 +556,75 @@ minSampl = input.int(10, "Griser en dessous de N trades", minval=1, maxval=100, 
      tooltip="Un pourcentage calculé sur 3 trades ne veut rien dire. En dessous de ce seuil, les chiffres restent affichés mais grisés pour te rappeler qu'ils ne sont pas encore exploitables.")
 
 //=====================================================================
+// 27. CONFORMITÉ SPEC AGENT SMV v2.0
+//
+// Ce groupe encode, une par une, les règles chiffrées de ta spécification
+// « SPÉCIFICATION AGENT DE TRADING SMV v2.0 ». Chaque réglage porte le
+// numéro de la section dont il vient, pour que tu puisses vérifier
+// l'indicateur contre le document sans deviner.
+//
+// Rien ici ne remplace le moteur existant : ces règles s'ajoutent
+// par-dessus, et chacune se décoche séparément.
+//=====================================================================
+gV2 = "27. Conformité SPEC v2.0"
+
+v2ShowPanel = input.bool(true, "Afficher le panneau SPEC v2.0 (état + checklist)", group=gV2,
+     tooltip="Panneau séparé du dashboard principal : machine à états (§15), checklist d'entrée (§11.3) et compteurs journaliers (§17).")
+v2PanelPos = input.string("En haut à droite", "Position du panneau",
+     options=["En haut à droite", "En haut à gauche", "Au milieu à gauche", "En bas à gauche"], group=gV2)
+
+// ── §7.1 Détection de structure ──────────────────────────────────────
+v2AmpAtr = input.float(0.75, "§7.1 Amplitude minimale d'une structure (x ATR 14)", minval=0.0, maxval=3.0, step=0.05, group=gV2,
+     tooltip="Spec §7.1 : un swing dont l'amplitude est inférieure à 0,75 x ATR(14) est du bruit, pas une structure. Ici c'est un VOYANT (le panneau dit si le mouvement en cours est assez ample), jamais un blocage — bloquer la création d'IDM t'avait déjà coûté tous tes IDM.")
+
+// ── §9.4 Alignement EQH / EQL ────────────────────────────────────────
+v2EqTolAtr = input.float(0.15, "§9.4 Tolérance d'alignement EQH / EQL (x ATR 14)", minval=0.01, maxval=1.0, step=0.01, group=gV2,
+     tooltip="Spec §9.4 : deux sommets (ou deux creux) séparés de moins de 0,15 x ATR(14) sont considérés comme ÉGAUX. C'est une poche de liquidité double, la cible préférée du marché.")
+
+// ── §10.3 La zone interdite ──────────────────────────────────────────
+v2ShowForbidden = input.bool(true, "§10.3 Afficher la ZONE INTERDITE (entre le BMS et la liquidation de l'IDM)", group=gV2,
+     tooltip="Spec §10.3, mot pour mot : « Entre le BMS et la liquidation de l'inducement, toute intervention est proscrite. Le trader qui intervient dans cette zone a 100 % de chances d'être liquidé, parce que le marché doit d'abord aller chercher ce niveau avant de poursuivre. »\n\nLe rectangle rouge hachuré couvre exactement cette zone : de l'IDM jusqu'à l'extrême du mouvement. Tant qu'il est affiché, tu n'entres pas.")
+v2ForbiddenCol = input.color(#e53935, "§10.3 Couleur de la zone interdite", group=gV2)
+
+// ── §10.5 Expiration de l'inducement ─────────────────────────────────
+v2UseExpiry = input.bool(true, "§10.5 Expirer un IDM non liquidé", group=gV2,
+     tooltip="Spec §10.5 : un niveau d'inducement non liquidé est retiré de la liste active après 30 bougies (≈ 1,5 jour de trading en H1). Au-delà, le contexte a changé : ce n'est plus le même piège.")
+v2IdmExpiry = input.int(30, "§10.5 Durée de vie d'un IDM (bougies)", minval=5, maxval=200, group=gV2,
+     tooltip="30 = la valeur de la spec. Les DEUX IDM les plus récents ne sont jamais expirés : ils restent affichés en permanence, comme tu l'as demandé.")
+
+// ── §12.4 Validité d'une zone selon le nombre de tests ───────────────
+v2UseZoneTests = input.bool(true, "§12.4 Compter les tests des zones Signature", group=gV2,
+     tooltip="Spec §12.4 : 1er test = zone VALIDE (entrée autorisée) · 2e test = zone DÉGRADÉE (entrée refusée par défaut) · 3e test = zone INVALIDE, retirée · traversée en clôture = retirée immédiatement.")
+
+// ── §6 Sessions (heure d'Abidjan, UTC+0) ─────────────────────────────
+v2UseSession = input.bool(false, "§6 Filtrer par session (heure d'Abidjan, UTC+0)", group=gV2,
+     tooltip="Spec §6 : Londres et New York uniquement. La session asiatique est INTERDITE. Décoché par défaut pour ne pas masquer d'un coup tout ton historique — coche-le quand tu veux voir uniquement les heures autorisées.")
+v2SessLondon = input.session("0600-0900", "§6 Fenêtre Londres (UTC)", group=gV2,
+     tooltip="Spec §6 : 6h-8h en heure d'été, 7h-9h en heure d'hiver. La fenêtre 0600-0900 couvre les deux.")
+v2SessNy = input.session("1100-1500", "§6 Fenêtre New York (UTC)", group=gV2,
+     tooltip="Spec §6 : 11h-14h en heure d'été, 12h-15h en heure d'hiver. La fenêtre 1100-1500 couvre les deux.")
+
+// ── §16 Gestion du risque ────────────────────────────────────────────
+v2StopSignature = input.bool(true, "§16.1 Stop sous la mèche qui a pris la liquidité", group=gV2,
+     tooltip="Spec §16.1 : « Jamais en pips fixes. Juste au-delà de la mèche qui a effectué la prise de liquidité, plus 0,1 x ATR(14) pour absorber le spread. »\n\nCoché, ce mode REMPLACE le stop structurel du module 17 : il est plus serré, donc le R est plus élevé, et il colle à la vraie invalidation (le Clean Buyer / Clean Seller a été neutralisé).")
+v2SlPadAtr = input.float(0.10, "§16.1 Marge technique du stop (x ATR 14)", minval=0.0, maxval=1.0, step=0.01, group=gV2,
+     tooltip="Spec §16.1 : 0,1 x ATR(14) au-delà de la mèche, pour absorber le spread et le bruit d'exécution.")
+v2UseRrGate = input.bool(true, "§16.3 Refuser les setups sous le RR minimum", group=gV2,
+     tooltip="Spec §16.3 : « RR minimum 1:3. En dessous, le setup est rejeté automatiquement. » Le trade n'est pas ouvert, et le panneau écrit pourquoi.")
+v2RrMin = input.float(3.0, "§16.3 RR minimum", minval=1.0, maxval=10.0, step=0.5, group=gV2,
+     tooltip="1:3 = le seuil de la spec. RR courant attendu par la méthode : 1:4 à 1:5.")
+
+// ── §17 Coupe-circuits journaliers ───────────────────────────────────
+v2UseBreakers = input.bool(true, "§17 Activer les coupe-circuits journaliers", group=gV2,
+     tooltip="Spec §17 : la méthode ne consiste pas à mitrailler le marché. Les limites ci-dessous encodent cette patience — au-delà, plus aucun trade n'est ouvert jusqu'au lendemain.")
+v2MaxTrades = input.int(3, "§17 Trades maximum par jour", minval=1, maxval=10, group=gV2,
+     tooltip="Spec §17 : 3. Au-delà, tout nouveau setup est refusé jusqu'au lendemain.")
+v2MaxSlStreak = input.int(2, "§17 SL consécutifs avant arrêt", minval=1, maxval=10, group=gV2,
+     tooltip="Spec §17 : 2. Arrêt immédiat — le marché ne respecte pas la lecture de l'algo-structure ce jour-là.")
+v2MaxDdR = input.float(2.0, "§17 Drawdown journalier maximum (en R)", minval=0.5, maxval=20.0, step=0.5, group=gV2,
+     tooltip="Spec §17 : -2 % du capital de début de journée. L'indicateur ne connaît pas ton capital, il compte en R. Avec le risque de 1 % par trade de la spec §16.4, -2 % = -2 R : la valeur par défaut est donc l'exacte traduction de la règle.")
+
+//=====================================================================
 // FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
 // graphique (jamais d'un autre timeframe) :
 //   Monthly -> 4 dernières années        4H  -> 25 derniers jours
@@ -1291,6 +1360,15 @@ var string[] idmKind  = array.new_string()   // "IDM" ou "FS"
 var line[]   idmLine  = array.new_line()     // peut contenir na si showIdmLines=false
 var label[]  idmLbl   = array.new_label()    // peut contenir na si showIdmLines=false
 
+// SPEC v2.0 §10.5 — bougie de création de chaque IDM, pour l'expiration.
+// Poussé DANS LE MÊME BLOC que les six tableaux ci-dessus : ils doivent
+// rester strictement parallèles, sinon la moindre lecture croisée sort
+// des bornes (c'est exactement le bug RE10045 déjà rencontré).
+var int[]    idmBarA  = array.new_int()
+// true = l'IDM est mort d'expiration, pas d'une vraie liquidation. On le
+// distingue pour ne jamais le raconter comme un « retest réussi ».
+var bool[]   idmExpA  = array.new_bool()
+
 // Sniper Zone — LE reteste précis, rattachée uniquement à l'IDM.
 var box[] sniperZoneA = array.new_box()      // peut contenir na si showSniperZone=false
 
@@ -1301,6 +1379,14 @@ var box[] sniperZoneA = array.new_box()      // peut contenir na si showSniperZo
 var box[]   sniperRefineBx = array.new_box()
 var int[]   sigDirA = array.new_int()     // 1 = Demand, -1 = Supply
 var int[]   sigBarA = array.new_int()     // bougie de la Signature
+// SPEC v2.0 §12.4 — validité d'une zone selon le nombre de tests.
+// sigTestA = nombre de fois où le prix est REVENU dedans (0 = jamais
+// testée, encore vierge). sigInA = le prix est-il dedans en ce moment ?
+// Nécessaire pour ne compter qu'une seule fois une visite qui dure
+// plusieurs bougies — sans ça, une zone touchée pendant 3 bougies
+// passerait « invalide » alors qu'elle n'a été testée qu'une fois.
+var int[]   sigTestA = array.new_int()
+var bool[]  sigInA   = array.new_bool()
 
 float idmCandidate    = na
 int   idmCandidateBar = na
@@ -1378,6 +1464,8 @@ if newIDM
     array.push(idmDir, moveDir)
     array.push(idmDone, false)
     array.push(idmKind, "IDM")
+    array.push(idmBarA, bar_index)
+    array.push(idmExpA, false)
 
     line ln = na
     label lb = na
@@ -1604,6 +1692,15 @@ var float armLvl  = na    // niveau de l'IDM balayé
 var int   armBar  = na    // bougie du balayage
 var bool  armDeep = false // le 0.5 du mouvement a-t-il été franchi depuis ?
 
+// SPEC v2.0 §16.1 — l'extrême ATTEINT PAR LA PRISE DE LIQUIDITÉ.
+// C'est le vrai point d'invalidation : « si le marché revient casser ce
+// niveau, l'analyse est invalidée, le Clean Buyer / Clean Seller a été
+// neutralisé ». Pas la mèche d'une seule bougie : le plus bas (ou le plus
+// haut) atteint DEPUIS l'armement, mis à jour tant que le setup attend
+// sa preuve de rejet. Le stop se pose juste au-delà, plus 0,1 x ATR.
+var float armWickLo = na
+var float armWickHi = na
+
 if array.size(idmLevel) > 0
     for i = array.size(idmLevel) - 1 to 0
         if not array.get(idmDone, i)
@@ -1683,10 +1780,19 @@ if array.size(idmLevel) > 0
                              text_size=size.tiny, text_halign=text.align_left))
                         array.push(sigDirA, dir)
                         array.push(sigBarA, bar_index)
+                        // §12.4 — zone neuve : zéro test, prix dedans (la
+                        // bougie qui vient de la créer est forcément
+                        // dessus). On l'ouvre à `true` pour que le retour
+                        // du prix plus tard compte bien comme le 1er test,
+                        // et pas comme un test dès la création.
+                        array.push(sigTestA, 0)
+                        array.push(sigInA, true)
                         if array.size(sniperRefineBx) > 15
                             box.delete(array.shift(sniperRefineBx))
                             array.shift(sigDirA)
                             array.shift(sigBarA)
+                            array.shift(sigTestA)
+                            array.shift(sigInA)
 
                 line lnr = array.get(idmLine, i)
                 label lbr = array.get(idmLbl, i)
@@ -1711,6 +1817,11 @@ if array.size(idmLevel) > 0
                     armLvl  := lvl
                     armBar  := bar_index
                     armDeep := false
+                    // §16.1 — la bougie qui prend l'argent est CELLE-CI.
+                    // Son extrême devient l'ancrage du stop ; il ne fera
+                    // que s'étendre si le balayage se prolonge.
+                    armWickLo := low
+                    armWickHi := high
                     // Déclencheur désactivé -> comportement d'origine,
                     // entrée immédiate au contact.
                     if not useTrigger
@@ -1733,6 +1844,117 @@ if array.size(idmLevel) > 0
                         label.set_xy(lbr, bar_index, lvl)
                         label.set_color(lbr, color.new(idmDoneCol, 75))
                         label.set_textcolor(lbr, idmDoneCol)
+
+
+//=====================================================================
+// SPEC v2.0 §10.5 — EXPIRATION DE L'INDUCEMENT
+//
+// « Un niveau d'inducement non liquidé est retiré de la liste active
+//   après 30 bougies de l'unité de temps où il a été identifié, soit
+//   environ 1,5 jour de trading en H1. Cette durée courte est cohérente
+//   avec l'horizon du day trading : au-delà, le contexte a changé. »
+//
+// Placé APRÈS la boucle de récupération, jamais avant : un IDM balayé
+// sur cette bougie-ci est déjà marqué `idmDone`, il ne peut donc pas
+// être expiré par erreur le jour même de sa liquidation.
+//
+// LES DEUX IDM LES PLUS RÉCENTS NE SONT JAMAIS EXPIRÉS. Tu veux voir
+// IDM 1 et IDM 2 en permanence à l'écran — l'expiration ne touche que
+// les niveaux plus anciens, ceux qui encombrent sans plus rien dire.
+//=====================================================================
+int v2ExpiredNow = 0
+
+if v2UseExpiry and array.size(idmLevel) > 2
+    for i = 0 to array.size(idmLevel) - 3
+        if not array.get(idmDone, i) and not array.get(idmExpA, i)
+            if bar_index - array.get(idmBarA, i) >= v2IdmExpiry
+                array.set(idmDone, i, true)
+                array.set(idmExpA, i, true)
+                v2ExpiredNow += 1
+
+                // Même discipline que partout ailleurs dans ce fichier :
+                // on supprime l'objet ET on remet la case à na. Un
+                // identifiant de dessin détruit laissé dans un tableau
+                // fait planter la première relecture, et TradingView
+                // efface alors TOUT l'indicateur d'un coup.
+                line lnX = array.get(idmLine, i)
+                if not na(lnX)
+                    line.delete(lnX)
+                    array.set(idmLine, i, na)
+                label lbX = array.get(idmLbl, i)
+                if not na(lbX)
+                    label.delete(lbX)
+                    array.set(idmLbl, i, na)
+                box szX = array.get(sniperZoneA, i)
+                if not na(szX)
+                    box.delete(szX)
+                    array.set(sniperZoneA, i, na)
+
+
+//=====================================================================
+// SPEC v2.0 §10.3 — LA ZONE INTERDITE
+//
+// « Entre le BMS (étape 1) et la liquidation de l'inducement (étape 4),
+//   toute intervention est proscrite. Le support est catégorique : le
+//   trader qui intervient dans cette zone a 100 % de chances d'être
+//   liquidé, parce que le marché doit d'abord aller chercher ce niveau
+//   avant de poursuivre. »
+//
+// Traduction graphique, sans rien inventer : tant que l'IDM le plus
+// récent n'est PAS liquidé, tout l'espace qui le sépare de l'extrême du
+// mouvement est interdit. En haussier, acheter là-dedans, c'est acheter
+// au-dessus d'un piège que le marché n'a pas encore ramassé. En
+// baissier, c'est l'inverse.
+//
+// Le rectangle disparaît à la seconde où l'IDM est balayé : à ce
+// moment-là, et à ce moment-là seulement, la zone d'intervention existe
+// (§10.2 étape 5 : « la zone d'intervention se crée A CE MOMENT »).
+//=====================================================================
+var box  v2FbBox   = na
+bool     v2InForbidden = false
+float    v2FbTop   = na
+float    v2FbBot   = na
+int      v2FbDir   = 0
+
+int v2TopIdx = array.size(idmLevel) - 1
+
+if v2TopIdx >= 0 and not array.get(idmDone, v2TopIdx) and not na(moveExtreme)
+    float fbLvl = array.get(idmLevel, v2TopIdx)
+    int   fbDir = array.get(idmDir, v2TopIdx)
+    // Haussier : interdit de l'IDM (bas) jusqu'au sommet du mouvement.
+    // Baissier : interdit du creux du mouvement jusqu'à l'IDM (haut).
+    float t = fbDir == 1 ? moveExtreme : fbLvl
+    float b = fbDir == 1 ? fbLvl : moveExtreme
+    if not na(t) and not na(b) and t > b
+        v2FbTop := t
+        v2FbBot := b
+        v2FbDir := fbDir
+        // Le prix est-il DEDANS en ce moment ? C'est ça qui interdit
+        // l'entrée, pas la simple existence de la zone.
+        v2InForbidden := close <= t and close >= b
+
+if v2ShowForbidden and not na(v2FbTop) and not na(v2FbBot)
+    int fbLeft = f_xSafe(array.get(idmBarA, v2TopIdx))
+    if na(v2FbBox)
+        v2FbBox := box.new(fbLeft, v2FbTop, bar_index + zoneExt, v2FbBot,
+             border_color=color.new(v2ForbiddenCol, 45),
+             border_width=1,
+             border_style=line.style_dashed,
+             bgcolor=color.new(v2ForbiddenCol, 92),
+             text=lblNone ? "" : "ZONE INTERDITE — §10.3",
+             text_color=color.new(v2ForbiddenCol, 25),
+             text_size=size.tiny,
+             text_halign=text.align_right,
+             text_valign=text.align_top)
+    else
+        box.set_lefttop(v2FbBox, fbLeft, v2FbTop)
+        box.set_rightbottom(v2FbBox, bar_index + zoneExt, v2FbBot)
+else if not na(v2FbBox)
+    // L'IDM a été liquidé (ou l'affichage est décoché) : la zone
+    // interdite n'a plus lieu d'être, et la place est nette pour la
+    // Sniper Zone / la Signature qui prennent le relais.
+    box.delete(v2FbBox)
+    v2FbBox := na
 
 
 //=====================================================================
@@ -1765,6 +1987,13 @@ bool trigArmed  = false
 bool trigExpired = false
 
 if useTrigger and armDir != 0
+    // --- SPEC v2.0 §16.1 : la prise de liquidité peut se prolonger sur
+    // plusieurs bougies avant que le rejet ne soit prouvé. On garde
+    // l'extrême le PLUS LOIN atteint depuis l'armement : c'est lui le
+    // vrai point d'invalidation, donc le bon ancrage du stop.
+    armWickLo := na(armWickLo) ? low  : math.min(armWickLo, low)
+    armWickHi := na(armWickHi) ? high : math.max(armWickHi, high)
+
     // --- 2. profondeur : le 0.5 a-t-il été franchi depuis l'armement ?
     if not na(moveFib50)
         if armDir == 1 and low <= moveFib50
@@ -1840,12 +2069,51 @@ if array.size(sniperRefineBx) > 0
                 sgDrop := true
             else
                 box.set_right(sgB, bar_index + zoneExt)
+
+                //-----------------------------------------------------
+                // SPEC v2.0 §12.4 — VALIDITÉ SELON LE NOMBRE DE TESTS
+                //
+                //   1er test  -> VALIDE    : entrée autorisée si tout
+                //                            le reste est réuni.
+                //   2e  test  -> DÉGRADÉE  : entrée refusée par défaut.
+                //   3e+ test  -> INVALIDE  : zone retirée de la liste.
+                //   traversée en clôture   : retirée immédiatement
+                //                            (déjà traité juste au-dessus).
+                //
+                // Un test = une VISITE, pas une bougie. Le prix qui reste
+                // cinq bougies dans la zone n'a fait qu'un seul test :
+                // on ne compte qu'à l'ENTRÉE, en comparant avec l'état de
+                // la bougie précédente (sigInA).
+                //-----------------------------------------------------
+                if v2UseZoneTests
+                    bool wasIn = array.get(sigInA, si)
+                    bool isIn  = low <= sgT and high >= sgB2
+                    if isIn and not wasIn
+                        array.set(sigTestA, si, array.get(sigTestA, si) + 1)
+                    array.set(sigInA, si, isIn)
+
+                    int nTest = array.get(sigTestA, si)
+                    if nTest >= 3
+                        // Invalide : le marché a déjà pris ce qu'il y
+                        // avait à prendre, il n'y a plus d'ordres dedans.
+                        sgDrop := true
+                    else if nTest == 2
+                        // Dégradée : on la laisse à l'écran, mais elle
+                        // s'efface visuellement pour que tu ne la
+                        // confondes jamais avec une zone vierge.
+                        box.set_bgcolor(sgB, color.new(refineCol, 88))
+                        box.set_border_color(sgB, color.new(refineCol, 55))
+                        box.set_border_style(sgB, line.style_dashed)
+                        if not lblNone
+                            box.set_text(sgB, (sgD == 1 ? "SIGNATURE — Demand" : "SIGNATURE — Supply") + " · DÉGRADÉE (2e test)")
         if sgDrop
             if not na(sgB)
                 box.delete(sgB)
             array.remove(sniperRefineBx, si)
             array.remove(sigDirA, si)
             array.remove(sigBarA, si)
+            array.remove(sigTestA, si)
+            array.remove(sigInA, si)
 
 // Le prix est-il DANS une Signature en ce moment ? Sert au dashboard et
 // au score de confluence — la Signature remplace l'Order Block comme
@@ -1859,7 +2127,10 @@ if array.size(sniperRefineBx) > 0
                 sigZoneDir := array.get(sigDirA, si)
 
 
-// limitation historique — 8 tableaux liés, on garde tout synchronisé
+// limitation historique — 9 tableaux liés, on garde tout synchronisé.
+// idmBarA et idmExpA (SPEC v2.0 §10.5) sont poussés dans le même bloc que
+// les autres : ils DOIVENT être décalés ici aussi, sinon les index se
+// désynchronisent et la première lecture croisée sort des bornes.
 if array.size(idmLevel) > maxHistory
     line oldLn = array.shift(idmLine)
     if not na(oldLn)
@@ -1874,6 +2145,8 @@ if array.size(idmLevel) > maxHistory
     array.shift(idmDir)
     array.shift(idmDone)
     array.shift(idmKind)
+    array.shift(idmBarA)
+    array.shift(idmExpA)
 
 
 //=====================================================================
@@ -2845,6 +3118,71 @@ bool smvSellOk = not smvUseFilter or (smvTrend == -1 and smvConfSell >= smvMinCo
 
 
 //=====================================================================
+// SPEC v2.0 — MODULE DE CONFORMITÉ (§6, §7.1, §9.4)
+//
+// Trois contrôles chiffrés, sortis directement du document. Ils
+// n'altèrent aucun calcul existant : ils produisent des VOYANTS, lus
+// ensuite par le panneau §15 / §11.3 et par le coupe-circuit §17.
+//=====================================================================
+
+// ── §6 SESSIONS — heure d'Abidjan, qui est exactement UTC+0 ──────────
+// « Londres 6h-8h (été) / 7h-9h (hiver) · New York 11h-14h / 12h-15h ·
+//   session asiatique INTERDITE. »
+// Les fenêtres par défaut (0600-0900 et 1100-1500) couvrent l'été comme
+// l'hiver, donc aucun réglage à changer deux fois par an.
+bool v2InLondon = not na(time(timeframe.period, v2SessLondon, "UTC"))
+bool v2InNy     = not na(time(timeframe.period, v2SessNy, "UTC"))
+bool v2SessOk   = not v2UseSession or v2InLondon or v2InNy
+string v2SessTxt = v2InLondon ? "Londres" : v2InNy ? "New York" :
+     "hors session (Asie / creux) — §6 interdit"
+
+// ── §7.1 AMPLITUDE DE LA STRUCTURE ──────────────────────────────────
+// « Filtre d'amplitude : un swing doit valoir au moins 0,75 x ATR(14)
+//   pour être considéré comme une structure et non comme du bruit. »
+// Voyant uniquement : la création d'IDM n'est JAMAIS bloquée par ça.
+float v2MoveAmp = na
+if not na(moveExtreme) and not na(moveOrigin)
+    v2MoveAmp := math.abs(moveExtreme - moveOrigin)
+bool v2AmpOk = atrReady and not na(v2MoveAmp) and v2MoveAmp >= atrFast * v2AmpAtr
+
+// ── §9.4 EQH / EQL — poches de liquidité double ─────────────────────
+// « Deux sommets (ou deux creux) alignés à moins de 0,15 x ATR(14) l'un
+//   de l'autre forment un EQH / EQL : c'est une liquidité double, la
+//   cible préférée du marché. »
+// Lu sur les pivots Intact, c'est-à-dire ceux qui n'ont PAS encore été
+// balayés — les seuls qui contiennent encore de l'argent.
+bool  v2HasEqh = false
+bool  v2HasEql = false
+float v2EqhLvl = na
+float v2EqlLvl = na
+
+if atrReady
+    float eqTol = atrFast * v2EqTolAtr
+    int nH = array.size(intactHighLevels)
+    if nH >= 2
+        for a = nH - 1 to 1
+            if not v2HasEqh
+                for b = a - 1 to 0
+                    if not v2HasEqh
+                        float hA = array.get(intactHighLevels, a)
+                        float hB = array.get(intactHighLevels, b)
+                        if math.abs(hA - hB) <= eqTol
+                            v2HasEqh := true
+                            v2EqhLvl := math.max(hA, hB)
+    int nL = array.size(intactLowLevels)
+    if nL >= 2
+        for a = nL - 1 to 1
+            if not v2HasEql
+                for b = a - 1 to 0
+                    if not v2HasEql
+                        float lA = array.get(intactLowLevels, a)
+                        float lB = array.get(intactLowLevels, b)
+                        if math.abs(lA - lB) <= eqTol
+                            v2HasEql := true
+                            v2EqlLvl := math.min(lA, lB)
+
+
+//=====================================================================
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si tous
 // les autres modules d'affichage sont désactivés
 //=====================================================================
@@ -3193,25 +3531,57 @@ f_trClose(SmvTrade t, string why) =>
     // Le paramètre `why` continue de piloter tout ça (largeur et opacité des
     // traits juste au-dessus) — seule l'étiquette disparaît.
 
+//---------------------------------------------------------------------
+// SPEC v2.0 §16.1 — DISTANCE DE RISQUE
+//
+// « Jamais en pips fixes. Un SL en pips n'a aucun sens : la volatilité
+//   change d'un actif à l'autre. Seule la structure dicte l'invalidation.
+//   Placement : juste au-delà de la mèche qui a effectué la prise de
+//   liquidité. Marge technique : 0,1 x ATR(14) au-delà de la mèche, pour
+//   absorber le spread et le bruit d'exécution. »
+//
+// armWickLo / armWickHi contiennent exactement cette mèche : l'extrême
+// atteint par le balayage depuis l'armement du setup.
+//
+// Extraite en fonction pour que le contrôle de RR (§16.3) puisse
+// calculer le même chiffre AVANT d'ouvrir, sans dupliquer la formule.
+//---------------------------------------------------------------------
+f_v2Risk(int dir, float idmLvl) =>
+    float r = na
+    if v2StopSignature
+        float w = dir == 1 ? armWickLo : armWickHi
+        if not na(w)
+            r := math.abs(close - w) + atrFast * v2SlPadAtr
+    if na(r)
+        r := stopModeStruct and not na(idmLvl) ?
+             math.abs(close - idmLvl) + atrFast * stopBufAtr :
+             atrFast * stopAtrMult
+    // Garde-fou : une entrée pile sur le niveau donnerait un risque quasi
+    // nul, donc des objectifs absurdes et un R fantaisiste dans le
+    // scoreboard. Le plancher est plus bas en mode Signature : là, un
+    // risque serré n'est pas un artefact, c'est le but de la méthode
+    // (« l'entrée millimétrée », §16.3).
+    math.max(r, atrFast * (v2StopSignature ? 0.15 : 0.3))
+
+// TP3 sur la Liquidité Cible — seulement si elle est DEVANT le prix et
+// au-delà du TP2. Sinon le multiple en R reprend la main automatiquement.
+// Sorti lui aussi pour que le RR de la spec se calcule sur le VRAI
+// objectif final, pas sur un 3R théorique.
+f_v2Tp3(int dir, float riskPx) =>
+    float p2 = dir == 1 ? close + riskPx * rMul2 : close - riskPx * rMul2
+    float p3 = dir == 1 ? close + riskPx * rMul3 : close - riskPx * rMul3
+    if tpModeTarget and targetValid and not na(targetLevel)
+        if dir == 1 ? targetLevel > p2 : targetLevel < p2
+            p3 := targetLevel
+    p3
+
 f_trFire(int dir, float idmLvl) =>
-    float riskPx = stopModeStruct and not na(idmLvl) ?
-         math.abs(close - idmLvl) + atrFast * stopBufAtr :
-         atrFast * stopAtrMult
-    // Garde-fou : une entrée pile sur l'IDM donnerait un risque quasi nul,
-    // donc des objectifs absurdes et un R fantaisiste dans le scoreboard.
-    riskPx := math.max(riskPx, atrFast * 0.3)
+    float riskPx = f_v2Risk(dir, idmLvl)
 
     float stPx = dir == 1 ? close - riskPx : close + riskPx
     float p1   = dir == 1 ? close + riskPx * rMul1 : close - riskPx * rMul1
     float p2   = dir == 1 ? close + riskPx * rMul2 : close - riskPx * rMul2
-    float p3   = dir == 1 ? close + riskPx * rMul3 : close - riskPx * rMul3
-
-    // TP3 sur la Liquidité Cible — seulement si elle est DEVANT le prix
-    // et au-delà du TP2. Sinon le 3R reprend la main automatiquement.
-    if tpModeTarget and targetValid and not na(targetLevel)
-        bool okTgt = dir == 1 ? targetLevel > p2 : targetLevel < p2
-        if okTgt
-            p3 := targetLevel
+    float p3   = f_v2Tp3(dir, riskPx)
 
     SmvTrade t = SmvTrade.new(dir=dir, entry=close, stop=stPx, t1=p1, t2=p2, t3=p3,
          openBar=bar_index, stage=0, done=false)
@@ -3223,6 +3593,42 @@ f_trFire(int dir, float idmLvl) =>
 //---------------------------------------------------------------------
 // Avancement des trades ouverts
 //---------------------------------------------------------------------
+//---------------------------------------------------------------------
+// SPEC v2.0 §17 — COUPE-CIRCUITS ET LIMITES JOURNALIÈRES
+//
+// « La méthode ne consiste pas à mitrailler le marché, mais à attendre
+//   le Golden Setup et la convergence du temps. Les limites ci-dessous
+//   encodent cette patience. »
+//
+//   Trades max / jour ...... 3   -> au-delà, tout nouveau setup refusé
+//   SL consécutifs ......... 2   -> arrêt immédiat de la journée
+//   Drawdown journalier .... -2 % -> arrêt complet
+//   Trades MINIMUM / jour .. 0   -> l'absence de setup est un résultat
+//                                   valide, l'agent ne force jamais
+//
+// §17.1 : « Les compteurs journaliers se réinitialisent à 00h00 heure
+// d'Abidjan. » Abidjan est exactement UTC+0 : l'index de journée se
+// calcule donc directement sur l'horodatage UTC de la bougie, sans
+// dépendre du fuseau du graphique — un graphique réglé sur New York
+// remettrait sinon les compteurs à zéro à la mauvaise heure.
+//
+// Le drawdown est compté en R, pas en pourcentage : l'indicateur ne
+// connaît pas ton capital. Avec le risque de 1 % par trade de la §16.4,
+// -2 % de capital = -2 R exactement.
+//---------------------------------------------------------------------
+var int   v2DayId       = na
+var int   v2TradesToday = 0
+var int   v2SlStreak    = 0
+var float v2DayR        = 0.0
+
+int v2DayNow = math.floor(time / 86400000)
+
+if na(v2DayId) or v2DayNow != v2DayId
+    v2DayId       := v2DayNow
+    v2TradesToday := 0
+    v2SlStreak    := 0
+    v2DayR        := 0.0
+
 bool trTp1Hit  = false
 bool trTp3Hit  = false
 bool trStopHit = false
@@ -3242,10 +3648,22 @@ if showTradePlan and atrReady and array.size(smvTrades) > 0
             // bougie, c'est le stop qui gagne. On ne s'invente pas un
             // gain qu'on n'aurait peut-être pas eu — sinon le scoreboard
             // devient un mensonge et ne sert plus à rien.
+            // §17 — R réalisé de CE trade, pour le drawdown journalier.
+            // Calculé sur ses propres niveaux : le R planifié d'un trade
+            // au stop serré n'est pas celui d'un trade au stop large, et
+            // additionner des R différents sans les recalculer donnerait
+            // un drawdown faux.
+            float tR = math.abs(t.entry - t.stop)
+
             if hitSl
                 if t.stage == 0
                     f_scBump(scStop, di)
                 trStopHit := true
+                // Un trade déjà passé par TP1 ne coûte pas 1 R plein :
+                // la partie encaissée reste acquise. On compte donc la
+                // perte NETTE, pas la perte théorique.
+                v2DayR     := v2DayR + (t.stage >= 2 ? rMul2 : t.stage >= 1 ? rMul1 : -1.0)
+                v2SlStreak := t.stage >= 1 ? 0 : v2SlStreak + 1
                 f_trClose(t, "stop")
             else
                 if hit1 and t.stage < 1
@@ -3274,13 +3692,23 @@ if showTradePlan and atrReady and array.size(smvTrades) > 0
                     f_scBump(scT3, di)
                     f_trTpHit(t.lT3)
                     trTp3Hit := true
+                    // §17 — le vrai R encaissé. Le TP3 est souvent calé
+                    // sur la Liquidité Cible, pas sur un 3R théorique :
+                    // on mesure la distance réelle, divisée par le risque
+                    // réel de ce trade-là.
+                    v2DayR     := v2DayR + (tR > 0 ? math.abs(t.t3 - t.entry) / tR : 0.0)
+                    v2SlStreak := 0
                     f_trClose(t, "TP3")
                 else if backT2
                     trBackT2 := true
+                    v2DayR     := v2DayR + rMul2
+                    v2SlStreak := 0
                     f_trClose(t, "retour TP2")
                 else if bar_index - t.openBar >= maxBarsTr
                     if t.stage == 0
                         f_scBump(scExp, di)
+                    // Expiré : on n'encaisse que les paliers déjà pris.
+                    v2DayR := v2DayR + (t.stage >= 2 ? rMul2 : t.stage >= 1 ? rMul1 : 0.0)
                     f_trClose(t, "expiré")
                 else
                     f_trExtend(t)
@@ -3319,9 +3747,67 @@ int  trSigDir = entrySignalBuy ? 1 : entrySignalSell ? -1 : 0
 // au-delà du dernier point protégé, et exige en plus la confluence.
 bool trDirOk  = trSigDir == 1 ? smvBuyOk : trSigDir == -1 ? smvSellOk : false
 
-if showTradePlan and atrReady and trSigDir != 0 and trDirOk
+//---------------------------------------------------------------------
+// SPEC v2.0 — LES QUATRE REFUS, DANS L'ORDRE DE LA SPEC
+//
+// Un setup techniquement parfait qui viole une limite est REFUSÉ : c'est
+// écrit noir sur blanc en tête de la §16. Chaque refus est nommé, pour
+// que le panneau puisse te dire POURQUOI rien ne s'est passé — un setup
+// rejeté est aussi instructif qu'un setup pris (§18.3).
+//---------------------------------------------------------------------
+// Appels en BLOC `if`, jamais dans un ternaire. Pine évalue les DEUX
+// branches d'un ternaire : la leçon a déjà coûté cher ici (le ternaire
+// sur ta.highestbars faisait exploser le buffer historique et vidait le
+// graphique entier). On ne reprend pas le risque, même quand la fonction
+// appelée est inoffensive.
+float v2RiskNow = na
+float v2Tp3Now  = na
+float v2RrNow   = na
+
+if trSigDir != 0 and atrReady
+    v2RiskNow := f_v2Risk(trSigDir, entryIdmLvl)
+    if not na(v2RiskNow) and v2RiskNow > 0
+        v2Tp3Now := f_v2Tp3(trSigDir, v2RiskNow)
+        v2RrNow  := math.abs(v2Tp3Now - close) / v2RiskNow
+
+// §16.3 — « RR minimum 1:3. En dessous, le setup est rejeté
+// automatiquement. » Le trade n'est pas ouvert du tout.
+bool v2RrOk = not v2UseRrGate or (not na(v2RrNow) and v2RrNow >= v2RrMin)
+
+// §17 — coupe-circuits journaliers.
+bool v2CbTrades = v2UseBreakers and v2TradesToday >= v2MaxTrades
+bool v2CbStreak = v2UseBreakers and v2SlStreak >= v2MaxSlStreak
+bool v2CbDd     = v2UseBreakers and v2DayR <= -v2MaxDdR
+bool v2Halted   = v2CbTrades or v2CbStreak or v2CbDd
+
+// §10.3 — la zone interdite. Entre le BMS et la liquidation de
+// l'inducement, aucune intervention. Si le prix est encore DEDANS, le
+// signal n'existe pas : le marché doit d'abord aller chercher ce niveau.
+bool v2FbOk = not v2ShowForbidden or not v2InForbidden
+
+// Motif de refus, en clair. Priorité à la règle la plus structurelle.
+string v2RejectTxt = "-"
+if trSigDir != 0
+    if not v2FbOk
+        v2RejectTxt := "§10.3 zone interdite — l'IDM n'est pas encore liquidé"
+    else if not v2SessOk
+        v2RejectTxt := "§6 hors session (Asie interdite)"
+    else if v2CbStreak
+        v2RejectTxt := "§17 " + str.tostring(v2SlStreak) + " SL consécutifs — journée arrêtée"
+    else if v2CbDd
+        v2RejectTxt := "§17 drawdown " + str.tostring(v2DayR, "#.##") + " R — journée arrêtée"
+    else if v2CbTrades
+        v2RejectTxt := "§17 " + str.tostring(v2TradesToday) + " trades déjà pris aujourd'hui"
+    else if not v2RrOk
+        v2RejectTxt := "§16.3 RR " + (na(v2RrNow) ? "?" : str.tostring(v2RrNow, "#.#")) +
+             " < " + str.tostring(v2RrMin, "#.#") + " — rejet automatique"
+    else if not trDirOk
+        v2RejectTxt := "§7.3 signal contraire au biais"
+
+if showTradePlan and atrReady and trSigDir != 0 and trDirOk and v2RrOk and not v2Halted and v2SessOk and v2FbOk
     if f_trOpenCount() < maxOpenTr
         f_trFire(trSigDir, entryIdmLvl)
+        v2TradesToday += 1
 
 // Purge des plus anciens trades TERMINÉS (un trade en cours n'est jamais
 // supprimé, même s'il dépasse la limite).
@@ -4340,3 +4826,251 @@ alertcondition(trigArmed, "Setup ARMÉ — IDM balayé, on attend la preuve", "S
 alertcondition(trigFired, "Retournement CONFIRMÉ — entrée", "SMV : 0.5 franchi et bougie de rejet formée sur l'IDM — le retracement est terminé, l'entrée est valide")
 alertcondition(trigExpired, "Setup abandonné", "SMV : l'IDM a été balayé mais le marché n'a jamais défendu la zone — setup désarmé, il n'y avait rien à prendre")
 alertcondition(smvTrendFlip, "Structure VRAIMENT inversée", "SMV : le prix a clôturé au-delà du dernier point protégé — la structure change de sens pour de bon, le sens des signaux s'inverse")
+
+
+//=====================================================================
+// PANNEAU SPEC v2.0 — MACHINE À ÉTATS (§15) + CHECKLIST (§11.3)
+//                     + COMPTEURS JOURNALIERS (§17)
+//
+// Panneau volontairement SÉPARÉ du dashboard principal : celui-ci
+// répond à « qu'est-ce que je fais maintenant ? », celui-là répond à
+// « où en est l'agent dans la séquence de la spec, et qu'est-ce qui
+// bloque ? ».
+//
+// Chaque ligne porte le numéro de la section dont elle vient. Tu peux
+// donc poser le document à côté de l'écran et vérifier l'indicateur
+// règle par règle, sans rien deviner.
+//=====================================================================
+
+f_v2Pos() =>
+    switch v2PanelPos
+        "En haut à gauche"   => position.top_left
+        "Au milieu à gauche" => position.middle_left
+        "En bas à gauche"    => position.bottom_left
+        => position.top_right
+
+var table v2Tbl = table.new(f_v2Pos(), 2, 15, border_width=1,
+     frame_color=color.new(color.gray, 60), frame_width=1,
+     border_color=color.new(color.gray, 80))
+
+// Palette du panneau — déclarée au niveau GLOBAL, pas dans le bloc
+// d'affichage : f_v2Row() ci-dessous en a besoin, et Pine n'autorise
+// aucune déclaration de fonction à l'intérieur d'un `if`.
+color v2Hdr  = color.new(#5b6472, 82)
+color v2Lab  = #8a94a3
+color v2Ok   = #26a69a
+color v2Bad  = #ef5350
+color v2Warn = #ffa726
+color v2Neu  = #c6cdd8
+color v2Bg   = color.new(#101418, 20)
+
+f_v2Row(int r, string lab, string val, color c) =>
+    table.cell(v2Tbl, 0, r, lab, text_color=v2Lab, text_size=size.tiny,
+         bgcolor=v2Bg, text_halign=text.align_left)
+    table.cell(v2Tbl, 1, r, val, text_color=c, text_size=size.tiny,
+         bgcolor=v2Bg, text_halign=text.align_left)
+
+if v2ShowPanel and barstate.islast
+
+    //-----------------------------------------------------------------
+    // §15 — MACHINE À ÉTATS. On lit l'état RÉEL du moteur et on le
+    // traduit dans la numérotation de la spec, du plus avancé au moins
+    // avancé : le premier qui correspond gagne.
+    //
+    // Les états 10 (validation humaine) et 11 (exécution) n'existent pas
+    // dans un indicateur — ils appartiennent à l'agent MoonX. L'état 11
+    // est tout de même affiché à la bougie où le signal part, parce que
+    // c'est exactement ce moment-là.
+    //-----------------------------------------------------------------
+    int    v2State  = 0
+    string v2StName = "SCAN CONTINU — aucune structure exploitable"
+    color  v2StCol  = v2Neu
+
+    int  nIdmV2 = array.size(idmLevel)
+    // Lecture du tableau dans un `if` explicite, pas dans un `and` :
+    // aucune lecture d'index ne doit dépendre d'un court-circuit.
+    bool idmActiveV2 = false
+    if nIdmV2 > 0
+        idmActiveV2 := not array.get(idmDone, nIdmV2 - 1)
+
+    if f_trOpenCount() > 0
+        v2State  := 12
+        v2StName := "GESTION DE POSITION — partiels, BE, sous-structure"
+        v2StCol  := v2Ok
+    else if trSigDir != 0 and trDirOk and v2RrOk and not v2Halted and v2SessOk and v2FbOk
+        v2State  := 11
+        v2StName := "EXÉCUTION — passer l'ordre ET poser SL et TP"
+        v2StCol  := trSigDir == 1 ? entryBuyCol : entrySellCol
+    else if trSigDir != 0
+        v2State  := 9
+        v2StName := "CONTRÔLES COUPE-CIRCUIT — setup refusé"
+        v2StCol  := v2Bad
+    else if trigArmed
+        v2State  := 7
+        v2StName := armDeep ?
+             "RAFFINAGE LTF — 0.5 pris, on attend la signature" :
+             "RAFFINAGE LTF — on attend le 0.5"
+        v2StCol  := v2Warn
+    else if sigZoneDir != 0
+        v2State  := 6
+        v2StName := "ATTENTE DU RETOUR DU PRIX — le prix est sur la zone"
+        v2StCol  := v2Warn
+    else if array.size(sniperRefineBx) > 0
+        v2State  := 5
+        v2StName := "ZONE D'INTERVENTION créée — l'IDM a été liquidé"
+        v2StCol  := refineCol
+    else if idmActiveV2
+        v2State  := 4
+        v2StName := "DÉCLENCHEUR — inducement identifié, PAS encore liquidé"
+        v2StCol  := idmActiveCol
+    else if v2HasEqh or v2HasEql
+        v2State  := 3
+        v2StName := "LIQUIDITÉ — Intacts recensés, pas d'inducement actif"
+        v2StCol  := v2Neu
+    else if h1Bias != 0
+        v2State  := 2
+        v2StName := "ZONE FIB — biais établi, on attend la bonne moitié"
+        v2StCol  := v2Neu
+    else
+        v2State  := 1
+        v2StName := "BIAIS — consolidation H1, retour à l'état 0"
+        v2StCol  := rangeCol
+
+    //-----------------------------------------------------------------
+    // §11.3 — CONDITIONS D'ENTRÉE COMPLÈTES, les deux sens.
+    //-----------------------------------------------------------------
+    // Biais H1 (§7.3) : HH+HL -> achats uniquement, LH+LL -> ventes
+    // uniquement, sinon consolidation et AUCUNE position.
+    string v2BiasTxt = h1Bias == 1 ? "✓ Haussier — achats uniquement" :
+         h1Bias == -1 ? "✓ Baissier — ventes uniquement" :
+         "✕ Consolidation — aucune position (§7.3)"
+    color v2BiasCol = h1Bias == 1 ? entryBuyCol : h1Bias == -1 ? entrySellCol : v2Bad
+
+    // Zone fib (§8) : fourchette réduite à 0 / 50 / 100, comme la spec.
+    // L'achat se fait en Discount (sous le 0.5), la vente en Premium.
+    string v2FibTxt = "—"
+    color  v2FibCol = v2Neu
+    if not na(moveFib50)
+        bool inDisc = close < moveFib50
+        v2FibTxt := (inDisc ? "Discount" : "Premium") + " (0.5 = " +
+             str.tostring(moveFib50, format.mintick) + ")"
+        bool fibOk = h1Bias == 1 ? inDisc : h1Bias == -1 ? not inDisc : false
+        v2FibTxt := (fibOk ? "✓ " : "✕ ") + v2FibTxt + (fibOk ? "" : " — mauvaise moitié")
+        v2FibCol := fibOk ? v2Ok : v2Bad
+
+    // §7.1 amplitude de la structure en cours.
+    string v2AmpTxt = na(v2MoveAmp) or not atrReady ? "—" :
+         (v2AmpOk ? "✓ " : "✕ ") + str.tostring(v2MoveAmp / atrFast, "#.##") +
+         " x ATR (seuil " + str.tostring(v2AmpAtr, "#.##") + ")"
+    color v2AmpCol = na(v2MoveAmp) ? v2Neu : v2AmpOk ? v2Ok : v2Warn
+
+    // §9.4 EQH / EQL — la liquidité double que le marché vise.
+    string v2EqTxt = v2HasEqh and v2HasEql ?
+         "EQH " + str.tostring(v2EqhLvl, format.mintick) + " · EQL " + str.tostring(v2EqlLvl, format.mintick) :
+         v2HasEqh ? "EQH " + str.tostring(v2EqhLvl, format.mintick) :
+         v2HasEql ? "EQL " + str.tostring(v2EqlLvl, format.mintick) : "aucun"
+    color v2EqCol = v2HasEqh or v2HasEql ? targetCol : v2Neu
+
+    // §10.3 la zone interdite.
+    string v2FbTxt = na(v2FbTop) ? "aucune — l'IDM est liquidé" :
+         v2InForbidden ?
+         "⛔ PRIX DEDANS — aucune intervention (" + str.tostring(v2FbBot, format.mintick) +
+              " → " + str.tostring(v2FbTop, format.mintick) + ")" :
+         "zone posée, prix en dehors"
+    color v2FbCol = v2InForbidden ? v2Bad : na(v2FbTop) ? v2Ok : v2Warn
+
+    // §10.5 inducement : combien sont encore actifs, et depuis quand.
+    int v2ActiveIdm = 0
+    int v2AgeTop = na
+    if nIdmV2 > 0
+        for i = 0 to nIdmV2 - 1
+            if not array.get(idmDone, i)
+                v2ActiveIdm += 1
+        if idmActiveV2
+            v2AgeTop := bar_index - array.get(idmBarA, nIdmV2 - 1)
+    string v2IdmTxt = v2ActiveIdm == 0 ? "aucun actif" :
+         str.tostring(v2ActiveIdm) + " actif(s)" +
+         (na(v2AgeTop) ? "" : " · IDM 1 a " + str.tostring(v2AgeTop) + " bougies / " +
+              str.tostring(v2IdmExpiry))
+    color v2IdmCol = v2ActiveIdm == 0 ? v2Neu :
+         (not na(v2AgeTop) and v2AgeTop >= v2IdmExpiry - 5) ? v2Warn : idmActiveCol
+
+    // §12.4 état de la zone Signature la plus récente.
+    string v2ZoneTxt = "aucune zone"
+    color  v2ZoneCol = v2Neu
+    int nSigV2 = array.size(sniperRefineBx)
+    if nSigV2 > 0
+        int nt = array.get(sigTestA, nSigV2 - 1)
+        v2ZoneTxt := nt <= 1 ? "✓ VALIDE (" + str.tostring(nt) + " test)" :
+             nt == 2 ? "⚠ DÉGRADÉE (2e test) — entrée refusée par défaut" :
+             "✕ INVALIDE (3e test)"
+        v2ZoneCol := nt <= 1 ? v2Ok : nt == 2 ? v2Warn : v2Bad
+
+    // §6 session.
+    color v2SessCol = v2InLondon or v2InNy ? v2Ok : v2UseSession ? v2Bad : v2Warn
+
+    // §16.1 / §16.3 le risque, tel qu'il serait posé MAINTENANT.
+    string v2SlTxt = "—"
+    color  v2SlCol = v2Neu
+    if not na(v2RiskNow) and trSigDir != 0
+        float slPx = trSigDir == 1 ? close - v2RiskNow : close + v2RiskNow
+        v2SlTxt := str.tostring(slPx, format.mintick) + "  (" +
+             (v2StopSignature and not na(trSigDir == 1 ? armWickLo : armWickHi) ?
+                  "sous la mèche + " + str.tostring(v2SlPadAtr, "#.##") + " ATR" :
+                  "structurel") + ")"
+        v2SlCol := slCol
+
+    string v2RrTxt = na(v2RrNow) ? "—" :
+         (v2RrNow >= v2RrMin ? "✓ 1:" : "✕ 1:") + str.tostring(v2RrNow, "#.#") +
+         "  (minimum 1:" + str.tostring(v2RrMin, "#.#") + ")"
+    color v2RrCol = na(v2RrNow) ? v2Neu : v2RrNow >= v2RrMin ? v2Ok : v2Bad
+
+    // §17 compteurs journaliers.
+    string v2CntTxt = str.tostring(v2TradesToday) + " / " + str.tostring(v2MaxTrades) +
+         " trades · " + str.tostring(v2SlStreak) + " SL d'affilée · " +
+         str.tostring(v2DayR, "#.##") + " R"
+    color v2CntCol = v2Halted ? v2Bad : v2TradesToday > 0 ? v2Warn : v2Ok
+
+    string v2HaltTxt = not v2UseBreakers ? "coupe-circuits désactivés" :
+         v2CbStreak ? "⛔ ARRÊT — " + str.tostring(v2SlStreak) + " SL consécutifs" :
+         v2CbDd ? "⛔ ARRÊT — drawdown journalier atteint" :
+         v2CbTrades ? "⛔ ARRÊT — quota de trades atteint" :
+         "✓ ouvert"
+    color v2HaltCol = v2Halted ? v2Bad : v2UseBreakers ? v2Ok : v2Neu
+
+    //-----------------------------------------------------------------
+    // Rendu
+    //-----------------------------------------------------------------
+    table.cell(v2Tbl, 0, 0, "SPEC SMV v2.0 — ÉTAT " + str.tostring(v2State),
+         bgcolor=v2Hdr, text_color=color.white, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(v2Tbl, 1, 0, v2StName, bgcolor=v2Hdr, text_color=v2StCol,
+         text_size=size.tiny, text_halign=text.align_left)
+
+    f_v2Row(1,  "§7.3 Biais H1",              v2BiasTxt, v2BiasCol)
+    f_v2Row(2,  "§8 Zone fib (0 / 50 / 100)", v2FibTxt,  v2FibCol)
+    f_v2Row(3,  "§7.1 Amplitude structure",   v2AmpTxt,  v2AmpCol)
+    f_v2Row(4,  "§9.4 EQH / EQL",             v2EqTxt,   v2EqCol)
+    f_v2Row(5,  "§10.3 Zone interdite",       v2FbTxt,   v2FbCol)
+    f_v2Row(6,  "§10.5 Inducement",           v2IdmTxt,  v2IdmCol)
+    f_v2Row(7,  "§12.4 Zone Signature",       v2ZoneTxt, v2ZoneCol)
+    f_v2Row(8,  "§6 Session (Abidjan/UTC)",   v2SessTxt, v2SessCol)
+    f_v2Row(9,  "§16.1 Stop",                 v2SlTxt,   v2SlCol)
+    f_v2Row(10, "§16.3 Risk / Reward",        v2RrTxt,   v2RrCol)
+    f_v2Row(11, "§17 Compteurs du jour",      v2CntTxt,  v2CntCol)
+    f_v2Row(12, "§17 Journée",                v2HaltTxt, v2HaltCol)
+    f_v2Row(13, "§18.3 Motif de refus",       v2RejectTxt,
+         v2RejectTxt == "-" ? v2Neu : v2Bad)
+    f_v2Row(14, "§16.2 TP final (liquidité)",
+         targetValid ? str.tostring(targetLevel, format.mintick) : "—",
+         targetValid ? tpCol : v2Neu)
+
+
+//=====================================================================
+// ALERTES SPEC v2.0
+//=====================================================================
+alertcondition(v2InForbidden and not v2InForbidden[1],
+     "§10.3 Entrée dans la zone interdite",
+     "SMV SPEC §10.3 : le prix est entré dans la zone interdite — l'inducement n'a pas encore été liquidé, aucune intervention.")
+alertcondition(v2ExpiredNow > 0,
+     "§10.5 Inducement expiré",
+     "SMV SPEC §10.5 : un inducement non liquidé vient d'être retiré de la liste active (30 bougies écoulées).")
