@@ -625,6 +625,62 @@ v2MaxDdR = input.float(2.0, "§17 Drawdown journalier maximum (en R)", minval=0.
      tooltip="Spec §17 : -2 % du capital de début de journée. L'indicateur ne connaît pas ton capital, il compte en R. Avec le risque de 1 % par trade de la spec §16.4, -2 % = -2 R : la valeur par défaut est donc l'exacte traduction de la règle.")
 
 //=====================================================================
+// 28. SPEC v3.0 — FRACTALISATION ET CONTINUATION LTF
+//
+// La v3.0 du document apporte deux blocs entierement nouveaux :
+//
+//   §6  FRACTALISATION ET PRIORISATION. L'agent lit D1, H4 et H1, et en
+//       deduit un RANG (A / B / C / D) qui commande la taille de risque
+//       et le droit d'ouvrir. C'est un filtre AMONT de tout le reste.
+//
+//   §16 MODULE DE CONTINUATION LTF — CIBLE BOS. Le second detecteur
+//       d'entree : surfer la jambe d'impulsion en avalant les inducements
+//       LTF, avec pour take-profit le sommet (ou le creux) precedent.
+//       C'est le mode le plus frequent au quotidien.
+//
+// Numerotation des sections : celle de la v3.0. Attention, elle a decale
+// la v2.0 d'une unite a partir de la section 6 (la gestion du risque est
+// passee de §16 a §18, les coupe-circuits de §17 a §19). Le groupe 27
+// ci-dessus garde volontairement les numeros v2.0 pour ne pas casser tes
+// reperes ; les correspondances sont rappelees dans chaque infobulle.
+//=====================================================================
+gV3 = "28. SPEC v3.0 — Fractalisation & continuation"
+
+// ── §6 FRACTALISATION ET PRIORISATION ────────────────────────────────
+v3UseRank = input.bool(true, "§6 Calculer le rang fractal (D1 + H4 + H1)", group=gV3,
+     tooltip="Spec §6.2 : l'agent lit les trois unites de temps et attribue un rang au setup.\n\nA = alignement complet, pleine taille (1 % de risque)\nB = H1 est le retracement du flux D1/H4 — on NE trade PAS dans le sens du H1, on prepare l'inverse\nC = H1 et H4 alignes contre D1 — autorise mais declasse, demi-taille, TP reduit\nD = pas de biais operationnel H1 — aucune position")
+v3BlockRankD = input.bool(true, "§6 Refuser toute position en rang D", group=gV3,
+     tooltip="Spec §6.2, ligne D : « Sans biais operationnel H1, il n'y a pas de sens a privilegier. Aucune position. »")
+v3BlockRankB = input.bool(true, "§6 Refuser les entrees dans le sens du H1 en rang B", group=gV3,
+     tooltip="Spec §6.2, ligne B : « Le H1 baissier est le retracement du flux haussier. On NE VEND PAS. On prepare un achat et on attend le retournement H1. »\n\nC'est la regle qui evite de vendre un simple pullback dans une tendance de fond haussiere.")
+v3TfD1 = input.timeframe("D", "§5.1 Unite de contexte lente", group=gV3,
+     tooltip="Spec §5.1 : D1 et H4 servent au CONTEXTE, jamais a generer un signal. Ils determinent le rang, donc la confiance et la taille — pas le sens du trade.")
+v3TfH4 = input.timeframe("240", "§5.1 Unite de contexte intermediaire", group=gV3)
+
+// ── §5.4 CONVERGENCE DU TEMPS ────────────────────────────────────────
+v3UseConv = input.bool(false, "§5.4 Exiger la convergence du temps (LTF alignee sur H1)", group=gV3,
+     tooltip="Spec §5.4 : « L'agent ne trade jamais contre le biais HTF, dans aucun des deux sens. Un mouvement contraire en LTF n'est pas un signal oppose : c'est le retracement du HTF, donc precisement l'endroit ou chercher une entree dans le sens du HTF. »\n\nCoche = l'entree attend que la LTF ait bascule dans le sens du H1. Decoche par defaut : ce filtre est severe et reduit fortement le nombre de signaux. Le panneau affiche l'etat de convergence dans les deux cas.")
+v3TfConv = input.timeframe("15", "§5.4 Unite de temps de convergence", group=gV3,
+     tooltip="M15 par defaut. Spec §6.4 : la cascade complete est M15 puis M5 puis M1 ; on suit ici le premier barreau, le plus stable.")
+
+// ── §16 MODULE DE CONTINUATION LTF ───────────────────────────────────
+v3ContOn = input.bool(true, "§16 Activer le module de continuation LTF (cible BOS)", group=gV3,
+     tooltip="Spec §16 : le mode de trading le plus frequent au quotidien. Au lieu d'attendre les grands retournements sur les sommets majeurs, on surfe la jambe d'impulsion en avalant les inducements LTF, avec pour objectif final la cassure du sommet (ou du creux) precedent.\n\nTrois temps OBLIGATOIRES et dans cet ordre (§16.3) :\n  1 CHASSE  — le prix vient chasser l'inducement LTF\n  2 CONTACT — le prix tape la zone d'intervention\n  3 REACTION — Market Shift / BMS mineur dans le sens du flux\n\n« Un contact sans reaction n'est pas un signal. Une reaction sans chasse prealable n'en est pas un non plus. »")
+v3ContExpiry = input.int(30, "§16.6 Expiration de la sequence (bougies)", minval=5, maxval=200, group=gV3,
+     tooltip="Spec §16.6 : 30 bougies de l'unite d'analyse — 30 minutes en M1, 2 h 30 en M5. Passe ce delai, la sequence est abandonnee et l'agent repart de l'etat 0.")
+v3ContNeedRankAB = input.bool(true, "§16.6 Exiger un rang fractal A ou B", group=gV3,
+     tooltip="Spec §16.6 : « Rang fractal minimum : B. Les rangs C et D n'activent pas le module. » Le module de continuation depend totalement du biais HTF (§16.7) : mal cadre, il produit des signaux systematiquement a contresens.")
+v3ContReactLen = input.int(5, "§16.3 Taille du Market Shift (bougies)", minval=2, maxval=30, group=gV3,
+     tooltip="Spec §16.3 TEMPS 3 : « Market Shift ou cassure de structure MINEURE en M1 / M5 dans le sens de la tendance. »\n\nLa reaction est validee quand le prix CLOTURE au-dela du plus haut (ou du plus bas) des N dernieres bougies. C'est volontairement un niveau PETIT, distinct de la cible BOS qui est le sommet precedent : sans cette separation, la reaction et l'objectif seraient le meme prix et le trade naitrait deja termine.")
+v3ContCol = input.color(#7e57c2, "§16 Couleur du module de continuation", group=gV3)
+v3ShowContBox = input.bool(true, "§16 Afficher la sequence des trois temps sur le graphique", group=gV3,
+     tooltip="Marque CHASSE, CONTACT et REACTION au fur et a mesure, pour que tu voies la sequence se construire au lieu de decouvrir un signal sorti de nulle part.")
+
+// ── §18.3 RR NET DE SPREAD ───────────────────────────────────────────
+v3SpreadTicks = input.float(0.0, "§18.3 Spread a deduire du RR (en ticks)", minval=0.0, maxval=500.0, step=1.0, group=gV3,
+     tooltip="Spec §18.3 : le RR minimum de 1:3 s'entend NET DE SPREAD, et §16.7 previent que « sur des cibles rapprochees, le spread pese proportionnellement plus lourd ».\n\nEntre ici le spread typique de ton actif chez ton courtier, exprime en ticks (le tick est le plus petit increment de prix de l'actif). 0 = calcul brut, comme avant.\n\nExemple : XAUUSD avec 30 cents de spread et un tick de 0,01 -> entrer 30.")
+
+//=====================================================================
 // FENÊTRE D'ANALYSE — dépend UNIQUEMENT du timeframe courant du
 // graphique (jamais d'un autre timeframe) :
 //   Monthly -> 4 dernières années        4H  -> 25 derniers jours
@@ -1096,6 +1152,116 @@ if showCurrentStruct and okCurStr
 // même bloc que les lignes BOS/BMS (line.new), ce que request.security
 // refuse ou exécute mal — d'où le dashboard qui ne s'affichait plus.
 int h1Bias = request.security(syminfo.tickerid, "60", f_h1Bias(), lookahead=barmerge.lookahead_off)
+
+
+//=====================================================================
+// SPEC v3.0 §6 — FRACTALISATION ET PRIORISATION
+//
+// « Le marché présente la même structure à toutes les échelles :
+//   impulsion, retracement, continuation. Elle impose une règle de
+//   priorisation simple, appliquée AVANT tout autre filtre. »
+//
+// L'agent lit D1, H4 et H1 avec EXACTEMENT la même fonction de biais
+// que le H1 (f_h1Bias) : trois lectures de la même mécanique, sur trois
+// échelles. Rien d'autre ne change entre elles.
+//
+// Le rang qui en sort commande deux choses, et deux seulement :
+//   • le DROIT d'ouvrir (rang D = jamais, rang B = jamais dans le sens
+//     du H1, qui n'est que le retracement du flux de fond) ;
+//   • la CONFIANCE, donc la taille de risque (§18.4 : 1 % en rang A,
+//     0,5 % en rang B ou C).
+//
+// §6.3, à retenir : « Le sens autorisé est dicté par H1, jamais par une
+// opinion sur le marché. D1 et H4 modulent la confiance, PAS la
+// direction. » Le rang ne renverse donc jamais le sens d'un signal, il
+// se contente de l'autoriser, de le déclasser ou de le refuser.
+//=====================================================================
+int d1Bias = request.security(syminfo.tickerid, v3TfD1, f_h1Bias(), lookahead=barmerge.lookahead_off)
+int h4Bias = request.security(syminfo.tickerid, v3TfH4, f_h1Bias(), lookahead=barmerge.lookahead_off)
+
+// Rang : 1 = A (Premium), 2 = B (Retracement), 3 = C (Divergent),
+//        4 = D (Écarté). 0 = calcul désactivé.
+int    v3Rank    = 0
+string v3RankTxt = "—"
+// Sens dicté par H1 (§6.3). En rang B, c'est le sens du FLUX de fond
+// (D1/H4) qui est préparé, et le sens du H1 qui est interdit.
+int    v3PrepDir = 0
+float  v3RiskPct = 0.0
+
+if v3UseRank
+    if h1Bias == 0
+        // §6.2 ligne D — « Sans biais opérationnel H1, il n'y a pas de
+        // sens à privilégier. Aucune position. »
+        v3Rank    := 4
+        v3RankTxt := "D — Écarté"
+        v3RiskPct := 0.0
+    else if d1Bias == h1Bias and h4Bias == h1Bias
+        // §6.2 ligne A — alignement fractal complet.
+        v3Rank    := 1
+        v3RankTxt := "A — Premium"
+        v3PrepDir := h1Bias
+        v3RiskPct := 1.0
+    else if d1Bias != 0 and d1Bias == h4Bias and h1Bias == -d1Bias
+        // §6.2 ligne B — D1 et H4 d'accord, H1 à contresens : le H1 EST
+        // le retracement du flux de fond. On ne le trade pas, on prépare
+        // le sens du flux et on attend le retournement H1.
+        v3Rank    := 2
+        v3RankTxt := "B — Retracement"
+        v3PrepDir := d1Bias
+        v3RiskPct := 0.5
+    else if d1Bias != 0 and h4Bias == h1Bias and h4Bias == -d1Bias
+        // §6.2 ligne C — H1 et H4 alignés CONTRE D1. Autorisé, mais
+        // déclassé : demi-taille et objectif réduit.
+        v3Rank    := 3
+        v3RankTxt := "C — Divergent"
+        v3PrepDir := h1Bias
+        v3RiskPct := 0.5
+    else
+        // §6.2 dernière ligne C — D1 sans direction (ou configuration
+        // intermédiaire) : on suit le H1, mais le setup est déclassé.
+        v3Rank    := 3
+        v3RankTxt := "C — Divergent"
+        v3PrepDir := h1Bias
+        v3RiskPct := 0.5
+
+// §6.2 — le rang commande le droit d'ouvrir, jamais le sens.
+//   D : rien.
+//   B : le sens du H1 est INTERDIT (c'est le retracement) ; seul le sens
+//       du flux de fond est préparé, et il n'existera qu'une fois le H1
+//       retourné — moment où la configuration devient un rang A.
+bool v3RankBlocksAll = v3UseRank and v3BlockRankD and v3Rank == 4
+bool v3RankBlocksH1  = v3UseRank and v3BlockRankB and v3Rank == 2
+
+
+//=====================================================================
+// SPEC v3.0 §5.4 — CONVERGENCE DU TEMPS (règle de désaccord symétrique)
+//
+// « L'agent ne trade jamais contre le biais HTF, dans aucun des deux
+//   sens. Un mouvement contraire en LTF n'est pas un signal opposé :
+//   c'est le retracement du HTF, donc précisément l'endroit où chercher
+//   une entrée dans le sens du HTF. »
+//
+//   H1 haussier + M15 baissier -> l'agent NE VEND PAS. Il prépare un
+//   ACHAT et attend que la M15 repasse haussière. Tant que la
+//   convergence n'est pas atteinte : aucune position.
+//
+// Symétrique à la vente. Le retracement contre-tendance n'est JAMAIS
+// tradé pour lui-même.
+//=====================================================================
+int ltfBias = request.security(syminfo.tickerid, v3TfConv, f_h1Bias(), lookahead=barmerge.lookahead_off)
+
+// Convergence atteinte = la LTF regarde dans le même sens que le H1.
+bool v3ConvOk = h1Bias != 0 and ltfBias == h1Bias
+// Retracement en cours = la LTF regarde à l'opposé. Ce n'est pas un
+// signal contraire, c'est une zone de préparation.
+bool v3ConvRetrace = h1Bias != 0 and ltfBias == -h1Bias
+
+string v3ConvTxt = h1Bias == 0 ? "biais H1 absent" :
+     v3ConvOk ? "✓ convergence atteinte (" + v3TfConv + " alignée sur H1)" :
+     v3ConvRetrace ? (h1Bias == 1 ?
+          "retracement " + v3TfConv + " — préparer un ACHAT, ne pas vendre" :
+          "retracement " + v3TfConv + " — préparer une VENTE, ne pas acheter") :
+     v3TfConv + " sans direction — attendre"
 
 
 //=====================================================================
@@ -3183,6 +3349,171 @@ if atrReady
 
 
 //=====================================================================
+// SPEC v3.0 §16 — MODULE DE CONTINUATION LTF, CIBLE BOS
+//
+// « Le mode de trading le plus fréquent au quotidien : surfer sur la
+//   jambe d'impulsion principale en avalant les inducements LTF, pour
+//   viser directement la cassure de structure comme take-profit final.
+//   Plutôt que d'attendre les grands retournements sur les sommets et
+//   creux majeurs, qui demandent de la patience et se présentent
+//   rarement, ce module exploite les vagues intermédiaires. Il
+//   correspond aux 80 % du mouvement décrits par la règle des 80/20. »
+//
+// C'est le SECOND détecteur. §15.3 : « le code comporte un module
+// d'entrée UNIQUE alimenté par plusieurs détecteurs » — c'est pour ça
+// que ce bloc ne fabrique aucun trade lui-même : il lève un signal, que
+// le module d'ouverture existant traite exactement comme les autres,
+// avec les mêmes contrôles de risque et les mêmes coupe-circuits.
+//
+// §16.3 LE DÉCLENCHEMENT EN TROIS TEMPS, dans cet ordre, sans exception
+//
+//   TEMPS 1 CHASSE   le prix vient chasser l'inducement LTF et liquide
+//                    les traders entrés trop tôt à contre-tendance ;
+//   TEMPS 2 CONTACT  le prix tape dans la zone d'intervention LTF,
+//                    alignée avec le sens du flux majeur H1 ;
+//   TEMPS 3 RÉACTION Market Shift ou cassure de structure mineure dans
+//                    le sens de la tendance => SIGNAL D'ENTRÉE.
+//
+// « Un contact sans réaction n'est pas un signal. Une réaction sans
+//   chasse préalable n'en est pas un non plus. »
+//
+// Sur la CIBLE (§16.4) : le take-profit final est le sommet (ou le
+// creux) précédent dans le sens de la tendance — un niveau CONNU À
+// L'AVANCE, donc un RR calculable dès l'entrée. C'est ce que le
+// document appelle « cible BOS » ; selon la convention de la §3, il
+// s'agit techniquement d'un BMS, et le code le traite comme tel.
+//
+// SUR LE RANG B (§16.6 contre §6.2). La §16.6 pose « rang fractal
+// minimum : B », mais la §6.2 ligne B est catégorique : quand le H1
+// n'est que le retracement du flux D1/H4, « on NE VEND PAS ». Les deux
+// règles se contredisent en apparence. Le code tranche par la plus
+// protectrice : le rang B laisse le module VEILLER et construire sa
+// séquence, mais l'ouverture reste refusée tant que le H1 ne s'est pas
+// retourné — moment où la configuration devient un rang A et où le
+// trade part normalement. Rien n'est perdu, tout est retardé.
+//=====================================================================
+
+// Le niveau du Market Shift. Calculé au niveau GLOBAL et avec une
+// longueur constante : jamais dans un `if`, jamais avec une longueur
+// variable — c'est cette erreur-là qui faisait exploser le buffer
+// historique et vidait le graphique entier.
+float v3MinorHi = ta.highest(high, v3ContReactLen)
+float v3MinorLo = ta.lowest(low, v3ContReactLen)
+
+var int   v3ContStep = 0    // 0 = rien · 1 = chasse faite · 2 = contact fait
+var int   v3ContDir  = 0
+var int   v3ContBar  = na   // bougie de la chasse, pour l'expiration
+var float v3ContTgt  = na   // cible BOS figée au moment de la chasse
+
+bool v3ContChase   = false
+bool v3ContContact = false
+bool v3ContFire    = false
+
+// §16.1 — LE FILTRE MAJEUR, condition d'existence du module.
+// « Règle d'or : la structure majeure doit être clairement orientée.
+//   Le module ne s'active jamais sur un biais neutre. »
+bool v3ContRankOk = not v3ContNeedRankAB or (v3Rank == 1 or v3Rank == 2)
+bool v3ContArmed  = v3ContOn and h1Bias != 0 and v3ContRankOk
+
+if not v3ContArmed
+    v3ContStep := 0
+    v3ContDir  := 0
+else
+    // ── Invalidations, testées AVANT de progresser dans la séquence ──
+    if v3ContStep > 0
+        // Le flux majeur s'est retourné : la séquence n'a plus d'objet.
+        if v3ContDir != h1Bias
+            v3ContStep := 0
+            v3ContDir  := 0
+        // §16.6 — expiration après 30 bougies de l'unité d'analyse.
+        else if not na(v3ContBar) and bar_index - v3ContBar >= v3ContExpiry
+            v3ContStep := 0
+            v3ContDir  := 0
+
+    // ── TEMPS 1 — CHASSE ────────────────────────────────────────────
+    // L'inducement LTF vient d'être balayé. Le moteur marque ce moment
+    // précis en posant armBar sur la bougie courante : on le relit ici
+    // au lieu de refaire la détection, pour que les deux modules ne
+    // puissent jamais diverger sur ce qu'est une prise de liquidité.
+    if armDir != 0 and armBar == bar_index and armDir == h1Bias
+        v3ContStep := 1
+        v3ContDir  := armDir
+        v3ContBar  := bar_index
+        v3ContChase := true
+        // §16.4 — la cible est FIGÉE ici, tant qu'elle est encore devant
+        // le prix. Un objectif recalculé en route ne serait plus un
+        // niveau connu à l'avance, et le RR annoncé deviendrait faux.
+        v3ContTgt := na
+        if armDir == 1 and not na(bosHigh) and bosHigh > close
+            v3ContTgt := bosHigh
+        if armDir == -1 and not na(bosLow) and bosLow < close
+            v3ContTgt := bosLow
+
+    // ── TEMPS 2 — CONTACT ───────────────────────────────────────────
+    // Le prix tape la zone d'intervention (la Signature créée par la
+    // chasse). sigZoneDir vaut le sens de la zone qui contient le prix.
+    if v3ContStep == 1 and sigZoneDir == v3ContDir
+        v3ContStep := 2
+        v3ContContact := true
+
+    // ── TEMPS 3 — RÉACTION ──────────────────────────────────────────
+    // Market Shift : clôture au-delà du plus haut / plus bas des
+    // dernières bougies, dans le sens du flux. Lu sur la bougie
+    // PRÉCÉDENTE pour que la bougie courante ne se compare pas à
+    // elle-même — sinon la condition serait vraie en permanence.
+    //
+    // La réaction doit tomber sur une bougie POSTÉRIEURE à la chasse.
+    // La chasse et le contact peuvent légitimement se produire sur la
+    // même bougie — celle qui balaye l'inducement tape aussi la zone —
+    // mais si la réaction s'y ajoutait, les « trois temps » tiendraient
+    // dans une seule bougie et la règle ne voudrait plus rien dire.
+    if v3ContStep == 2 and not na(v3ContBar) and bar_index > v3ContBar
+        bool reactBull = v3ContDir == 1  and close > v3MinorHi[1]
+        bool reactBear = v3ContDir == -1 and close < v3MinorLo[1]
+        if reactBull or reactBear
+            // La cible doit toujours être devant : si le prix l'a déjà
+            // dépassée pendant la séquence, le colis est livré, il n'y a
+            // plus rien à aller chercher.
+            bool tgtAhead = not na(v3ContTgt) and
+                 (v3ContDir == 1 ? v3ContTgt > close : v3ContTgt < close)
+            if tgtAhead
+                v3ContFire := true
+            // Qu'elle tire ou non, la séquence est consommée : on ne
+            // rejoue pas la même réaction bougie après bougie.
+            v3ContStep := 0
+
+bool contSignalBuy  = v3ContFire and v3ContDir == 1
+bool contSignalSell = v3ContFire and v3ContDir == -1
+
+// ── Marquage graphique des trois temps ──────────────────────────────
+//
+// PLAFONNÉ. TradingView limite un script à 500 étiquettes et supprime
+// SILENCIEUSEMENT les plus anciennes au-delà : sans plafond ici, ces
+// marqueurs finiraient par évincer les BOS et les BMS du graphique.
+// On garde les 30 derniers, largement de quoi relire les séquences
+// récentes, et on rend les slots au reste du script.
+var label[] v3ContLbls = array.new_label()
+
+f_v3Mark(string txt, color bg, color tx, string sz) =>
+    label lb = label.new(bar_index, v3ContDir == 1 ? low : high, txt,
+         style=v3ContDir == 1 ? label.style_label_up : label.style_label_down,
+         color=bg, textcolor=tx, size=sz)
+    array.push(v3ContLbls, lb)
+    if array.size(v3ContLbls) > 30
+        label.delete(array.shift(v3ContLbls))
+
+if v3ShowContBox and not lblNone
+    if v3ContChase
+        f_v3Mark("1 CHASSE", color.new(v3ContCol, 80), v3ContCol, size.tiny)
+    if v3ContContact
+        f_v3Mark("2 CONTACT", color.new(v3ContCol, 65), v3ContCol, size.tiny)
+    if v3ContFire
+        f_v3Mark("3 RÉACTION → " + (v3ContDir == 1 ? "ACHAT" : "VENTE") +
+             " · cible " + str.tostring(v3ContTgt, format.mintick),
+             color.new(v3ContCol, 30), color.white, size.small)
+
+
+//=====================================================================
 // DASHBOARD — lit uniquement l'état du moteur, fonctionne même si tous
 // les autres modules d'affichage sont désactivés
 //=====================================================================
@@ -3575,13 +3906,27 @@ f_v2Tp3(int dir, float riskPx) =>
             p3 := targetLevel
     p3
 
-f_trFire(int dir, float idmLvl) =>
+f_trFire(int dir, float idmLvl, float tpOverride) =>
     float riskPx = f_v2Risk(dir, idmLvl)
 
     float stPx = dir == 1 ? close - riskPx : close + riskPx
     float p1   = dir == 1 ? close + riskPx * rMul1 : close - riskPx * rMul1
     float p2   = dir == 1 ? close + riskPx * rMul2 : close - riskPx * rMul2
     float p3   = f_v2Tp3(dir, riskPx)
+
+    // SPEC v3.0 §16.4 — TP FINAL DU MODULE DE CONTINUATION.
+    // « Le sommet ou le creux précédent : un niveau connu à l'avance,
+    //   pas une estimation. » Il remplace alors l'échelle en R.
+    if not na(tpOverride)
+        p3 := tpOverride
+        // La cible BOS est souvent PLUS PROCHE que le TP2 théorique en R
+        // — c'est même normal sur une vague intermédiaire. Sans ce
+        // resserrement, le TP2 serait au-delà du TP3 et le trade se
+        // clôturerait avant d'avoir pris son premier palier.
+        float span = math.abs(p3 - close)
+        if span > 0 and span < math.abs(p2 - close)
+            p1 := close + (dir == 1 ? span * 0.33 : -span * 0.33)
+            p2 := close + (dir == 1 ? span * 0.66 : -span * 0.66)
 
     SmvTrade t = SmvTrade.new(dir=dir, entry=close, stop=stPx, t1=p1, t2=p2, t3=p3,
          openBar=bar_index, stage=0, done=false)
@@ -3739,13 +4084,43 @@ if showTradePlan and atrReady and array.size(smvTrades) > 0
 // confirmedTrend == 0 = aucune structure encore confirmée : on laisse
 // passer, il n'y a pas encore de sens à contredire.
 //---------------------------------------------------------------------
-int  trSigDir = entrySignalBuy ? 1 : entrySignalSell ? -1 : 0
+// SPEC v3.0 §15.3 — UN MODULE D'ENTRÉE UNIQUE, PLUSIEURS DÉTECTEURS.
+//
+// « Dans les deux cas, l'entrée passe par la même mécanique. Seul le
+//   déclencheur amont diffère. Le code comporte donc un module d'entrée
+//   unique alimenté par plusieurs détecteurs, ce qui réduit la surface
+//   de bug et garantit que les deux types de setup respectent les mêmes
+//   contrôles de risque. »
+//
+// Détecteur 1 (structurel, §11-§14) : récupération de l'IDM majeur.
+// Détecteur 2 (continuation LTF, §16) : la séquence en trois temps.
+//
+// Le structurel est prioritaire quand les deux parlent sur la même
+// bougie : il s'appuie sur un inducement majeur, donc sur une lecture
+// plus lente et plus fiable que la vague intermédiaire.
+int  trSigDir = entrySignalBuy ? 1 : entrySignalSell ? -1 :
+     contSignalBuy ? 1 : contSignalSell ? -1 : 0
+bool trIsCont = not entrySignalBuy and not entrySignalSell and
+     (contSignalBuy or contSignalSell)
 // smvBuyOk / smvSellOk (module 15) remplacent l'ancien test sur
 // confirmedTrend : celui-ci basculait sur un creux de 10 bougies, donc un
 // simple retracement autorisait des ventes en pleine structure haussière.
 // La nouvelle lecture n'accepte le changement de sens que sur clôture
 // au-delà du dernier point protégé, et exige en plus la confluence.
-bool trDirOk  = trSigDir == 1 ? smvBuyOk : trSigDir == -1 ? smvSellOk : false
+// Le détecteur de continuation NE PASSE PAS par ce filtre-ci, et c'est
+// volontaire. smvBuyOk / smvSellOk exigent que la structure du graphique
+// courant soit déjà orientée dans le sens du trade — or le module de la
+// §16 existe précisément pour entrer AU MOMENT où la LTF bascule
+// (le Market Shift du TEMPS 3). Lui imposer une structure déjà retournée
+// reviendrait à ne jamais le laisser tirer, et à supprimer le mode de
+// trading le plus fréquent de la méthode.
+//
+// Il n'est pas pour autant sans garde-fou : son filtre amont à lui est
+// le biais H1 (§16.1) plus le rang fractal (§16.6), et il subit ensuite
+// EXACTEMENT les mêmes contrôles aval que le détecteur structurel —
+// rang, convergence, zone interdite, session, RR net, coupe-circuits.
+bool trDirOk  = trIsCont ? true :
+     trSigDir == 1 ? smvBuyOk : trSigDir == -1 ? smvSellOk : false
 
 //---------------------------------------------------------------------
 // SPEC v2.0 — LES QUATRE REFUS, DANS L'ORDRE DE LA SPEC
@@ -3764,15 +4139,45 @@ float v2RiskNow = na
 float v2Tp3Now  = na
 float v2RrNow   = na
 
+// SPEC v3.0 §16.4 — la cible du module de continuation remplace le TP
+// calculé en R : c'est le sommet (ou le creux) précédent, connu à
+// l'avance, donc le RR est calculable dès l'entrée.
+float v3TpOverride = trIsCont ? v3ContTgt : na
+
 if trSigDir != 0 and atrReady
     v2RiskNow := f_v2Risk(trSigDir, entryIdmLvl)
     if not na(v2RiskNow) and v2RiskNow > 0
-        v2Tp3Now := f_v2Tp3(trSigDir, v2RiskNow)
-        v2RrNow  := math.abs(v2Tp3Now - close) / v2RiskNow
+        v2Tp3Now := na(v3TpOverride) ? f_v2Tp3(trSigDir, v2RiskNow) : v3TpOverride
 
-// §16.3 — « RR minimum 1:3. En dessous, le setup est rejeté
-// automatiquement. » Le trade n'est pas ouvert du tout.
+        // SPEC v3.0 §18.3 — LE RR S'ENTEND NET DE SPREAD.
+        //
+        // « Sur des cibles rapprochées, le spread pèse
+        //   proportionnellement plus lourd. Le RR calculé doit être net
+        //   de spread, pas brut. » (§16.7)
+        //
+        // Le spread se paie DEUX fois dans un ratio : il ampute le gain
+        // ET il allonge la perte. On l'enlève au numérateur et on
+        // l'ajoute au dénominateur — c'est ce qui rend le chiffre
+        // honnête sur une cible proche, là où un RR brut de 1:3 peut
+        // n'être qu'un 1:2 réel.
+        float spreadPx = v3SpreadTicks * syminfo.mintick
+        float netGain  = math.abs(v2Tp3Now - close) - spreadPx
+        float netRisk  = v2RiskNow + spreadPx
+        v2RrNow := netRisk > 0 ? math.max(netGain, 0.0) / netRisk : na
+
+// §16.3 v2.0 / §18.3 v3.0 — « RR minimum 1:3. En dessous, le setup est
+// rejeté automatiquement. » Le trade n'est pas ouvert du tout.
 bool v2RrOk = not v2UseRrGate or (not na(v2RrNow) and v2RrNow >= v2RrMin)
+
+// SPEC v3.0 §6.2 — LES PORTES DU RANG FRACTAL.
+//   Rang D : aucune position, quel qu'en soit le sens.
+//   Rang B : le sens du H1 est interdit — c'est le retracement du flux
+//            de fond, pas un signal. On prépare l'inverse et on attend.
+bool v3RankOk = not (v3RankBlocksAll or (v3RankBlocksH1 and trSigDir == h1Bias))
+
+// SPEC v3.0 §5.4 — CONVERGENCE DU TEMPS. Optionnelle : sévère, elle
+// réduit fortement le nombre de signaux, donc décochée par défaut.
+bool v3ConvGateOk = not v3UseConv or trSigDir == 0 or ltfBias == trSigDir
 
 // §17 — coupe-circuits journaliers.
 bool v2CbTrades = v2UseBreakers and v2TradesToday >= v2MaxTrades
@@ -3788,7 +4193,14 @@ bool v2FbOk = not v2ShowForbidden or not v2InForbidden
 // Motif de refus, en clair. Priorité à la règle la plus structurelle.
 string v2RejectTxt = "-"
 if trSigDir != 0
-    if not v2FbOk
+    if v3RankBlocksAll
+        v2RejectTxt := "§6.2 rang D — aucun biais H1, aucune position"
+    else if v3RankBlocksH1 and trSigDir == h1Bias
+        v2RejectTxt := "§6.2 rang B — le H1 n'est que le retracement du flux " +
+             (d1Bias == 1 ? "haussier" : "baissier") + ", on prépare l'inverse"
+    else if not v3ConvGateOk
+        v2RejectTxt := "§5.4 convergence du temps non atteinte (" + v3TfConv + ")"
+    else if not v2FbOk
         v2RejectTxt := "§10.3 zone interdite — l'IDM n'est pas encore liquidé"
     else if not v2SessOk
         v2RejectTxt := "§6 hors session (Asie interdite)"
@@ -3804,9 +4216,14 @@ if trSigDir != 0
     else if not trDirOk
         v2RejectTxt := "§7.3 signal contraire au biais"
 
-if showTradePlan and atrReady and trSigDir != 0 and trDirOk and v2RrOk and not v2Halted and v2SessOk and v2FbOk
+if showTradePlan and atrReady and trSigDir != 0 and trDirOk and v2RrOk and
+     not v2Halted and v2SessOk and v2FbOk and v3RankOk and v3ConvGateOk
     if f_trOpenCount() < maxOpenTr
-        f_trFire(trSigDir, entryIdmLvl)
+        f_trFire(trSigDir, entryIdmLvl, v3TpOverride)
+        // §19 — « Trades maximum par jour : 3, TOUS MODULES CONFONDUS.
+        // S'applique aussi au module de continuation, qui produit
+        // davantage de signaux. » Le compteur est donc commun aux deux
+        // détecteurs, jamais un compteur par module.
         v2TradesToday += 1
 
 // Purge des plus anciens trades TERMINÉS (un trade en cours n'est jamais
@@ -4849,7 +5266,7 @@ f_v2Pos() =>
         "En bas à gauche"    => position.bottom_left
         => position.top_right
 
-var table v2Tbl = table.new(f_v2Pos(), 2, 15, border_width=1,
+var table v2Tbl = table.new(f_v2Pos(), 2, 19, border_width=1,
      frame_color=color.new(color.gray, 60), frame_width=1,
      border_color=color.new(color.gray, 80))
 
@@ -4870,19 +5287,30 @@ f_v2Row(int r, string lab, string val, color c) =>
     table.cell(v2Tbl, 1, r, val, text_color=c, text_size=size.tiny,
          bgcolor=v2Bg, text_halign=text.align_left)
 
+// Traduction d'un biais en mot. Déclarée ici, au niveau global : Pine
+// n'autorise aucune déclaration de fonction à l'intérieur d'un `if`.
+f_v3BTxt(int b) =>
+    b == 1 ? "haussier" : b == -1 ? "baissier" : "neutre"
+
 if v2ShowPanel and barstate.islast
 
     //-----------------------------------------------------------------
-    // §15 — MACHINE À ÉTATS. On lit l'état RÉEL du moteur et on le
-    // traduit dans la numérotation de la spec, du plus avancé au moins
-    // avancé : le premier qui correspond gagne.
+    // SPEC v3.0 §17 — MACHINE À ÉTATS, DEUX PARCOURS
     //
-    // Les états 10 (validation humaine) et 11 (exécution) n'existent pas
-    // dans un indicateur — ils appartiennent à l'agent MoonX. L'état 11
-    // est tout de même affiché à la bougie où le signal part, parce que
-    // c'est exactement ce moment-là.
+    // La v3.0 dédouble la séquence après l'état 2 :
+    //
+    //   ETAT 2   AIGUILLAGE DE MODULE
+    //   3S..7S   PARCOURS STRUCTUREL     (inducement majeur, §11-§14)
+    //   3C..6C   PARCOURS CONTINUATION   (les trois temps LTF, §16)
+    //   8..12    TRONC COMMUN            (risque, coupe-circuits,
+    //                                     validation, exécution, gestion)
+    //
+    // On lit l'état RÉEL du moteur et on le traduit dans cette
+    // numérotation, du plus avancé au moins avancé : le premier qui
+    // correspond gagne. L'état 10 (validation humaine) n'existe pas dans
+    // un indicateur, il appartient à l'agent MoonX.
     //-----------------------------------------------------------------
-    int    v2State  = 0
+    string v2State  = "0"
     string v2StName = "SCAN CONTINU — aucune structure exploitable"
     color  v2StCol  = v2Neu
 
@@ -4894,45 +5322,63 @@ if v2ShowPanel and barstate.islast
         idmActiveV2 := not array.get(idmDone, nIdmV2 - 1)
 
     if f_trOpenCount() > 0
-        v2State  := 12
+        v2State  := "12"
         v2StName := "GESTION DE POSITION — partiels, BE, sous-structure"
         v2StCol  := v2Ok
-    else if trSigDir != 0 and trDirOk and v2RrOk and not v2Halted and v2SessOk and v2FbOk
-        v2State  := 11
-        v2StName := "EXÉCUTION — passer l'ordre ET poser SL et TP"
+    else if trSigDir != 0 and trDirOk and v2RrOk and not v2Halted and v2SessOk and
+         v2FbOk and v3RankOk and v3ConvGateOk
+        v2State  := "11"
+        v2StName := (trIsCont ? "EXÉCUTION (continuation §16) — " : "EXÉCUTION (structurel) — ") +
+             (trSigDir == 1 ? "ACHAT" : "VENTE") + ", poser SL et TP"
         v2StCol  := trSigDir == 1 ? entryBuyCol : entrySellCol
     else if trSigDir != 0
-        v2State  := 9
+        v2State  := "9"
         v2StName := "CONTRÔLES COUPE-CIRCUIT — setup refusé"
         v2StCol  := v2Bad
+    // ── Parcours continuation LTF : il est prioritaire à l'affichage
+    // quand sa séquence est en cours, parce que c'est LUI qui bouge.
+    else if v3ContStep == 2
+        v2State  := "6C"
+        v2StName := "TROIS TEMPS — chasse ✓ contact ✓, on attend le Market Shift"
+        v2StCol  := v3ContCol
+    else if v3ContStep == 1
+        v2State  := "5C"
+        v2StName := "TROIS TEMPS — chasse ✓, on attend le contact avec la zone"
+        v2StCol  := v3ContCol
     else if trigArmed
-        v2State  := 7
+        v2State  := "7S"
         v2StName := armDeep ?
-             "RAFFINAGE LTF — 0.5 pris, on attend la signature" :
-             "RAFFINAGE LTF — on attend le 0.5"
+             "ATTENTE + RAFFINAGE LTF — 0.5 pris, on attend la signature" :
+             "ATTENTE + RAFFINAGE LTF — on attend le 0.5"
         v2StCol  := v2Warn
     else if sigZoneDir != 0
-        v2State  := 6
+        v2State  := "7S"
         v2StName := "ATTENTE DU RETOUR DU PRIX — le prix est sur la zone"
         v2StCol  := v2Warn
     else if array.size(sniperRefineBx) > 0
-        v2State  := 5
+        v2State  := "6S"
         v2StName := "ZONE D'INTERVENTION créée — l'IDM a été liquidé"
         v2StCol  := refineCol
     else if idmActiveV2
-        v2State  := 4
+        v2State  := "5S"
         v2StName := "DÉCLENCHEUR — inducement identifié, PAS encore liquidé"
         v2StCol  := idmActiveCol
     else if v2HasEqh or v2HasEql
-        v2State  := 3
+        v2State  := "4S"
         v2StName := "LIQUIDITÉ — Intacts recensés, pas d'inducement actif"
         v2StCol  := v2Neu
+    else if v3Rank == 4
+        v2State  := "1"
+        v2StName := "BIAIS ET RANG — rang D, retour à l'état 0"
+        v2StCol  := rangeCol
     else if h1Bias != 0
-        v2State  := 2
-        v2StName := "ZONE FIB — biais établi, on attend la bonne moitié"
+        v2State  := v3ContArmed ? "2" : "3S"
+        v2StName := v3ContArmed ?
+             "AIGUILLAGE — biais et rang établis, les deux modules veillent" :
+             "ZONE FIB — biais établi, on attend la bonne moitié"
         v2StCol  := v2Neu
     else
-        v2State  := 1
+        v2State  := "1"
         v2StName := "BIAIS — consolidation H1, retour à l'état 0"
         v2StCol  := rangeCol
 
@@ -5041,28 +5487,63 @@ if v2ShowPanel and barstate.islast
     //-----------------------------------------------------------------
     // Rendu
     //-----------------------------------------------------------------
-    table.cell(v2Tbl, 0, 0, "SPEC SMV v2.0 — ÉTAT " + str.tostring(v2State),
+    //-----------------------------------------------------------------
+    // SPEC v3.0 §6 — RANG FRACTAL et cascade D1 / H4 / H1.
+    //-----------------------------------------------------------------
+    string v3CascTxt = "D1 " + f_v3BTxt(d1Bias) + " · H4 " + f_v3BTxt(h4Bias) +
+         " · H1 " + f_v3BTxt(h1Bias)
+    string v3RankFull = not v3UseRank ? "calcul désactivé" :
+         v3RankTxt + "  —  risque " + str.tostring(v3RiskPct, "#.#") + " %" +
+         (v3Rank == 2 ? "  ·  préparer " + (v3PrepDir == 1 ? "ACHAT" : "VENTE") +
+              ", ne pas suivre le H1" : "")
+    color v3RankCol = not v3UseRank ? v2Neu :
+         v3Rank == 1 ? v2Ok : v3Rank == 2 ? v2Warn : v3Rank == 3 ? v2Warn : v2Bad
+
+    // §16 — état de la séquence de continuation, en trois temps.
+    string v3ContTxt = not v3ContOn ? "module désactivé" :
+         not v3ContArmed ? "en veille — biais ou rang insuffisant" :
+         v3ContStep == 2 ? "① chasse ✓  ② contact ✓  ③ ⏳ Market Shift" :
+         v3ContStep == 1 ? "① chasse ✓  ② ⏳ contact  ③ —" :
+         "① ⏳ chasse  ② —  ③ —"
+    color v3ContTxtCol = not v3ContArmed ? v2Neu : v3ContStep > 0 ? v3ContCol : v2Neu
+
+    // Affichée UNIQUEMENT tant qu'une séquence est en cours. Une cible
+    // figée lors d'une séquence déjà consommée n'est plus un objectif,
+    // et la laisser à l'écran ferait croire à un trade encore vivant.
+    string v3ContTgtTxt = v3ContStep == 0 or na(v3ContTgt) ? "—" :
+         "cible BOS " + str.tostring(v3ContTgt, format.mintick) +
+         (v3ContDir == 1 ? " (sommet précédent)" : " (creux précédent)")
+
+    color v3ConvCol = v3ConvOk ? v2Ok : v3ConvRetrace ? v2Warn : v2Neu
+
+    //-----------------------------------------------------------------
+    // Rendu
+    //-----------------------------------------------------------------
+    table.cell(v2Tbl, 0, 0, "SPEC SMV v3.0 — ÉTAT " + v2State,
          bgcolor=v2Hdr, text_color=color.white, text_size=size.tiny, text_halign=text.align_left)
     table.cell(v2Tbl, 1, 0, v2StName, bgcolor=v2Hdr, text_color=v2StCol,
          text_size=size.tiny, text_halign=text.align_left)
 
-    f_v2Row(1,  "§7.3 Biais H1",              v2BiasTxt, v2BiasCol)
-    f_v2Row(2,  "§8 Zone fib (0 / 50 / 100)", v2FibTxt,  v2FibCol)
-    f_v2Row(3,  "§7.1 Amplitude structure",   v2AmpTxt,  v2AmpCol)
-    f_v2Row(4,  "§9.4 EQH / EQL",             v2EqTxt,   v2EqCol)
-    f_v2Row(5,  "§10.3 Zone interdite",       v2FbTxt,   v2FbCol)
-    f_v2Row(6,  "§10.5 Inducement",           v2IdmTxt,  v2IdmCol)
-    f_v2Row(7,  "§12.4 Zone Signature",       v2ZoneTxt, v2ZoneCol)
-    f_v2Row(8,  "§6 Session (Abidjan/UTC)",   v2SessTxt, v2SessCol)
-    f_v2Row(9,  "§16.1 Stop",                 v2SlTxt,   v2SlCol)
-    f_v2Row(10, "§16.3 Risk / Reward",        v2RrTxt,   v2RrCol)
-    f_v2Row(11, "§17 Compteurs du jour",      v2CntTxt,  v2CntCol)
-    f_v2Row(12, "§17 Journée",                v2HaltTxt, v2HaltCol)
-    f_v2Row(13, "§18.3 Motif de refus",       v2RejectTxt,
+    f_v2Row(1,  "§6.2 Rang fractal",          v3RankFull, v3RankCol)
+    f_v2Row(2,  "§5.1 Cascade D1 / H4 / H1",  v3CascTxt,  v2Neu)
+    f_v2Row(3,  "§5.4 Convergence du temps",  v3ConvTxt,  v3ConvCol)
+    f_v2Row(4,  "§16.3 Continuation LTF",     v3ContTxt,  v3ContTxtCol)
+    f_v2Row(5,  "§16.4 Cible du module",      v3ContTgtTxt,
+         v3ContStep == 0 or na(v3ContTgt) ? v2Neu : v3ContCol)
+    f_v2Row(6,  "§8.3 Biais H1",              v2BiasTxt, v2BiasCol)
+    f_v2Row(7,  "§9 Zone fib (0 / 50 / 100)", v2FibTxt,  v2FibCol)
+    f_v2Row(8,  "§8.1 Amplitude structure",   v2AmpTxt,  v2AmpCol)
+    f_v2Row(9,  "§10.4 EQH / EQL",            v2EqTxt,   v2EqCol)
+    f_v2Row(10, "§11.3 Zone interdite",       v2FbTxt,   v2FbCol)
+    f_v2Row(11, "§11.5 Inducement",           v2IdmTxt,  v2IdmCol)
+    f_v2Row(12, "§13.4 Zone Signature",       v2ZoneTxt, v2ZoneCol)
+    f_v2Row(13, "§7 Session (Abidjan/UTC)",   v2SessTxt, v2SessCol)
+    f_v2Row(14, "§18.1 Stop",                 v2SlTxt,   v2SlCol)
+    f_v2Row(15, "§18.3 RR net de spread",     v2RrTxt,   v2RrCol)
+    f_v2Row(16, "§19 Compteurs du jour",      v2CntTxt,  v2CntCol)
+    f_v2Row(17, "§19 Journée",                v2HaltTxt, v2HaltCol)
+    f_v2Row(18, "§20.3 Motif de refus",       v2RejectTxt,
          v2RejectTxt == "-" ? v2Neu : v2Bad)
-    f_v2Row(14, "§16.2 TP final (liquidité)",
-         targetValid ? str.tostring(targetLevel, format.mintick) : "—",
-         targetValid ? tpCol : v2Neu)
 
 
 //=====================================================================
@@ -5074,3 +5555,18 @@ alertcondition(v2InForbidden and not v2InForbidden[1],
 alertcondition(v2ExpiredNow > 0,
      "§10.5 Inducement expiré",
      "SMV SPEC §10.5 : un inducement non liquidé vient d'être retiré de la liste active (30 bougies écoulées).")
+alertcondition(v3ContChase,
+     "§16.3 TEMPS 1 — chasse de l'inducement LTF",
+     "SMV SPEC §16.3 : le prix vient de chasser l'inducement LTF. Sequence de continuation demarree — on attend le contact avec la zone d'intervention.")
+alertcondition(v3ContContact,
+     "§16.3 TEMPS 2 — contact avec la zone",
+     "SMV SPEC §16.3 : le prix tape la zone d'intervention LTF. Il ne manque plus que le Market Shift dans le sens du flux.")
+alertcondition(contSignalBuy,
+     "§16 Continuation ACHAT (cible BOS)",
+     "SMV SPEC §16 : les trois temps sont reunis dans le sens haussier — chasse, contact, Market Shift. Entree ACHAT, objectif final sur le sommet precedent.")
+alertcondition(contSignalSell,
+     "§16 Continuation VENTE (cible BOS)",
+     "SMV SPEC §16 : les trois temps sont reunis dans le sens baissier — chasse, contact, Market Shift. Entree VENTE, objectif final sur le creux precedent.")
+alertcondition(v3Rank == 4 and v3Rank[1] != 4,
+     "§6.2 Passage en rang D",
+     "SMV SPEC §6.2 : le biais operationnel H1 a disparu. Rang D — aucune position jusqu'a nouvel ordre.")
