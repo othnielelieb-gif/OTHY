@@ -269,7 +269,17 @@ f_h1Bias() =>
                 sLow := low
                 sLowBar := bar_index
 
-    sBias
+    // SPEC v3.0 §9.1/§9.2 — sHigh/sLow SONT déjà le plus-haut-majeur et
+    // le plus-bas-majeur de cette unité de temps, au sens exact de la
+    // spec : ils ne bougent QUE sur une cassure réelle (lowBroken /
+    // highBroken) ou sur une extension du côté qui n'a pas encore cassé.
+    // C'est exactement la règle de ré-ancrage du §9.2 :
+    //   SI clôture < plus_bas_majeur ALORS nouveau plus_bas, redessiner
+    //   SI clôture > plus_haut_majeur ALORS nouveau plus_haut, redessiner
+    //   SINON ancrage inchangé
+    // On les renvoie donc avec sBias, sans dupliquer la mécanique
+    // ailleurs — un seul endroit calcule "la structure majeure".
+    [sBias, sHigh, sLow]
 
 //=====================================================================
 // 2. IDM (Inducement) — LE plus important : c'est là que tu attends le
@@ -1151,7 +1161,10 @@ if showCurrentStruct and okCurStr
 // f_h1Bias() (sans dessin) au lieu de `bias` : `bias` est calculé dans le
 // même bloc que les lignes BOS/BMS (line.new), ce que request.security
 // refuse ou exécute mal — d'où le dashboard qui ne s'affichait plus.
-int h1Bias = request.security(syminfo.tickerid, "60", f_h1Bias(), lookahead=barmerge.lookahead_off)
+// h1MajHi / h1MajLo : la structure majeure H1 elle-même — plus-haut et
+// plus-bas majeurs, au sens exact du §9.1. Sert d'ancrage au module Fib
+// Premium/Discount v3.0 juste après le bloc IDM.
+[h1Bias, h1MajHi, h1MajLo] = request.security(syminfo.tickerid, "60", f_h1Bias(), lookahead=barmerge.lookahead_off)
 
 
 //=====================================================================
@@ -1176,8 +1189,8 @@ int h1Bias = request.security(syminfo.tickerid, "60", f_h1Bias(), lookahead=barm
 // direction. » Le rang ne renverse donc jamais le sens d'un signal, il
 // se contente de l'autoriser, de le déclasser ou de le refuser.
 //=====================================================================
-int d1Bias = request.security(syminfo.tickerid, v3TfD1, f_h1Bias(), lookahead=barmerge.lookahead_off)
-int h4Bias = request.security(syminfo.tickerid, v3TfH4, f_h1Bias(), lookahead=barmerge.lookahead_off)
+[d1Bias, d1MajHi, d1MajLo] = request.security(syminfo.tickerid, v3TfD1, f_h1Bias(), lookahead=barmerge.lookahead_off)
+[h4Bias, h4MajHi, h4MajLo] = request.security(syminfo.tickerid, v3TfH4, f_h1Bias(), lookahead=barmerge.lookahead_off)
 
 // Rang : 1 = A (Premium), 2 = B (Retracement), 3 = C (Divergent),
 //        4 = D (Écarté). 0 = calcul désactivé.
@@ -1248,7 +1261,7 @@ bool v3RankBlocksH1  = v3UseRank and v3BlockRankB and v3Rank == 2
 // Symétrique à la vente. Le retracement contre-tendance n'est JAMAIS
 // tradé pour lui-même.
 //=====================================================================
-int ltfBias = request.security(syminfo.tickerid, v3TfConv, f_h1Bias(), lookahead=barmerge.lookahead_off)
+[ltfBias, ltfMajHi, ltfMajLo] = request.security(syminfo.tickerid, v3TfConv, f_h1Bias(), lookahead=barmerge.lookahead_off)
 
 // Convergence atteinte = la LTF regarde dans le même sens que le H1.
 bool v3ConvOk = h1Bias != 0 and ltfBias == h1Bias
@@ -1262,6 +1275,84 @@ string v3ConvTxt = h1Bias == 0 ? "biais H1 absent" :
           "retracement " + v3TfConv + " — préparer un ACHAT, ne pas vendre" :
           "retracement " + v3TfConv + " — préparer une VENTE, ne pas acheter") :
      v3TfConv + " sans direction — attendre"
+
+
+//=====================================================================
+// SPEC v3.0 §9 — PREMIUM ET DISCOUNT, ANCRÉ SUR LA STRUCTURE MAJEURE H1
+//
+// « Outil : retracement de Fibonacci avec trois niveaux — 0 %, 50 %,
+//   100 %. Ancrage : la structure majeure H1. Du plus bas majeur au
+//   plus haut majeur de l'unité de décision. Le niveau 50 % constitue
+//   l'équilibre. »
+//
+// §9.2 RÈGLE DE RÉ-ANCRAGE (reprise mot pour mot du pseudocode) :
+//   SI clôture H1 < plus_bas_majeur ALORS nouveau plus_bas_majeur, redessiner
+//   SI clôture H1 > plus_haut_majeur ALORS nouveau plus_haut_majeur, redessiner
+//   SINON ancrage inchangé
+//
+// h1MajHi / h1MajLo (lus juste au-dessus, via f_h1Bias sur "60") SONT
+// déjà ce plus-haut et ce plus-bas majeurs : ils ne bougent QUE sur une
+// vraie cassure H1 ou sur l'extension du côté encore non cassé — c'est
+// exactement la mécanique décrite ci-dessus, sans rien dupliquer.
+//
+// §9.3 : Au-dessus du 50 % = Premium, VENTES uniquement. En dessous =
+// Discount, ACHATS uniquement. « Un décompte Wyckoff parfait dans la
+// mauvaise zone est un setup rejeté. »
+//
+// §9.3 EXCEPTION ENCADRÉE (rappelée dans le §16.4) : le module de
+// continuation LTF (v3Cont*, plus bas) applique SA PROPRE lecture
+// Premium/Discount à la jambe locale (moveFib50), pas à cette structure
+// majeure. Les deux fib coexistent volontairement, chacune dans son
+// rôle — ce module-ci ne sert que le mode structurel classique.
+//=====================================================================
+gV3fib = "29. SPEC v3.0 §9 — Fib H1 majeur (Premium/Discount)"
+
+v3ShowH1Fib = input.bool(true, "§9 Afficher la zone Premium/Discount H1", group=gV3fib,
+     tooltip="Rectangle du plus bas majeur H1 au plus haut majeur H1, avec le 50 % tracé au milieu. Se redessine UNIQUEMENT quand le §9.2 l'exige — une nouvelle clôture H1 au-delà d'un des deux bords.")
+v3H1FibCol = input.color(#8d6e63, "§9 Couleur du 50 % H1 majeur", group=gV3fib)
+v3H1FibPremCol = input.color(color.new(#ef5350, 88), "§9 Fond Premium (au-dessus du 50 %)", group=gV3fib)
+v3H1FibDiscCol = input.color(color.new(#26a69a, 88), "§9 Fond Discount (en dessous du 50 %)", group=gV3fib)
+v3GateH1Fib = input.bool(false, "§9 Exiger le bon côté du 50 % H1 pour le mode structurel", group=gV3fib,
+     tooltip="Spec §9.3 : achats uniquement en Discount, ventes uniquement en Premium — sur la structure MAJEURE H1, pas sur la jambe locale. Décoché par défaut : cette lecture est plus stricte que le filtre local déjà en place (module 15) et réduirait encore le nombre de signaux. Ne s'applique jamais au module de continuation LTF (§16.4), qui a sa propre exception.")
+
+float v3H1FibTop = na
+float v3H1FibBot = na
+float v3H1Fib50  = na
+
+if not na(h1MajHi) and not na(h1MajLo) and h1MajHi > h1MajLo
+    v3H1FibTop := h1MajHi
+    v3H1FibBot := h1MajLo
+    v3H1Fib50  := (h1MajHi + h1MajLo) / 2.0
+
+bool v3InPremium  = not na(v3H1Fib50) and close > v3H1Fib50
+bool v3InDiscount = not na(v3H1Fib50) and close < v3H1Fib50
+
+var box  v3FibBox = na
+var line v3Fib50Ln = na
+
+if v3ShowH1Fib and not na(v3H1FibTop) and not na(v3H1FibBot)
+    color fibBg = v3InPremium ? v3H1FibPremCol : v3H1FibDiscCol
+    if na(v3FibBox)
+        v3FibBox := box.new(bar_index, v3H1FibTop, bar_index + zoneExt, v3H1FibBot,
+             border_color=color.new(v3H1FibCol, 60), border_width=1,
+             bgcolor=fibBg)
+        v3Fib50Ln := line.new(bar_index, v3H1Fib50, bar_index + zoneExt, v3H1Fib50,
+             color=v3H1FibCol, style=line.style_dashed, width=1)
+    else
+        // Suit le prix comme toutes les autres zones du fichier, et ne
+        // change ses bornes hautes/basses QUE quand h1MajHi/h1MajLo ont
+        // vraiment bougé (§9.2) — pas à chaque bougie.
+        box.set_lefttop(v3FibBox, box.get_left(v3FibBox), v3H1FibTop)
+        box.set_rightbottom(v3FibBox, bar_index + zoneExt, v3H1FibBot)
+        box.set_bgcolor(v3FibBox, fibBg)
+        line.set_xy1(v3Fib50Ln, line.get_x1(v3Fib50Ln), v3H1Fib50)
+        line.set_xy2(v3Fib50Ln, bar_index + zoneExt, v3H1Fib50)
+else if not na(v3FibBox)
+    box.delete(v3FibBox)
+    v3FibBox := na
+    if not na(v3Fib50Ln)
+        line.delete(v3Fib50Ln)
+        v3Fib50Ln := na
 
 
 //=====================================================================
@@ -4179,6 +4270,12 @@ bool v3RankOk = not (v3RankBlocksAll or (v3RankBlocksH1 and trSigDir == h1Bias))
 // réduit fortement le nombre de signaux, donc décochée par défaut.
 bool v3ConvGateOk = not v3UseConv or trSigDir == 0 or ltfBias == trSigDir
 
+// SPEC v3.0 §9.3 — LE BON CÔTÉ DU 50 % H1 MAJEUR. Optionnelle, et NE
+// S'APPLIQUE JAMAIS au détecteur de continuation LTF (§16.4 : il a sa
+// propre lecture Premium/Discount sur la jambe locale).
+bool v3H1FibGateOk = trIsCont or not v3GateH1Fib or trSigDir == 0 or na(v3H1Fib50) or
+     (trSigDir == 1 and v3InDiscount) or (trSigDir == -1 and v3InPremium)
+
 // §17 — coupe-circuits journaliers.
 bool v2CbTrades = v2UseBreakers and v2TradesToday >= v2MaxTrades
 bool v2CbStreak = v2UseBreakers and v2SlStreak >= v2MaxSlStreak
@@ -4200,6 +4297,9 @@ if trSigDir != 0
              (d1Bias == 1 ? "haussier" : "baissier") + ", on prépare l'inverse"
     else if not v3ConvGateOk
         v2RejectTxt := "§5.4 convergence du temps non atteinte (" + v3TfConv + ")"
+    else if not v3H1FibGateOk
+        v2RejectTxt := "§9.3 mauvais côté du 50 % H1 majeur (" +
+             (v3InPremium ? "Premium" : "Discount") + ")"
     else if not v2FbOk
         v2RejectTxt := "§10.3 zone interdite — l'IDM n'est pas encore liquidé"
     else if not v2SessOk
@@ -4217,7 +4317,7 @@ if trSigDir != 0
         v2RejectTxt := "§7.3 signal contraire au biais"
 
 if showTradePlan and atrReady and trSigDir != 0 and trDirOk and v2RrOk and
-     not v2Halted and v2SessOk and v2FbOk and v3RankOk and v3ConvGateOk
+     not v2Halted and v2SessOk and v2FbOk and v3RankOk and v3ConvGateOk and v3H1FibGateOk
     if f_trOpenCount() < maxOpenTr
         f_trFire(trSigDir, entryIdmLvl, v3TpOverride)
         // §19 — « Trades maximum par jour : 3, TOUS MODULES CONFONDUS.
@@ -5266,7 +5366,7 @@ f_v2Pos() =>
         "En bas à gauche"    => position.bottom_left
         => position.top_right
 
-var table v2Tbl = table.new(f_v2Pos(), 2, 19, border_width=1,
+var table v2Tbl = table.new(f_v2Pos(), 2, 20, border_width=1,
      frame_color=color.new(color.gray, 60), frame_width=1,
      border_color=color.new(color.gray, 80))
 
@@ -5326,7 +5426,7 @@ if v2ShowPanel and barstate.islast
         v2StName := "GESTION DE POSITION — partiels, BE, sous-structure"
         v2StCol  := v2Ok
     else if trSigDir != 0 and trDirOk and v2RrOk and not v2Halted and v2SessOk and
-         v2FbOk and v3RankOk and v3ConvGateOk
+         v2FbOk and v3RankOk and v3ConvGateOk and v3H1FibGateOk
         v2State  := "11"
         v2StName := (trIsCont ? "EXÉCUTION (continuation §16) — " : "EXÉCUTION (structurel) — ") +
              (trSigDir == 1 ? "ACHAT" : "VENTE") + ", poser SL et TP"
@@ -5499,6 +5599,13 @@ if v2ShowPanel and barstate.islast
     color v3RankCol = not v3UseRank ? v2Neu :
          v3Rank == 1 ? v2Ok : v3Rank == 2 ? v2Warn : v3Rank == 3 ? v2Warn : v2Bad
 
+    // §9 — fib H1 majeur (structure entière, re-ancrée §9.2).
+    string v3H1FibTxt = na(v3H1Fib50) ? "structure H1 pas encore établie" :
+         (v3InPremium ? "Premium" : "Discount") + " — 50% = " +
+         str.tostring(v3H1Fib50, format.mintick) +
+         (v3GateH1Fib ? (trIsCont ? " · exclu du module §16" : "") : " · filtre décoché")
+    color v3H1FibCol2 = na(v3H1Fib50) ? v2Neu : v3InPremium ? v2Bad : v2Ok
+
     // §16 — état de la séquence de continuation, en trois temps.
     string v3ContTxt = not v3ContOn ? "module désactivé" :
          not v3ContArmed ? "en veille — biais ou rang insuffisant" :
@@ -5531,18 +5638,19 @@ if v2ShowPanel and barstate.islast
     f_v2Row(5,  "§16.4 Cible du module",      v3ContTgtTxt,
          v3ContStep == 0 or na(v3ContTgt) ? v2Neu : v3ContCol)
     f_v2Row(6,  "§8.3 Biais H1",              v2BiasTxt, v2BiasCol)
-    f_v2Row(7,  "§9 Zone fib (0 / 50 / 100)", v2FibTxt,  v2FibCol)
-    f_v2Row(8,  "§8.1 Amplitude structure",   v2AmpTxt,  v2AmpCol)
-    f_v2Row(9,  "§10.4 EQH / EQL",            v2EqTxt,   v2EqCol)
-    f_v2Row(10, "§11.3 Zone interdite",       v2FbTxt,   v2FbCol)
-    f_v2Row(11, "§11.5 Inducement",           v2IdmTxt,  v2IdmCol)
-    f_v2Row(12, "§13.4 Zone Signature",       v2ZoneTxt, v2ZoneCol)
-    f_v2Row(13, "§7 Session (Abidjan/UTC)",   v2SessTxt, v2SessCol)
-    f_v2Row(14, "§18.1 Stop",                 v2SlTxt,   v2SlCol)
-    f_v2Row(15, "§18.3 RR net de spread",     v2RrTxt,   v2RrCol)
-    f_v2Row(16, "§19 Compteurs du jour",      v2CntTxt,  v2CntCol)
-    f_v2Row(17, "§19 Journée",                v2HaltTxt, v2HaltCol)
-    f_v2Row(18, "§20.3 Motif de refus",       v2RejectTxt,
+    f_v2Row(7,  "§16.4 0.5 de la jambe locale", v2FibTxt,  v2FibCol)
+    f_v2Row(8,  "§9 Fib H1 majeur (0/50/100)", v3H1FibTxt, v3H1FibCol2)
+    f_v2Row(9,  "§8.1 Amplitude structure",   v2AmpTxt,  v2AmpCol)
+    f_v2Row(10, "§10.4 EQH / EQL",            v2EqTxt,   v2EqCol)
+    f_v2Row(11, "§11.3 Zone interdite",       v2FbTxt,   v2FbCol)
+    f_v2Row(12, "§11.5 Inducement",           v2IdmTxt,  v2IdmCol)
+    f_v2Row(13, "§13.4 Zone Signature",       v2ZoneTxt, v2ZoneCol)
+    f_v2Row(14, "§7 Session (Abidjan/UTC)",   v2SessTxt, v2SessCol)
+    f_v2Row(15, "§18.1 Stop",                 v2SlTxt,   v2SlCol)
+    f_v2Row(16, "§18.3 RR net de spread",     v2RrTxt,   v2RrCol)
+    f_v2Row(17, "§19 Compteurs du jour",      v2CntTxt,  v2CntCol)
+    f_v2Row(18, "§19 Journée",                v2HaltTxt, v2HaltCol)
+    f_v2Row(19, "§20.3 Motif de refus",       v2RejectTxt,
          v2RejectTxt == "-" ? v2Neu : v2Bad)
 
 
@@ -5570,3 +5678,6 @@ alertcondition(contSignalSell,
 alertcondition(v3Rank == 4 and v3Rank[1] != 4,
      "§6.2 Passage en rang D",
      "SMV SPEC §6.2 : le biais operationnel H1 a disparu. Rang D — aucune position jusqu'a nouvel ordre.")
+alertcondition(v3H1FibTop != v3H1FibTop[1] or v3H1FibBot != v3H1FibBot[1],
+     "§9.2 Ré-ancrage du fib H1 majeur",
+     "SMV SPEC §9.2 : une nouvelle cloture H1 a depasse le plus-haut ou le plus-bas majeur — la zone Premium/Discount se redessine sur la nouvelle structure.")
