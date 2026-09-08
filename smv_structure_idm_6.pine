@@ -1342,10 +1342,21 @@ if v3ShowH1Fib and not na(v3H1FibTop) and not na(v3H1FibBot)
         // Suit le prix comme toutes les autres zones du fichier, et ne
         // change ses bornes hautes/basses QUE quand h1MajHi/h1MajLo ont
         // vraiment bougé — pas à chaque bougie.
-        box.set_lefttop(v3FibBox, box.get_left(v3FibBox), v3H1FibTop)
+        //
+        // BUFFER — ce bloc a déjà provoqué l'erreur "Bar index value of
+        // the `left` argument is too far from the current bar index" :
+        // v3FibBox et v3Fib50Ln vivent potentiellement TOUTE la vie du
+        // graphique sans jamais être supprimés, donc leur bord gauche
+        // d'origine (figé à la bougie de création) finit, au bout de
+        // quelques milliers de bougies, par être trop loin de bar_index
+        // pour que TradingView accepte encore de le dessiner. f_xSafe()
+        // le borne à bar_index - 400 à chaque bougie, exactement comme
+        // pour tous les autres dessins du fichier — le bord gauche
+        // "glisse" avec le prix au lieu de rester figé pour toujours.
+        box.set_lefttop(v3FibBox, f_xSafe(box.get_left(v3FibBox)), v3H1FibTop)
         box.set_rightbottom(v3FibBox, bar_index + zoneExt, v3H1FibBot)
         box.set_bgcolor(v3FibBox, fibBg)
-        line.set_xy1(v3Fib50Ln, line.get_x1(v3Fib50Ln), v3H1Fib50)
+        line.set_xy1(v3Fib50Ln, f_xSafe(line.get_x1(v3Fib50Ln)), v3H1Fib50)
         line.set_xy2(v3Fib50Ln, bar_index + zoneExt, v3H1Fib50)
 else if not na(v3FibBox)
     box.delete(v3FibBox)
