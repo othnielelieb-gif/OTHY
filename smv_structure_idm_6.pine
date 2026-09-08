@@ -1585,7 +1585,12 @@ else
         label.delete(targetLbl)
         targetLbl := na
 
-bool nearTargetNow  = targetValid and math.abs(close - targetLevel) <= ta.atr(14) * 0.15
+// CW10002 — un ta.* sur le côté droit d'un "and" gardé par une condition
+// n'est pas garanti de s'exécuter à chaque bougie (même défaut que le
+// cas classique du ternaire). atrFast est DÉJÀ ce même ta.atr(14),
+// calculé sans condition plus haut : on le réutilise au lieu d'un
+// second appel conditionnel.
+bool nearTargetNow  = targetValid and math.abs(close - targetLevel) <= atrFast * 0.15
 bool enteredTargetZone = nearTargetNow and not nearTargetNow[1]
 
 
